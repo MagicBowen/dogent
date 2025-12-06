@@ -18,7 +18,7 @@ class Reference:
 
 
 def list_reference_candidates(cwd: Path, max_files: int = 200) -> List[str]:
-    """List relative file paths for completion (workspace + .claude)."""
+    """List relative file paths for completion within the workspace."""
     candidates: List[str] = []
     for path in cwd.rglob("*"):
         if len(candidates) >= max_files:

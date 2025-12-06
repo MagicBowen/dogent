@@ -9,10 +9,13 @@ def test_config_precedence_file_over_env():
         cwd = Path(tmpdir)
         os.environ["ANTHROPIC_MODEL"] = "env-model"
         cfg = {"anthropic_model": "file-model", "anthropic_auth_token": "abc"}
-        write_config(cwd, cfg)
+        cfg_path = write_config(cwd, cfg)
         settings = load_settings(cwd)
+        assert cfg_path.relative_to(cwd).as_posix() == ".dogent/dogent.json"
         assert settings.anthropic_model == "file-model"
         assert settings.anthropic_auth_token == "abc"
+    os.environ.pop("ANTHROPIC_MODEL", None)
+    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 
 def test_config_env_used_when_no_file():
@@ -23,3 +26,5 @@ def test_config_env_used_when_no_file():
         settings = load_settings(cwd)
         assert settings.anthropic_model == "env-model"
         assert settings.anthropic_auth_token == "token"
+    os.environ.pop("ANTHROPIC_MODEL", None)
+    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)

@@ -1,4 +1,4 @@
-"""Guideline management using .claude.md."""
+"""Guideline management using .dogent/dogent.md."""
 
 from __future__ import annotations
 
@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-GUIDELINES_FILENAME = ".claude.md"
+from .paths import ensure_dogent_dir
+
+GUIDELINES_FILENAME = "dogent.md"
+LEGACY_GUIDELINES = ".claude.md"
 
 TEMPLATE = """# 文档编写规范
 
@@ -55,15 +58,26 @@ class Guidelines:
 
 
 def ensure_guidelines(cwd: Path) -> Path:
-    """Ensure .claude.md exists; create with template if missing."""
-    path = cwd / GUIDELINES_FILENAME
+    """Ensure .dogent/dogent.md exists; migrate from legacy .claude.md if present."""
+    dogent_dir = ensure_dogent_dir(cwd)
+    path = dogent_dir / GUIDELINES_FILENAME
+    legacy_path = cwd / LEGACY_GUIDELINES
+
     if not path.exists():
-        path.write_text(TEMPLATE, encoding="utf-8")
+        if legacy_path.exists():
+            # Move legacy guidelines into the new location.
+            path.write_text(legacy_path.read_text(encoding="utf-8"), encoding="utf-8")
+            try:
+                legacy_path.unlink()
+            except OSError:
+                pass
+        else:
+            path.write_text(TEMPLATE, encoding="utf-8")
     return path
 
 
 def load_guidelines(cwd: Path) -> Guidelines:
-    """Load guidelines from .claude.md (creating if needed)."""
+    """Load guidelines from .dogent/dogent.md (creating if needed)."""
     path = ensure_guidelines(cwd)
     raw = path.read_text(encoding="utf-8")
     return Guidelines(raw=raw)

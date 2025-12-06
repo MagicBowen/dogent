@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, List
 
@@ -17,9 +18,10 @@ from rich.columns import Columns
 from rich.live import Live
 
 from . import __version__
-from .config import Settings, ensure_gitignore_entry, load_settings, write_config
+from .config import Settings, load_settings, write_config
 from .context import Reference, list_reference_candidates, resolve_references
 from .guidelines import GUIDELINES_FILENAME, ensure_guidelines, load_guidelines
+from .paths import ensure_dogent_dir
 from .runtime import AgentRuntime
 from .todo import TodoManager
 from .workflow import bootstrap_todo
@@ -52,20 +54,21 @@ class DocCompleter(Completer):
 
 
 def _history_file(cwd: Path) -> Path:
-    return cwd / ".doc_history"
+    return ensure_dogent_dir(cwd) / "history.md"
 
 
 def render_header(cwd: Path, settings: Settings) -> None:
+    model_name = settings.anthropic_model or settings.anthropic_small_fast_model or "-"
     console.print(
         Panel(
-            f"[bold cyan]Dogent[/bold cyan]\n工作目录: {cwd}\n模型: {settings.anthropic_model or '-'}",
+            f"[bold cyan]Dogent[/bold cyan]\n工作目录: {cwd}\n模型: {model_name}",
             border_style="cyan",
         )
     )
 
 
 def interactive_config(cwd: Path) -> Settings:
-    """Prompt user for config and write .doc-config.yaml."""
+    """Prompt user for config and write .dogent/dogent.json."""
     current = load_settings(cwd)
     base_url = typer.prompt(
         "Anthropic base URL",
@@ -93,8 +96,7 @@ def interactive_config(cwd: Path) -> Settings:
         "claude_code_disable_nonessential_traffic": current.claude_code_disable_nonessential_traffic,
     }
     write_config(cwd, data)
-    ensure_gitignore_entry(cwd, ".doc-config.yaml")
-    console.print("[green]已写入 .doc-config.yaml 并更新 .gitignore[/green]")
+    console.print("[green]已写入 .dogent/dogent.json 并更新 .gitignore[/green]")
     return load_settings(cwd)
 
 
@@ -146,6 +148,17 @@ async def run_repl() -> None:
             return text
         return f"{text[:limit]} ... (+{len(text) - limit} chars)"
 
+    def append_history(user_text: str, summary: str) -> None:
+        hist_path = _history_file(cwd)
+        ts = datetime.now().isoformat(timespec="seconds")
+        entry = (
+            f"## {ts}\n\n"
+            f"**User:** {user_text.strip() or '(empty)'}\n\n"
+            f"**Summary:** {summary.strip() or '(empty)'}\n\n"
+        )
+        with hist_path.open("a", encoding="utf-8") as f:
+            f.write(entry)
+
     def make_log_table(logs: List[dict]) -> Table:
         table = Table(show_header=True, header_style="bold blue")
         table.add_column("Type", width=12)
@@ -190,8 +203,11 @@ async def run_repl() -> None:
                 runtime.settings.require()
             except ValueError as e:
                 console.print(f"[red]{e}，请先运行 /config 设置凭据。[/red]")
+                append_history(stripped, str(e))
                 continue
             interrupted = False
+            assistant_chunks: List[str] = []
+            result_meta = ""
             with Live(render_dashboard(logs), console=console, refresh_per_second=4) as live:
                 async for event in runtime.stream_query(stripped, refs):
                     etype = event["type"]
@@ -200,21 +216,31 @@ async def run_repl() -> None:
                         if not logs or logs[-1]["type"] != "写作":
                             logs.append({"type": "写作", "text": "写作中..."})
                     elif etype == "assistant":
+                        assistant_chunks.append(event["text"])
                         logs.append({"type": "回复", "text": truncate(event["text"], 200)})
                     elif etype == "tool_use":
                         logs.append({"type": "工具", "text": truncate(event["text"], 160)})
                     elif etype == "tool_result":
                         logs.append({"type": "结果", "text": truncate(event["text"], 160)})
                     elif etype == "result":
+                        result_meta = event["text"] or result_meta
                         logs.append({"type": "完成", "text": event["text"] or "完成"})
                     # keep log list bounded
                     if len(logs) > 30:
                         logs[:] = logs[-30:]
                     live.update(render_dashboard(logs))
+            summary_parts = []
+            if assistant_chunks:
+                summary_parts.append(truncate(" ".join(assistant_chunks), 400))
+            if result_meta:
+                summary_parts.append(result_meta)
+            summary = " | ".join(summary_parts) if summary_parts else "无摘要"
+            append_history(stripped, summary)
         except KeyboardInterrupt:
             console.print("[yellow]中断请求，尝试停止...[/yellow]")
             await runtime.interrupt()
             interrupted = True
+            append_history(stripped, "已中断")
         console.print("")  # newline spacer
         # After completion or interrupt, show prompt hint
         if interrupted:

@@ -2,7 +2,7 @@ I need you to help me develop a CLI-based interactive AI Agent using Claude Agen
 
 Specific requirements are as follows:
 
-- It should be independently packaged for user installation. After installation, users can use the command `doc` in any directory to enter an interactive CLI (can use Python's Rich library). The Agent will use the current directory as the working directory (can access and read/write all files in that directory)
+- It should be independently packaged for user installation. After installation, users can use the command `dogent` in any directory to enter an interactive CLI (can use Python's Rich library). The Agent will use the current directory as the working directory (can access and read/write all files in that directory)
 - Claude Agent SDK should be able to read configurations from the following environment variables for model API access and parameter configuration:
 
 ```
@@ -15,8 +15,8 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ```
 
 - After entering the interactive CLI, the interaction method should be consistent with Claude Code, supporting the following specific Commands:
-    - `/init`: Create a `.doc-guild.md` file in the current directory, generating a template by default containing global configurations such as document type, length, tone, output format, language, other preferences and requirements. The Agent must always follow these constraints when working in this environment;
-    - `/config`: Help users generate a configuration file in the current directory, add it to .gitignore, where users can reconfigure those configurations read from environment variables. If the Agent's current working directory has a configuration file, prioritize reading the configuration from that file, otherwise read from environment variables;
+    - `/init`: Create a `.dogent` directory in the current directory and generate `.dogent/dogent.md` (template containing document type, length, tone, output format, language, other preferences and requirements). If legacy `.claude.md` exists, migrate its content. The Agent must always follow these constraints when working in this environment;
+    - `/config`: Generate `.dogent/dogent.json` in the current directory, add it to .gitignore (create .gitignore if missing), and allow overriding env configs. If the Agent's working directory has this config file, prioritize reading it; otherwise fall back to environment variables;
     - `/exit`: Exit the CLI interaction and return to the main shell;
 
 - In the interactive CLI, the Agent needs to be able to display its todo list to users, and reflect main operations and key processes during execution in the CLI.
@@ -25,7 +25,7 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 - By default, the Agent in the working directory should be able to access shell tools, access the network, read/write files, load and use user-configured Skills, MCP tools, etc. These should be configured for Claude Agent SDK and recognized and loaded when the Agent starts;
 
 - Document writing requirements:
-    - The Agent should be able to follow user requirements and `.doc-guild.md` for document writing;
+    - The Agent should be able to follow user requirements and `.dogent/dogent.md` for document writing;
     - The Agent should be able to plan document writing tasks, form a todo list, and then execute them step by step;
     - For long professional documents, the Agent should break them into appropriately sized sections and complete them gradually;
     - The Agent should be able to search online for relevant materials and do professional research for article writing;
@@ -34,11 +34,11 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
     - The Agent should be able to polish the entire article at the end, ensuring coherent language usage, consistent tone, and reasonable structure;
     - The Agent should be able to accurately identify and cite online references and information in the article, with all cited online article links placed at the end;
     - Articles should default to Markdown output, using Chinese; when necessary, DSL (mermaid) diagrams, code snippets, and downloaded images can be inserted in Markdown;
-    - During document writing and validation, the Agent can record temporary ideas or key points in `.memory.md` and delete them after use;
+    - During document writing and validation, the Agent can record temporary ideas or key points in `.dogent/memory.md` (inside `.dogent/`) and delete them after use;
 
 - Based on the above document writing requirements, you need to write very accurate, professional, and complete system prompts for Claude Agent SDK;
 - All prompts configured for the model in the code need to be formed into separate prompt templates and placed in independent files for manual tuning;
-- You need to search for Claude Agent SDK development manuals (https://platform.claude.com/docs/en/agent-sdk/python) and maximize the capabilities of Claude Agent SDK;
+- You need to search for Claude Agent SDK development manuals (docs/claude-agent-sdk-guildlines.md) and maximize the capabilities of Claude Agent SDK;
 - The entire project should be developed in Python and be able to be independently packaged into an executable program for distribution to others;
 
 ---

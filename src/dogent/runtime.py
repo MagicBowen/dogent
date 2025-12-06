@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 from typing import AsyncIterator, Dict, List, Optional
 
@@ -25,6 +26,14 @@ from .config import Settings
 from .context import Reference
 from .guidelines import Guidelines
 from .todo import TodoManager
+
+
+def _select_model(settings: Settings) -> str:
+    """Pick a single model string based on configured values."""
+    model_value = settings.anthropic_model or settings.anthropic_small_fast_model
+    if not model_value:
+        raise ValueError("Model is not configured; set ANTHROPIC_MODEL or ANTHROPIC_SMALL_FAST_MODEL")
+    return model_value
 
 
 def _load_template(name: str) -> str:
@@ -68,14 +77,7 @@ def build_options(settings: Settings, cwd: Path, system_prompt: str) -> ClaudeAg
         env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = str(
             settings.claude_code_disable_nonessential_traffic
         )
-    env.setdefault("ANTHROPIC_MODEL", settings.anthropic_model or "")
-    # Only set fallback if it's different from main model.
-    fallback_model = (
-        settings.anthropic_small_fast_model
-        if settings.anthropic_small_fast_model
-        and settings.anthropic_small_fast_model != settings.anthropic_model
-        else None
-    )
+    env.setdefault("ANTHROPIC_MODEL", _select_model(settings))
 
     allowed_tools = []
     # Explicitly allow key doc-writing tools
@@ -83,20 +85,19 @@ def build_options(settings: Settings, cwd: Path, system_prompt: str) -> ClaudeAg
         allowed_tools.extend(["Read", "Write", "Edit", "MultiEdit"])
     if settings.allow_web:
         allowed_tools.extend(["WebSearch", "WebFetch"])
+    # Allow SDK todo updates
+    allowed_tools.append("TodoWrite")
 
     options = ClaudeAgentOptions(
-        tools=["Read", "Write", "Edit", "MultiEdit", "WebSearch", "WebFetch"],
         allowed_tools=allowed_tools,
         # Use Dogent system prompt only (no Claude Code preset text)
         system_prompt=system_prompt,
-        model=settings.anthropic_model,
-        fallback_model=fallback_model,
+        model=_select_model(settings),
         env=env,
         cwd=str(cwd),
         include_partial_messages=True,
         setting_sources=["project", "local", "user"],
         permission_mode="acceptEdits",
-        max_budget_usd=settings.max_budget_usd,
         can_use_tool=lambda tool_name, input_data, ctx: _permission_guard(
             tool_name, input_data, ctx, cwd
         ),
@@ -190,42 +191,46 @@ class AgentRuntime:
         )
         options = build_options(self.settings, self.cwd, system_prompt)
         self._client = ClaudeSDKClient(options=options)
-        await self._client.connect()
         try:
-            await self._client.query(build_user_prompt(user_text, refs))
+            async with self._client as client:
+                await client.query(build_user_prompt(user_text, refs))
 
-            async for message in self._client.receive_messages():
-                if isinstance(message, AssistantMessage):
-                    for block in message.content:
-                        if isinstance(block, TextBlock):
-                            yield {"type": "assistant", "text": block.text}
-                        elif isinstance(block, ToolUseBlock):
-                            yield {
-                                "type": "tool_use",
-                                "text": f"Tool {block.name}: {block.input}",
-                            }
-                elif isinstance(message, UserMessage):
-                    for block in message.content:
-                        if isinstance(block, ToolResultBlock):
-                            snippet = block.content[:200] if block.content else ""
-                            yield {"type": "tool_result", "text": snippet}
-                elif isinstance(message, SystemMessage):
-                    # skip
-                    continue
-                elif isinstance(message, ResultMessage):
-                    meta = []
-                    if message.total_cost_usd:
-                        meta.append(f"cost=${message.total_cost_usd:.4f}")
-                    if message.duration_ms:
-                        meta.append(f"duration_ms={message.duration_ms}")
-                    yield {"type": "result", "text": ", ".join(meta)}
-                elif isinstance(message, StreamEvent):
-                    event = message.event
-                    text = event.get("delta", {}).get("text", "")
-                    if text:
-                        yield {"type": "partial", "text": text}
+                tool_names: Dict[str, str] = {}
+                async for message in client.receive_response():
+                    if isinstance(message, AssistantMessage):
+                        for block in message.content:
+                            if isinstance(block, TextBlock):
+                                yield {"type": "assistant", "text": block.text}
+                            elif isinstance(block, ToolUseBlock):
+                                tool_names[block.id] = block.name
+                                yield {
+                                    "type": "tool_use",
+                                    "text": f"Tool {block.name}: {block.input}",
+                                }
+                    elif isinstance(message, UserMessage):
+                        for block in message.content:
+                            if isinstance(block, ToolResultBlock):
+                                tool_name = tool_names.get(block.tool_use_id, "")
+                                if tool_name == "TodoWrite":
+                                    _apply_todo_tool_result(self.todo, block.content)
+                                snippet = block.content[:200] if block.content else ""
+                                yield {"type": "tool_result", "text": snippet}
+                    elif isinstance(message, SystemMessage):
+                        # skip
+                        continue
+                    elif isinstance(message, ResultMessage):
+                        meta = []
+                        if message.total_cost_usd:
+                            meta.append(f"cost=${message.total_cost_usd:.4f}")
+                        if message.duration_ms:
+                            meta.append(f"duration_ms={message.duration_ms}")
+                        yield {"type": "result", "text": ", ".join(meta)}
+                    elif isinstance(message, StreamEvent):
+                        event = message.event
+                        text = event.get("delta", {}).get("text", "")
+                        if text:
+                            yield {"type": "partial", "text": text}
         finally:
-            await self._client.disconnect()
             self._client = None
 
     async def interrupt(self) -> None:
@@ -235,3 +240,46 @@ class AgentRuntime:
             except Exception:
                 # ignore if cannot interrupt
                 pass
+def _parse_todo_write_items(content: str | list | dict | None) -> List[dict]:
+    """Parse TodoWrite tool output into a list of item dicts."""
+    data = content
+    if isinstance(data, str):
+        try:
+            data = json.loads(data)
+        except json.JSONDecodeError:
+            return []
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if isinstance(data, dict):
+        items = data.get("items") or data.get("todo") or data.get("todos")
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
+        return [data]
+    return []
+
+
+def _apply_todo_tool_result(todo: TodoManager, content: str | list | dict | None) -> None:
+    items = _parse_todo_write_items(content)
+    for item in items:
+        status = item.get("status")
+        title = item.get("title")
+        details = item.get("details") or item.get("note")
+        section = item.get("section")
+        action = item.get("action")
+        item_id = item.get("id")
+
+        if action == "add" or (item_id is None and title):
+            todo.add(title or "未命名任务", details=details, section=section, status=status or "pending")
+            continue
+
+        if item_id is not None and status:
+            try:
+                todo.update_status(int(item_id), status)
+                continue
+            except (TypeError, ValueError):
+                pass
+
+        if title and status:
+            updated = todo.update_status_by_title(title, status)
+            if not updated:
+                todo.add(title, details=details, section=section, status=status)
