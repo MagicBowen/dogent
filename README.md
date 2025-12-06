@@ -20,16 +20,16 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ```
 3) Run: `dogent`
 4) In the REPL:
-- `/init` seeds `.claude.md` doc rules (edit to your preferences).
-- `/config` writes `.doc-config.yaml` and updates `.gitignore`.
+- `/init` seeds `.dogent/dogent.md` doc rules (edit to your preferences).
+- `/config` writes `.dogent/dogent.json` and updates `.gitignore`.
 - `/todo` shows tasks; `/info` shows available tools/commands; `/exit` quits.
 
 ## Features
 - Claude Code-like REPL with Rich UI, todo panel, and streaming responses.
-- Uses `.claude.md` for project writing rules; loads `.claude/` skills/agents/plugins.
+- Uses `.dogent/dogent.md` for project writing rules; loads `.claude/` skills/agents/plugins.
 - Supports `@file` references with completions and inline resolution.
 - Document workflow: planning, research, drafting, validation, polishing; Chinese Markdown by default.
-- Image downloads to `./images`, citations aggregation, and optional `.memory.md` scratchpad.
+- Image downloads to `./images`, citations aggregation, and optional `.dogent/memory.md` scratchpad.
 
 See `docs/design.md` and `docs/implementation_plan.md` for full details.
 
@@ -40,11 +40,11 @@ source .venv/bin/activate
 dogent
 
 # inside REPL
-/init          # create .claude.md template
+/init          # create .dogent/dogent.md template
 /config        # save local model/token config (overrides env)
 写一份关于本项目目标和架构的简要说明，引用 @requirements.md
 ```
-You should see streaming output and a todo panel. Edit `.claude.md` to tighten style/tone, then re-run prompts. Use Ctrl+C to interrupt long runs; `/todo` to review tasks.
+You should see streaming output and a todo panel. Edit `.dogent/dogent.md` to tighten style/tone, then re-run prompts. Use Ctrl+C to interrupt long runs; `/todo` to review tasks.
 
 ## Testing
 - Install dev deps and run: `python -m pytest`

@@ -21,8 +21,8 @@ dogent
 
 3) Seed project rules and config
 ```
-/init          # creates .claude.md template (edit it to match your tone and structure)
-/config        # writes .doc-config.yaml and updates .gitignore
+/init          # creates .dogent/dogent.md template (edit it to match your tone and structure)
+/config        # writes .dogent/dogent.json and updates .gitignore
 ```
 
 4) Ask for a sample document
@@ -37,6 +37,6 @@ dogent
 ```
 
 Notes:
-- Edit `.claude.md` to tighten the writing rules; rerun prompts to apply.
+- Edit `.dogent/dogent.md` to tighten the writing rules; rerun prompts to apply.
 - Use `@` to reference files; the agent will load their content into context.
 - Use Ctrl+C to interrupt a long run; `/exit` to quit.

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-MEMORY_FILENAME = ".memory.md"
+from .paths import ensure_dogent_dir
+
+MEMORY_FILENAME = "memory.md"
 
 
 def memory_path(cwd: Path) -> Path:
-    return cwd / MEMORY_FILENAME
+    return ensure_dogent_dir(cwd) / MEMORY_FILENAME
 
 
 def append_memory(cwd: Path, text: str) -> Path:

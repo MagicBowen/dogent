@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import os
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import yaml
 
+from .paths import ensure_dogent_dir
 
-CONFIG_FILENAME = ".doc-config.yaml"
+
+CONFIG_FILENAME = "dogent.json"
+LEGACY_CONFIG_FILENAME = ".doc-config.yaml"
 
 
 @dataclass
@@ -36,8 +40,9 @@ class Settings:
         missing = []
         if not self.anthropic_auth_token:
             missing.append("ANTHROPIC_AUTH_TOKEN")
-        if not self.anthropic_model:
-            missing.append("ANTHROPIC_MODEL")
+        model_value = self.anthropic_model or self.anthropic_small_fast_model
+        if not model_value:
+            missing.append("ANTHROPIC_MODEL (or ANTHROPIC_SMALL_FAST_MODEL)")
         if missing:
             raise ValueError(f"Missing required settings: {', '.join(missing)}")
 
@@ -83,27 +88,38 @@ def load_settings(cwd: Path) -> Settings:
     """Load settings from config file then env."""
     env_values = _load_env()
     file_values: Dict[str, Any] = {}
-    cfg_path = cwd / CONFIG_FILENAME
+    cfg_dir = ensure_dogent_dir(cwd)
+    cfg_path = cfg_dir / CONFIG_FILENAME
+    legacy_path = cwd / LEGACY_CONFIG_FILENAME
+
     if cfg_path.exists():
         with cfg_path.open("r", encoding="utf-8") as f:
+            loaded = json.load(f) or {}
+            if isinstance(loaded, dict):
+                file_values = loaded
+    elif legacy_path.exists():
+        # Legacy support: load old YAML config if present.
+        with legacy_path.open("r", encoding="utf-8") as f:
             loaded = yaml.safe_load(f) or {}
             if isinstance(loaded, dict):
                 file_values = loaded
+
     merged = {**env_values, **file_values}
     settings = Settings(**merged)
     return settings
 
 
 def write_config(cwd: Path, data: Dict[str, Any]) -> Path:
-    """Write project config."""
-    cfg_path = cwd / CONFIG_FILENAME
-    cfg_path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=False), encoding="utf-8")
-    ensure_gitignore_entry(cwd, CONFIG_FILENAME)
+    """Write project config to .dogent/dogent.json."""
+    cfg_dir = ensure_dogent_dir(cwd)
+    cfg_path = cfg_dir / CONFIG_FILENAME
+    cfg_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    ensure_gitignore_entry(cwd, f"{cfg_dir.name}/{CONFIG_FILENAME}")
     return cfg_path
 
 
 def ensure_gitignore_entry(cwd: Path, entry: str) -> None:
-    """Ensure entry exists in .gitignore."""
+    """Ensure entry exists in .gitignore (create file if missing)."""
     gitignore = cwd / ".gitignore"
     if gitignore.exists():
         existing = gitignore.read_text(encoding="utf-8").splitlines()
