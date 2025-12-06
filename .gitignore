@@ -1,5 +1,11 @@
-bin/*
-examples/*
-node_modules/*
-package-lock.json
-requirements.md
+__pycache__/
+.DS_Store
+.venv/
+dist/
+build/
+*.egg-info/
+.doc-config.yaml
+.memory.md
+images/
+.claude-local/
+claude-agent-sdk-python/
