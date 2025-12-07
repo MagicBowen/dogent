@@ -15,12 +15,16 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ```
 
 - After entering the interactive CLI, the interaction method should be consistent with Claude Code, supporting the following specific Commands:
-    - `/init`: Create a `.dogent` directory in the current directory and generate `.dogent/dogent.md` (template containing document type, length, tone, output format, language, other preferences and requirements). If legacy `.claude.md` exists, migrate its content. The Agent must always follow these constraints when working in this environment;
+    - `/init`: Create a `.dogent` directory in the current directory and generate `.dogent/dogent.md` (template containing document type, length, tone, output format, language, other preferences and requirements). The Agent must always follow these constraints when working in this environment;
     - `/config`: Generate `.dogent/dogent.json` in the current directory, add it to .gitignore (create .gitignore if missing), and allow overriding env configs. If the Agent's working directory has this config file, prioritize reading it; otherwise fall back to environment variables;
     - `/exit`: Exit the CLI interaction and return to the main shell;
 
 - In the interactive CLI, the Agent needs to be able to display its todo list to users, and reflect main operations and key processes during execution in the CLI.
+- When starting in a directory without `.dogent/` or `dogent.json`, do not fail; allow the user to run `/init` and `/config` later to create them.
+- The system prompt stays constant; per-turn user prompts must dynamically include current todo state and `@file` references. Do not seed default todos—todos come from the model via TodoWrite and must be kept in sync with tool results.
+- The Tasks panel must update live based on TodoWrite tool results; detect TodoWrite tool outputs in the agent stream and apply changes immediately.
 - Users can make requests to the Agent through the interactive CLI. Users can use the @ symbol to reference files in the current directory (like Claude Code, with a dropdown selection when users input @)
+- Anthropic/Claude credentials and model settings may be managed globally in `~/.dogent/claude.json` as named profiles (e.g., `deepseek`, `glm`). A project’s `.dogent/dogent.json` can reference a profile name to populate `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`. If no profile is referenced or found, fall back to environment variables.
 - Allow users to create agents, commands, skills, including MCP and other tools in the `.claude` directory of the current directory just like Claude Code. The Agent should be able to recognize and use these configurations when entering, just like Claude Code;
 - By default, the Agent in the working directory should be able to access shell tools, access the network, read/write files, load and use user-configured Skills, MCP tools, etc. These should be configured for Claude Agent SDK and recognized and loaded when the Agent starts;
 
@@ -38,7 +42,7 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
 - Based on the above document writing requirements, you need to write very accurate, professional, and complete system prompts for Claude Agent SDK;
 - All prompts configured for the model in the code need to be formed into separate prompt templates and placed in independent files for manual tuning;
-- You need to search for Claude Agent SDK development manuals (docs/claude-agent-sdk-guildlines.md) and maximize the capabilities of Claude Agent SDK;
+- You need to search for Claude Agent SDK development manuals and example codes in `$project_root/claude-agent-sdk` and maximize the capabilities of Claude Agent SDK;
 - The entire project should be developed in Python and be able to be independently packaged into an executable program for distribution to others;
 
 ---
