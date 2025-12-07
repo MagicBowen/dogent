@@ -8,22 +8,23 @@
 - Package as a standalone Python tool installable via pip/pipx with an executable entrypoint.
 
 ## User Experience and CLI Flow
-- Entry: run `dogent` in any directory; Rich renders header, status panes (todo list, active step), and streaming assistant responses.
+- Entry: run `dogent` in any directory; Rich renders header, status panes (todo list, active step), and streaming assistant responses. Lack of `.dogent/` or config should not error; users can run `/init` and `/config` later to create them. Projects can reference a named Claude profile from `~/.dogent/claude.json` to set Anthropic credentials/models; otherwise env vars are used.
 - Input loop powered by prompt_toolkit for history, multiline editing, and completions; `/exit` cleanly terminates.
 - Commands:
-- `/init` creates or updates doc rules in `.dogent/dogent.md` (inside `.dogent/`) with a filled template covering document type, audience, tone, style, length targets, format, language, citation policy, image policy, validation expectations, and default outline hints. If legacy `.claude.md` exists, migrate its content.
+- `/init` creates or updates doc rules in `.dogent/dogent.md` (inside `.dogent/`) with a filled template covering document type, audience, tone, style, length targets, format, language, citation policy, image policy, validation expectations, and default outline hints. 
   - `/config` guides creation of `.dogent/dogent.json` (or updates existing), then ensures `.gitignore` contains that path; once present, config values override env vars.
   - `/exit` leaves the REPL.
   - `@` file references: prompt_toolkit completes paths from the working directory (including `.dogent/` and `.claude/`), inserts as `@relative/path.ext`; references are resolved to file contents for context injection when requests are executed.
-- Visible todo list: a Rich panel shows planned steps with status (planned/in-progress/done); updates stream as the agent executes.
+- Visible todo list: a Rich panel shows planned steps with status (planned/in-progress/done); updates stream as the agent executes. Todos start empty and are created/updated solely via TodoWrite tool results parsed from the agent stream.
 - Output rendering: sections for agent reasoning (compact), actions (tool calls, downloads), and final content; streaming tokens via Claude Agent SDK callbacks.
 
 ## Configuration and Precedence
 1) `.dogent/dogent.json` in CWD (created by `/config`), fields:
-   - `anthropic_base_url`, `anthropic_auth_token`, `anthropic_model`, `anthropic_small_fast_model`, `api_timeout_ms`, `claude_code_disable_nonessential_traffic`.
-   - Optional defaults: `language`, `default_format`, `image_dir`, `max_section_tokens`, `research_provider` (if network tool configured).
-2) Environment variables (per requirement) when project file absent.
-3) Built-in safe fallbacks for non-secret values; token is mandatory. Accept either primary or fast model value.
+   - Optional defaults: `language`, `default_format`, `image_dir`, `max_section_tokens`, `research_provider` (if network tool configured), `claude_profile` (name of profile to use).
+   - If `claude_profile` is set, resolve Anthropic/Claude credentials and model fields from `~/.dogent/claude.json` (named profiles containing `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`).
+2) `~/.dogent/claude.json` (optional) holds multiple named profiles; if referenced name is missing, ignore and continue.
+3) Environment variables (per requirement) when project file absent or profile missing.
+4) Built-in safe fallbacks for non-secret values; token is mandatory. Accept either primary or fast model value.
 `.dogent/dogent.json` is added to `.gitignore` automatically (create file if missing).
 - Explicitly set `setting_sources=["project","local","user"]` for the SDK so `.claude/` (and optional `.claude-local/`) commands/agents/skills load; default SDK behavior loads none if unspecified.
 
@@ -37,7 +38,7 @@
 ## High-Level Architecture
 - CLI Entrypoint (`dogent.__main__`): Typer/Cli wrapper that launches REPL, wires Rich layout, and injects configuration/context into the Agent runtime.
 - Config Manager: merges env vars and optional `.dogent/dogent.json`, validates required values (primary or fast model, token), and exposes a typed settings object.
-- Guideline Manager: ensures `.dogent/dogent.md` exists (migrates `.claude.md` if present); parses document constraints into structured guidance.
+- Guideline Manager: ensures `.dogent/dogent.md` exists; parses document constraints into structured guidance.
 - Prompt Templates: stored under `dogent/prompts/` (system, planner, researcher, writer, validator, polisher, command handler). Loaded and interpolated at runtime with context (guidelines, todo, references).
 - Agent Runtime: thin wrapper around Claude Agent SDK; registers tools (shell, fs, http fetch/download, MCP adapters, skills from `.claude`), streams tokens, and surfaces tool actions to the UI.
 - Todo/Task Orchestrator: builds plan (sections, research, validation), tracks state, and updates the UI panel; persists in memory during session.
@@ -50,7 +51,7 @@
 ## Claude Agent SDK Usage
 - Use `ClaudeSDKClient` (streaming, interruptible) with `ClaudeAgentOptions`:
   - Tools: explicitly allow `Read`/`Write`/`Edit`/`MultiEdit` and `WebSearch`/`WebFetch`; set `permission_mode="acceptEdits"` or `plan` based on safety posture.
-- System prompt: use Dogent’s own system prompt (no Claude Code preset text), focused on document writing and the project rules.
+- System prompt: use Dogent’s own system prompt (no Claude Code preset text), focused on document writing and the project rules; keep it fixed. Per-turn user prompts append dynamic todo state and resolved `@file` references.
   - Model: set `model` from env/config; if a fast model is configured, use it for app-level routing since the SDK accepts a single model value.
   - Settings loading: `setting_sources=["project","local","user"]` to pick up `.claude` commands/agents/skills; `plugins` option to load local plugin directories (e.g., `.claude-plugin`).
   - MCP: pass `.claude` MCP configs plus in-process servers via `create_sdk_mcp_server` for doc-specific tools; allow external stdio/SSE servers.
@@ -63,7 +64,7 @@
 - Stream progress into Rich panels (todo updates, tool calls, partial text) using SDK callbacks.
 
 ## Document Writing Workflow
-1) Initialize: ensure doc rules exist in `.dogent/dogent.md` (seed via `/init` if missing, migrate `.claude.md` if present); load config; prepare `.dogent/memory.md` and `images/` (lazy).
+1) Initialize: ensure doc rules exist in `.dogent/dogent.md`; load config; prepare `.dogent/memory.md` and `images/` (lazy).
 2) Intake: parse user request and `@` references; derive goals, audience, constraints from `.dogent/dogent.md` doc rules.
 3) Plan: generate a todo list (outline, research, drafting, validation, polish); surface to UI; attach as context in `planner` prompt and SDK hooks.
 4) Research: perform web searches (via HTTP/MCP search tool), capture key facts with sources in `.dogent/memory.md`, download needed images to `images/`; keep citations structured.
@@ -85,7 +86,8 @@ Templates interpolate: project settings, guideline summary, todo state, resolved
 
 ## Todo List Behavior
 - Represented as structured items (`id`, `title`, `status`, `details`, `owner`, `section`, `refs`).
-- Displayed continuously in a Rich panel; updates when plan changes, when sections complete, and when validation/polish pass.
+- Starts empty; todos are generated and updated exclusively via TodoWrite tool calls parsed from agent messages.
+- Displayed continuously in a Rich panel; updates when plan changes, when sections complete, and when validation/polish pass; consume TodoWrite tool results to refresh immediately.
 - Exposed to the model in prompts so it can reference and update statuses through tool calls.
 
 ## Claude Code Parity via SDK (findings from upstream repo)
