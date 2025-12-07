@@ -64,7 +64,6 @@ def build_system_prompt(
     )
     return rendered
 
-
 def build_options(settings: Settings, cwd: Path, system_prompt: str) -> ClaudeAgentOptions:
     env = {}
     if settings.anthropic_base_url:

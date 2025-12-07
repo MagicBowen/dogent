@@ -9,7 +9,6 @@ from typing import Optional
 from .paths import ensure_dogent_dir
 
 GUIDELINES_FILENAME = "dogent.md"
-LEGACY_GUIDELINES = ".claude.md"
 
 TEMPLATE = """# 文档编写规范
 
@@ -61,18 +60,8 @@ def ensure_guidelines(cwd: Path) -> Path:
     """Ensure .dogent/dogent.md exists; migrate from legacy .claude.md if present."""
     dogent_dir = ensure_dogent_dir(cwd)
     path = dogent_dir / GUIDELINES_FILENAME
-    legacy_path = cwd / LEGACY_GUIDELINES
-
     if not path.exists():
-        if legacy_path.exists():
-            # Move legacy guidelines into the new location.
-            path.write_text(legacy_path.read_text(encoding="utf-8"), encoding="utf-8")
-            try:
-                legacy_path.unlink()
-            except OSError:
-                pass
-        else:
-            path.write_text(TEMPLATE, encoding="utf-8")
+        path.write_text(TEMPLATE, encoding="utf-8")
     return path
 
 
