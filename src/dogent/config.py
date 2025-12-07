@@ -90,19 +90,11 @@ def load_settings(cwd: Path) -> Settings:
     file_values: Dict[str, Any] = {}
     cfg_dir = ensure_dogent_dir(cwd)
     cfg_path = cfg_dir / CONFIG_FILENAME
-    legacy_path = cwd / LEGACY_CONFIG_FILENAME
 
-    if cfg_path.exists():
-        with cfg_path.open("r", encoding="utf-8") as f:
-            loaded = json.load(f) or {}
-            if isinstance(loaded, dict):
-                file_values = loaded
-    elif legacy_path.exists():
-        # Legacy support: load old YAML config if present.
-        with legacy_path.open("r", encoding="utf-8") as f:
-            loaded = yaml.safe_load(f) or {}
-            if isinstance(loaded, dict):
-                file_values = loaded
+    with cfg_path.open("r", encoding="utf-8") as f:
+        loaded = json.load(f) or {}
+        if isinstance(loaded, dict):
+            file_values = loaded
 
     merged = {**env_values, **file_values}
     settings = Settings(**merged)
