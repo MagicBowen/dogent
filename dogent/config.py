@@ -94,10 +94,18 @@ class ConfigManager:
         allowed_tools = [
             "Read",
             "Write",
-            "ListFiles",
+            "Edit",
             "Bash",
-            "Search",
+            "Grep", 
+            "Glob",
+            "Task"
+            "Ls",
+            "WebFetch",
+            "WebSearch",
             "TodoWrite",
+            "BashOutput",
+            "SlashCommand",
+            "NotebookEdit"
         ]
 
         add_dirs = []

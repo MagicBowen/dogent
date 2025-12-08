@@ -126,11 +126,11 @@ class AgentRunner:
     def _handle_assistant_message(self, message: AssistantMessage) -> None:
         for block in message.content:
             if isinstance(block, TextBlock):
-                self.console.print(block.text)
+                self.console.print(Panel(block.text, title="💬 Reply"))
                 self.console.print()
             elif isinstance(block, ThinkingBlock):
                 thinking_text = getattr(block, "thinking", "") or ""
-                self.console.print(Panel(thinking_text, title="💭 思考"))
+                self.console.print(Panel(thinking_text, title="🤔 Thinking"))
                 self.console.print()
             elif isinstance(block, ToolUseBlock):
                 self._tool_name_by_id[block.id] = block.name
@@ -169,7 +169,7 @@ class AgentRunner:
             self._last_summary = message.result
         content_parts.append(metrics)
         panel_text = "\n\n".join(content_parts)
-        self.console.print(Panel(Text(panel_text), title="📝 会话总结"))
+        self.console.print(Panel(Text(panel_text), title="📝 Session Summary"))
         self.history.append(
             summary=message.result or "任务完成",
             status="completed",
@@ -181,7 +181,7 @@ class AgentRunner:
         )
 
     def _log_tool_use(self, block: ToolUseBlock, summary: str | None = None) -> None:
-        title = f"🛠️ 调用 {block.name}"
+        title = f"⚙️ {block.name}"
         body = summary or self._shorten(block.input)
         self.console.print(Panel(Text(str(body)), title=title, border_style="cyan"))
 

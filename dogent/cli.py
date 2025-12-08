@@ -252,7 +252,7 @@ class DogentCLI:
             self.console.print(
                 Panel(
                     f"已加载 @file {attachment.path} {'(截断)' if attachment.truncated else ''}",
-                    title="📂 文件引用",
+                    title="📂 File Reference",
                 )
             )
 
