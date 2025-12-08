@@ -5,7 +5,6 @@ dist/
 build/
 *.egg-info/
 .doc-config.yaml
-.dogent/dogent.json
 .dogent/memory.md
 .dogent/history.md
 images/
