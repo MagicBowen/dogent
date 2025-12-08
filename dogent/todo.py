@@ -134,6 +134,14 @@ class TodoManager:
             note=(data.get("note") or data.get("detail")),
         )
 
+    def export_items(self) -> List[dict[str, Any]]:
+        exported = []
+        for item in self.items:
+            exported.append(
+                {"title": item.title, "status": item.status, "note": item.note}
+            )
+        return exported
+
     def _try_parse_json(self, text: str) -> Optional[Any]:
         try:
             return json.loads(text)

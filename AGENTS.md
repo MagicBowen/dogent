@@ -30,7 +30,7 @@
 - PRs: include summary of behavior change, testing performed, and any new config/env needs. Add screenshots or terminal snippets for CLI UX changes when helpful.
 
 ## Security & Configuration Tips
-- Credentials loaded from `~/.dogent/claude.json` or `~/.dogent/claude.md`, `.dogent/dogent.json` (profile reference), or env vars (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, etc.). Do not commit secrets.
+- Credentials loaded from `~/.dogent/claude.json`, `.dogent/dogent.json` (profile reference), or env vars (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, etc.). Do not commit secrets.
 - Keep network/tool permissions aligned with Claude Agent SDK defaults; review any additions to allowed tools.
 - Claude Agent SDK usage must follow the docs and samples under `claude-agent-sdk/`; do not guess behaviors.
 
@@ -43,4 +43,4 @@
 - All functions must have automated tests; extend `tests/` alongside new code.
 - Keep `docs/todo.md` updated with development and acceptance status; work stories sequentially and fix per user acceptance feedback.
 - After finishing each story, append/update `uats/uat_guild.md` with step-by-step install/run instructions using a sample directory to guide user acceptance.
-- `.dogent/dogent.json` should reference a profile only; real credentials belong in `~/.dogent/claude.json` or `~/.dogent/claude.md` (or env vars).
+- `.dogent/dogent.json` should reference a profile only; real credentials belong in `~/.dogent/claude.json` (or env vars).

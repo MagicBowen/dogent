@@ -22,6 +22,7 @@ class DogentSettings:
     api_timeout_ms: Optional[int]
     disable_nonessential_traffic: bool
     profile: Optional[str]
+    images_path: str
 
 
 class ConfigManager:
@@ -30,28 +31,27 @@ class ConfigManager:
     def __init__(self, paths: DogentPaths, console: Optional[Console] = None) -> None:
         self.paths = paths
         self.console = console or Console()
+        self._ensure_home_bootstrap()
 
-    def create_init_files(self) -> None:
-        """Create .dogent scaffolding and templates."""
+    def create_init_files(self) -> list[Path]:
+        """Create .dogent scaffolding and templates. Returns created files."""
+        created: list[Path] = []
         self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
-        self.paths.images_dir.mkdir(parents=True, exist_ok=True)
 
         if not self.paths.doc_preferences.exists():
             self.paths.doc_preferences.write_text(
                 self._doc_template(), encoding="utf-8"
             )
-
-        if not self.paths.memory_file.exists():
-            self.paths.memory_file.write_text(
-                "# 临时记录\n\n- 在这里记录写作中的临时想法，完成后清理。\n",
-                encoding="utf-8",
-            )
+            created.append(self.paths.doc_preferences)
+        # history file ensured by HistoryManager on use; memory is on-demand.
+        return created
 
     def create_config_template(self) -> None:
         """Create .dogent/dogent.json referencing a profile without embedding secrets."""
         self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
         template = {
-            "profile": "deepseek"
+            "profile": "deepseek",
+            "images_path": "./images",
         }
         self.paths.config_file.write_text(
             json.dumps(template, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -82,6 +82,7 @@ class ConfigManager:
                 else env_cfg.get("disable_nonessential_traffic")
             ),
             "profile": profile_name,
+            "images_path": project_cfg.get("images_path") or "./images",
         }
         return DogentSettings(**resolved)
 
@@ -185,33 +186,42 @@ class ConfigManager:
             return {}
 
     def _read_profile_file(self) -> Dict[str, Any]:
-        """Read profile config from claude.json or claude.md, preferring JSON."""
-        primary = self.paths.global_profile_file
-        candidates = [primary, primary.with_suffix(".md")]
-        for path in candidates:
-            if not path.exists():
-                continue
-            if path.suffix == ".json":
-                data = self._read_json(path)
-                if data:
-                    return data
-            else:
-                data = self._extract_json_from_text(path)
-                if data:
-                    return data
+        """Read profile config from claude.json only."""
+        path = self.paths.global_profile_file
+        if path.exists():
+            data = self._read_json(path)
+            if data:
+                return data
         return {}
 
-    def _extract_json_from_text(self, path: Path) -> Dict[str, Any]:
-        try:
-            text = path.read_text(encoding="utf-8")
-            start = text.find("{")
-            end = text.rfind("}")
-            if start != -1 and end != -1 and end > start:
-                maybe = json.loads(text[start : end + 1])
-                return maybe if isinstance(maybe, dict) else {}
-        except Exception:
-            return {}
-        return {}
+    def _ensure_home_bootstrap(self) -> None:
+        home_dir = self.paths.global_profile_file.parent
+        if not home_dir.exists():
+            home_dir.mkdir(parents=True, exist_ok=True)
+        if not self.paths.global_profile_file.exists():
+            default = (
+                "{\n"
+                '  "profiles": {\n'
+                '    "deepseek": {\n'
+                '      "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",\n'
+                '      "ANTHROPIC_AUTH_TOKEN": "replace-me",\n'
+                '      "ANTHROPIC_MODEL": "deepseek-reasoner",\n'
+                '      "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-chat",\n'
+                '      "API_TIMEOUT_MS": 600000,\n'
+                '      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true\n'
+                "    }\n"
+                "  }\n"
+                "}\n"
+            )
+            try:
+                self.paths.global_profile_file.write_text(default, encoding="utf-8")
+                self.console.print(
+                    f"[cyan]已创建默认配置文件 {self.paths.global_profile_file}，请根据需要编辑。[/cyan]"
+                )
+            except PermissionError:
+                self.console.print(
+                    f"[yellow]无法写入 {self.paths.global_profile_file}，请手动创建并配置凭据。[/yellow]"
+                )
 
     def _to_bool(self, value: Optional[str]) -> bool:
         if value is None:
