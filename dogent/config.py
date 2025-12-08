@@ -236,7 +236,7 @@ class ConfigManager:
 
     def _doc_template(self) -> str:
         try:
-            data = resources.files("dogent.templates").joinpath("doc_template.md")
+            data = resources.files("dogent.templates").joinpath("dogent_default.md")
             return Path(data).read_text(encoding="utf-8")
         except Exception:
             return "# Dogent Writing Constraints\n"
