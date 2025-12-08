@@ -24,7 +24,7 @@ class PromptBuilder:
         self._user_template = self._load_template("user_prompt.md")
 
     def build_system_prompt(self, settings=None) -> str:
-        preferences = "未提供，提醒用户运行 /init 并填写 .dogent/dogent.md。"
+        preferences = "Not provided; ask the user to run /init and fill .dogent/dogent.md."
         if self.paths.doc_preferences.exists():
             preferences = self.paths.doc_preferences.read_text(
                 encoding="utf-8", errors="replace"
@@ -51,7 +51,7 @@ class PromptBuilder:
     def _format_attachments(self, attachments: Iterable[FileAttachment]) -> str:
         attachments = list(attachments)
         if not attachments:
-            return "无 @file 内容。"
+            return "No @file context."
         blocks = []
         for attachment in attachments:
             notice = " (truncated)" if attachment.truncated else ""

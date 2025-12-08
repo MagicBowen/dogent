@@ -1,13 +1,17 @@
-用户请求：
+User Request:
 {user_message}
 
-当前 Todo：
+Todo Snapshot:
 {todo_block}
 
-@file 上下文：
+@file Context:
 {attachments}
 
-历史记录（近期）：
+Recent History:
 {history_block}
 
-请根据系统提示逐步执行，必要时更新 TodoWrite，需要信息不足时先确认后再继续。
+Guidance:
+- Follow the system prompt and `.dogent/dogent.md`.
+- Keep TodoWrite in sync as you plan and finish steps; no default todos.
+- Ask for missing information before taking uncertain actions.
+- Default to Chinese Markdown unless the user specifies otherwise.

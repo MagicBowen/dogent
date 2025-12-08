@@ -81,13 +81,22 @@ Add an appropriate emoji before the title of each section (e.g., "Session Summar
 
 ## Release 0.3
 
-- 用户按 ctrl C 退出不抛异常，正常结束和清理资源后退出
-- 权限管理
-- 在线搜索和下载能力检查
-- 支持的命令不要硬编码？方便用户扩展；banner 和命令查找失败时提示的打印中的不能硬编码；需要用户能扩展并注册，根据注册的进行打印；
-- ConfigManager._doc_template 中的变为一个模板，images 路径不能硬编码，独立文件，容易修改
-- 增加注释，重构，拆分文件和目录；设计更新到文档里面；
-- 优化 system prompt
-- 对用户 @ 的文件，不必提取所有内容（可以只截取前面一小部分，具体多少可以在 ~/.dogent 配置中配置），提示模型只是部分内容，Agent根据需要调用工具读取；
-- 优化 user prompt
-- 用户输入 option+enter 后可以输入换行？
+The current release focuses on refactoring and fixing minor issues. The overall goal of refactoring is to decouple the core logic of **Agent scheduling** and **interactive CLI** from `dogent`, and separate the configurations dedicated to *document writing*. This will facilitate the reuse of core logic for extending into other proprietary interactive CLI-based Agents in the future. To this end, the following requirements must be met:
+
+- Commands supported by the interactive CLI should **not be hardcoded** to enable easy extension of new commands. This includes:
+  1. The command hints displayed in the banner after launching `dogent`;
+  2. The prompt messages printed when a command lookup fails.
+  A **registration-based extension mechanism** is recommended, where each command is implemented independently and registered separately.
+- Templates embedded in the code should be decoupled as standalone modules as much as possible. For example, the template in `ConfigManager._doc_template` should be extracted into an independent, editable template file.
+- Optimize the current **system prompt**:
+  - Remove hardcoded image paths from the prompt content;
+  - Ensure that the role definition and specific requirements in the writing-oriented system prompt align with prompt engineering best practices.
+- Optimize the **user prompt** to enable clearer and more explicit instructions for the LLM.
+- Improve code readability by adding comprehensive comments and implementing **Clean Code** refactoring, including more logical file and directory restructuring. Specifically:
+  - Treat the interactive CLI-based Agent code (unrelated to specific roles) as the core module;
+  - Separate role-specific configurations (including extensible CLI commands and various templates) to allow users to extend `dogent`’s core logic into other Agent roles in the future.
+- Support multi-line input in prompts using the **Alt/Option + Enter** shortcut for line breaks.
+- Ensure graceful exit when users terminate the program with shortcuts like **Ctrl + C**: avoid throwing exceptions, properly clean up resources, display a user-friendly exit message, and terminate normally.
+- Ensure interactive CLI system prompts/titles remain in **English UI**, while the LLM output keeps its original language.
+
+The key design principles outlined above shall be added to **AGENTS.md** as binding architectural guidelines for future development iterations.

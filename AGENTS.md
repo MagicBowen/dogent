@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Modules
-- `dogent/`: CLI and agent code. Key modules: `cli.py` (interactive loop), `agent.py` (Claude SDK streaming), `config.py` (profiles/env merge), `prompts/` (system/user prompt templates), `todo.py` (TodoWrite sync), `file_refs.py` ( @file resolution).
+- `dogent/`: Core CLI/agent code. Key modules: `cli.py` (interactive loop + command registry), `agent.py` (Claude SDK streaming/interrupts), `config.py` (profiles/env merge), `prompts/` (system/user prompt templates), `todo.py` (TodoWrite sync), `file_refs.py` (@file resolution). Role-specific prompts/templates live under `prompts/` and `templates/` so the core stays reusable.
 - `docs/`: Requirements, stories, usage, todo tracking.
 - `tests/`: `unittest` suites covering config, prompts, todo syncing.
 - `uats/`: user acceptance tests folder for user testing dogent manually.
@@ -16,8 +16,9 @@
 ## Coding Style & Naming
 - Language: Python 3.10+; 4-space indentation; keep code ASCII unless file already uses Unicode.
 - Module naming: snake_case; classes in PascalCase; functions/vars in snake_case.
-- Prompts live in `dogent/prompts/*.md`; keep them short, declarative, and versionable.
+- Prompts live in `dogent/prompts/*.md`; keep them declarative, and versionable.
 - Minimal inline comments; prefer clear function names and small functions.
+- Keep CLI-facing strings (panels, errors, banners) in English; let LLM outputs stay in the user’s language.
 
 ## Testing Guidelines
 - Framework: `unittest`.
@@ -44,3 +45,4 @@
 - Keep `docs/todo.md` updated with development and acceptance status; work stories sequentially and fix per user acceptance feedback.
 - After finishing each story, append/update `uats/uat_guild.md` with step-by-step install/run instructions using a sample directory to guide user acceptance.
 - `.dogent/dogent.json` should reference a profile only; real credentials belong in `~/.dogent/claude.json` (or env vars).
+- Release 0.3 principles: use a command registry (no hardcoded command lists), externalize templates, keep system/user prompts clean (no hardcoded paths), separate core CLI/agent logic from role-specific configs/templates for extensibility, support multi-line input (Alt/Option+Enter), handle Esc interrupts and Ctrl+C gracefully, keep sections/titles emoji-labeled for clarity, and keep CLI UI language in English while preserving the model’s response language.

@@ -52,7 +52,7 @@ class HistoryManager:
     def to_prompt_block(self, limit: int = 5) -> str:
         entries = self.read_entries()
         if not entries:
-            return "无历史记录。"
+            return "No prior history."
         latest = entries[-limit:]
         lines = []
         for entry in latest:
