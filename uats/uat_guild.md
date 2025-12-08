@@ -114,6 +114,6 @@ User Test Results: PASS
 
 ### Story 20 – Enhanced Summary Presentation
 1) Complete a task; observe the completion panel.
-2) Expect emoji title (📝 会话总结), summary first, then metrics; sections like “文件引用” also have emoji titles.
+2) Expect emoji title (📝 Session Summary), summary first, then metrics; sections like “File Reference” also have emoji titles.
 
 User Test Results: PASS

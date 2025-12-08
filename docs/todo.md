@@ -142,7 +142,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
 ### Story 20: Enhanced Summary Presentation
 - User Value: Clear session summaries with visual distinction.
-- Acceptance: “会话总结” uses emoji title; summary content shown before metrics (time, cost); other sections (e.g., “文件引用”) also prefixed with emojis.
+- Acceptance: “Session Summary” uses emoji title; summary content shown before metrics (time, cost); other sections (e.g., “File Reference”) also prefixed with emojis.
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: Manual/automated output check at task completion.

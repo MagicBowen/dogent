@@ -76,8 +76,18 @@ Finally, package and deploy the program, complete local testing, and output usag
 
 - Remove the `/todo` command and its associated code from the interactive CLI.
 
-- When summarizing after a task is completed, place the summary content into the "会话总结" section, merging it with existing content: display the summary first, followed by task-related metrics such as time elapsed and costs incurred for the current task.
-Add an appropriate emoji before the title of each section (e.g., "会话总结" and "文件引用") to improve visual distinction.
+- When summarizing after a task is completed, place the summary content into the "Session Summary" section, merging it with existing content: display the summary first, followed by task-related metrics such as time elapsed and costs incurred for the current task.
+Add an appropriate emoji before the title of each section (e.g., "Session Summary" and "File Reference") to improve visual distinction.
 
 ## Release 0.3
 
+- 用户按 ctrl C 退出不抛异常，正常结束和清理资源后退出
+- 权限管理
+- 在线搜索和下载能力检查
+- 支持的命令不要硬编码？方便用户扩展；banner 和命令查找失败时提示的打印中的不能硬编码；需要用户能扩展并注册，根据注册的进行打印；
+- ConfigManager._doc_template 中的变为一个模板，images 路径不能硬编码，独立文件，容易修改
+- 增加注释，重构，拆分文件和目录；设计更新到文档里面；
+- 优化 system prompt
+- 对用户 @ 的文件，不必提取所有内容（可以只截取前面一小部分，具体多少可以在 ~/.dogent 配置中配置），提示模型只是部分内容，Agent根据需要调用工具读取；
+- 优化 user prompt
+- 用户输入 option+enter 后可以输入换行？
