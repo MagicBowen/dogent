@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dogent"
+version = "0.1.0"
+description = "CLI-based interactive document-writing agent powered by the Claude Agent SDK."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Dogent Team"}]
+dependencies = [
+    "claude-agent-sdk>=0.1.13",
+    "rich>=13.0.0",
+    "prompt_toolkit>=3.0.0",
+]
+
+[project.scripts]
+dogent = "dogent.cli:main"
+
+[tool.setuptools]
+packages = ["dogent"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+dogent = ["prompts/*.md"]

@@ -8,7 +8,7 @@ Specific requirements are as follows:
 
 - After entering the interactive CLI, the interaction method should be consistent with Claude Code, supporting the following specific Commands:
     - `/init`: Create a `.dogent` directory in the current directory and generate `.dogent/dogent.md` (template containing document type, length, tone, output format, language, other preferences and requirements). The Agent must always follow these constraints when working in this environment;
-    - `/config`: Generate `.dogent/dogent.json` in the current directory, add it to .gitignore (create .gitignore if missing), and allow overriding env configs. If the Agent's working directory has this config file, prioritize reading it; otherwise fall back to environment variables;
+    - `/config`: Generate `.dogent/dogent.json` in the current directory, `.dogent/dogent.json` refer the anthropic config in `~/.dogent/claude.md`;
     - `/exit`: Exit the CLI interaction and return to the main shell;
 
 - In the interactive CLI, the Agent needs to be able to display its todo list to users, and reflect main operations and key processes during execution in the CLI.

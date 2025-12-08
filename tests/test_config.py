@@ -1,0 +1,139 @@
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+
+from dogent.config import ConfigManager
+from dogent.paths import DogentPaths
+
+
+class ConfigTests(unittest.TestCase):
+    def test_init_files_created(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = DogentPaths(Path(tmp))
+            manager = ConfigManager(paths)
+            manager.create_init_files()
+
+            self.assertTrue(paths.doc_preferences.exists())
+            self.assertTrue(paths.memory_file.exists())
+            self.assertTrue(paths.images_dir.exists())
+
+    def test_profile_and_project_resolution(self) -> None:
+        original_home = os.environ.get("HOME")
+        original_token = os.environ.get("ANTHROPIC_AUTH_TOKEN")
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as home:
+            os.environ["HOME"] = home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            manager = ConfigManager(paths)
+
+            profile_dir = Path(home) / ".dogent"
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            profile_data = {
+                "profiles": {
+                    "deepseek": {
+                        "ANTHROPIC_BASE_URL": "https://profile.example",
+                        "ANTHROPIC_AUTH_TOKEN": "profile-token",
+                        "ANTHROPIC_MODEL": "profile-model",
+                        "ANTHROPIC_SMALL_FAST_MODEL": "profile-small",
+                        "API_TIMEOUT_MS": 100,
+                        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": True,
+                    }
+                }
+            }
+            (profile_dir / "claude.json").write_text(
+                json.dumps(profile_data), encoding="utf-8"
+            )
+
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            project_cfg = {
+                "profile": "deepseek",
+                "anthropic": {
+                    "base_url": "https://project.example",
+                    "model": "project-model",
+                },
+            }
+            paths.config_file.write_text(
+                json.dumps(project_cfg), encoding="utf-8"
+            )
+
+            os.environ["ANTHROPIC_AUTH_TOKEN"] = "env-token"
+
+            settings = manager.load_settings()
+            self.assertEqual(settings.base_url, "https://project.example")
+            self.assertEqual(settings.model, "project-model")
+            self.assertEqual(settings.auth_token, "profile-token")
+            self.assertEqual(settings.small_model, "profile-small")
+            self.assertEqual(settings.api_timeout_ms, 100)
+            self.assertTrue(settings.disable_nonessential_traffic)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+        if original_token is not None:
+            os.environ["ANTHROPIC_AUTH_TOKEN"] = original_token
+        else:
+            os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+
+    def test_fallback_model_not_same(self) -> None:
+        original_env = {
+            "ANTHROPIC_MODEL": os.environ.get("ANTHROPIC_MODEL"),
+            "ANTHROPIC_SMALL_FAST_MODEL": os.environ.get("ANTHROPIC_SMALL_FAST_MODEL"),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            manager = ConfigManager(paths)
+
+            os.environ["ANTHROPIC_MODEL"] = "same-model"
+            os.environ["ANTHROPIC_SMALL_FAST_MODEL"] = "same-model"
+
+            options = manager.build_options("sys")
+            self.assertIsNone(options.fallback_model)
+        for key, val in original_env.items():
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+
+    def test_profile_md_supported_and_gitignore_not_modified(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as home:
+            os.environ["HOME"] = home
+            root = Path(tmp)
+            gitignore = root / ".gitignore"
+            gitignore.write_text("keepme\n", encoding="utf-8")
+
+            profile_dir = Path(home) / ".dogent"
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            profile_md = profile_dir / "claude.md"
+            profile_md.write_text(
+                "profile file\n```json\n{\n"
+                '  "profiles": {\n'
+                '    "deepseek": {"ANTHROPIC_AUTH_TOKEN": "md-token"}\n'
+                "  }\n"
+                "}\n```\n",
+                encoding="utf-8",
+            )
+
+            paths = DogentPaths(root)
+            manager = ConfigManager(paths)
+            manager.create_config_template()
+
+            cfg = json.loads(paths.config_file.read_text(encoding="utf-8"))
+            self.assertEqual(cfg.get("profile"), "deepseek")
+
+            settings = manager.load_settings()
+            self.assertEqual(settings.auth_token, "md-token")
+
+            gitignore_content = gitignore.read_text(encoding="utf-8")
+            self.assertNotIn(".dogent/dogent.json", gitignore_content)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+
+if __name__ == "__main__":
+    unittest.main()
