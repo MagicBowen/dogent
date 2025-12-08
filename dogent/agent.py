@@ -62,6 +62,14 @@ class AgentRunner:
         user_prompt = self.prompt_builder.build_user_prompt(user_message, list(attachments))
         self._last_summary = None
         self._interrupted = False
+        preview = self._shorten(user_message, limit=240)
+        self.console.print(
+            Panel(
+                f"Received request:\n{preview}",
+                title="⏳ Running",
+                border_style="cyan",
+            )
+        )
         self.history.append(
             summary="User request",
             status="started",
@@ -183,16 +191,25 @@ class AgentRunner:
         )
 
     def _log_tool_use(self, block: ToolUseBlock, summary: str | None = None) -> None:
-        title = f"⚙️ {block.name}"
+        title = f"⚙️  {block.name}"
         body = summary or self._shorten(block.input)
         self.console.print(Panel(Text(str(body)), title=title, border_style="cyan"))
 
     def _log_tool_result(
         self, name: str, block: ToolResultBlock, summary: str | None = None
     ) -> None:
-        title = "📥 Result" if name == "TodoWrite" else f"📥 Result {name}"
+        is_error = bool(getattr(block, "is_error", False))
+        icon = "❌" if is_error else "📥"
+        status = "Failed" if is_error else "Result"
+        title = f"{icon} {status} {name}"
         body = summary or self._shorten(block.content)
-        self.console.print(Panel(Text(str(body)), title=title, border_style="green"))
+        if not body:
+            body = "No content returned."
+        if is_error:
+            body = f"Reason: {body}"
+        self.console.print(
+            Panel(Text(str(body)), title=title, border_style="red" if is_error else "green")
+        )
 
     def _render_todos(self, show_empty: bool = True) -> None:
         if self._skip_todo_render_once:

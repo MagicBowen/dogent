@@ -153,54 +153,54 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - User Value: CLI commands are extensible without core code edits.
 - Acceptance: Commands (listing, banner hints, unknown-command message) come from a registry; adding a command requires registration only.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: Registry-driven banner/unknown-command output; manual CLI check.
 
 ### Story 22: Externalized Templates
 - User Value: Prompts/config templates editable without code changes.
 - Acceptance: Embedded templates (e.g., doc template) moved to standalone files and loaded at runtime.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: Template files exist and are loaded; fallback behavior tested.
 
 ### Story 23: Prompt Optimization
 - User Value: Clear, best-practice system/user prompts without hardcoded image paths.
 - Acceptance: System prompt rewritten per guidelines; image paths derived from config; user prompt clarified.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: Prompt content inspection; tests assert no hardcoded image path and presence of new sections.
 
 ### Story 24: Code Structure & Clean Code
 - User Value: Core agent/CLI decoupled from role-specific configs/templates; improved readability.
 - Acceptance: Core interactive agent separated from writing role configs; comments and structure updated; `AGENTS.md` reflects architecture.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: Code review; doc update.
 
 ### Story 25: Multi-line Input Support
 - User Value: Users can add line breaks with Alt/Option+Enter.
 - Acceptance: CLI supports multi-line input via shortcut.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: Manual/integration test; keybinding test if feasible.
 
 ### Story 26: Graceful Ctrl+C Exit
 - User Value: Clean exit without stack traces.
 - Acceptance: Ctrl+C triggers graceful shutdown, resource cleanup, and friendly message.
 - Dev Status: Done
-- Acceptance Status: Pending
-- Verification: Manual/integration test; handler logic.
+- Acceptance Status: Accepted
+- Verification: Manual/integration test; handler logic (Ctrl+C while task running interrupts and returns to prompt).
 
 ### Story 27: Architectural Guidelines
 - User Value: Future contributors follow clear extensibility principles.
 - Acceptance: `AGENTS.md` updated with Release 0.3 design principles (command registry, template externalization, core/role separation).
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: Docs review.
 
 ### Story 28: English System UI
 - User Value: Consistent English UI labels while respecting LLM output language.
 - Acceptance: System prompts/panel titles in the interactive CLI remain in English; model output retains original language.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: UI inspection; prompt/title checks in CLI.

@@ -124,46 +124,46 @@ User Test Results: PASS
 1) Run `dogent`; banner should list registered commands from the registry (no hardcoded list).
 2) Type an unknown slash command; the error panel should list available commands from the registry.
 
-User Test Results: TODO
+User Test Results: PASS
 
 ### Story 22 – Externalized Templates
 1) Inspect `dogent/templates/dogent_default.md` and confirm `/init` uses it to create `.dogent/dogent.md`.
 2) Update the template file, rerun `/init` in a fresh workspace, and confirm the new content is used.
 
-User Test Results: TODO
+User Test Results: PASS
 
 ### Story 23 – Prompt Optimization
 1) Inspect `dogent/prompts/system.md` and `dogent/prompts/user_prompt.md` to confirm best-practice structure and no hardcoded image paths.
 2) In a session, set a custom images path in `.dogent/dogent.json`; verify the system prompt reflects it by observing agent behavior.
 
-User Test Results: TODO
+User Test Results: PASS
 
 ### Story 24 – Code Structure & Clean Code
 1) Review `AGENTS.md` and module layout to see core CLI/agent code separated from role-specific prompts/templates.
 2) Confirm command handling and prompt files are decoupled and documented.
 
-User Test Results: TODO
+User Test Results: PASS
 
 ### Story 25 – Multi-line Input Support
 1) Start `dogent` and type a prompt; press Alt/Option+Enter to insert a newline.
 2) Submit and ensure the full multi-line prompt is sent once Enter is pressed.
 
-User Test Results: TODO
+User Test Results: PASS
 
 ### Story 26 – Graceful Ctrl+C Exit
 1) Start a task, then press Ctrl+C while idle or during streaming.
 2) Expect a clean exit with a friendly message and no uncaught exceptions.
 
-User Test Results: TODO
+User Test Results: PASS
 
 ### Story 27 – Architectural Guidelines
 1) Open `AGENTS.md` and verify Release 0.3 principles (registry, template externalization, CLI/core separation, language rules) are documented.
 2) Ensure guidelines mention updating `docs/todo.md` and `uats/uat_guild.md` per story.
 
-User Test Results: TODO
+User Test Results: PASS
 
 ### Story 28 – English System UI
 1) Start `dogent` and observe panels, errors, summaries, and banner titles; all UI labels should be English.
 2) Send prompts in another language and confirm LLM responses keep their original language while UI labels stay English.
 
-User Test Results: TODO
+User Test Results: PASS

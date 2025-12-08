@@ -255,20 +255,31 @@ class DogentCLI:
         stop_event = threading.Event()
         agent_task = asyncio.create_task(self.agent.send_message(message, attachments))
         esc_task = asyncio.create_task(self._wait_for_escape(stop_event))
+        try:
+            done, _ = await asyncio.wait(
+                {agent_task, esc_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+        except KeyboardInterrupt:
+            await self._interrupt_running_task(
+                reason="Ctrl+C detected, interrupting the current task...",
+                agent_task=agent_task,
+                esc_task=esc_task,
+                stop_event=stop_event,
+            )
+            return
 
-        done, _ = await asyncio.wait(
-            {agent_task, esc_task}, return_when=asyncio.FIRST_COMPLETED
-        )
         if esc_task in done and esc_task.result():
-            self.console.print("[yellow]Esc detected, interrupting the current task...[/yellow]")
-            await self.agent.interrupt("User pressed Esc to interrupt.")
-            if not agent_task.done():
-                agent_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await agent_task
-        stop_event.set()
-        with suppress(asyncio.CancelledError):
-            await esc_task
+            await self._interrupt_running_task(
+                reason="Esc detected, interrupting the current task...",
+                agent_task=agent_task,
+                esc_task=esc_task,
+                stop_event=stop_event,
+            )
+        else:
+            stop_event.set()
+            esc_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await esc_task
         if agent_task.done() and not agent_task.cancelled():
             with suppress(Exception):
                 await agent_task
@@ -297,6 +308,25 @@ class DogentCLI:
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         return False
+
+    async def _interrupt_running_task(
+        self,
+        reason: str,
+        agent_task: asyncio.Task,
+        esc_task: asyncio.Task,
+        stop_event: threading.Event,
+    ) -> None:
+        stop_event.set()
+        self.console.print(f"[yellow]{reason}[/yellow]")
+        await self.agent.interrupt(reason)
+        if not agent_task.done():
+            agent_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await agent_task
+        if not esc_task.done():
+            esc_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await esc_task
 
     async def _handle_command(self, command: str) -> bool:
         cmd = self.registry.get(command)
