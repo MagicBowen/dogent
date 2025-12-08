@@ -8,6 +8,8 @@ from typing import Any, Dict, Optional
 
 from rich.console import Console
 
+from importlib import resources
+
 from claude_agent_sdk import ClaudeAgentOptions
 
 from .paths import DogentPaths
@@ -95,17 +97,18 @@ class ConfigManager:
             "Read",
             "Write",
             "Edit",
-            "Bash",
-            "Grep", 
-            "Glob",
-            "Task"
             "Ls",
+            "ListFiles",
+            "Bash",
+            "Grep",
+            "Glob",
+            "Task",
             "WebFetch",
             "WebSearch",
             "TodoWrite",
             "BashOutput",
             "SlashCommand",
-            "NotebookEdit"
+            "NotebookEdit",
         ]
 
         add_dirs = []
@@ -207,28 +210,15 @@ class ConfigManager:
         if not home_dir.exists():
             home_dir.mkdir(parents=True, exist_ok=True)
         if not self.paths.global_profile_file.exists():
-            default = (
-                "{\n"
-                '  "profiles": {\n'
-                '    "deepseek": {\n'
-                '      "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",\n'
-                '      "ANTHROPIC_AUTH_TOKEN": "replace-me",\n'
-                '      "ANTHROPIC_MODEL": "deepseek-reasoner",\n'
-                '      "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-chat",\n'
-                '      "API_TIMEOUT_MS": 600000,\n'
-                '      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true\n'
-                "    }\n"
-                "  }\n"
-                "}\n"
-            )
+            default = self._default_profile_template()
             try:
                 self.paths.global_profile_file.write_text(default, encoding="utf-8")
                 self.console.print(
-                    f"[cyan]已创建默认配置文件 {self.paths.global_profile_file}，请根据需要编辑。[/cyan]"
+                    f"[cyan]Created default config at {self.paths.global_profile_file}. Edit it with your credentials.[/cyan]"
                 )
             except PermissionError:
                 self.console.print(
-                    f"[yellow]无法写入 {self.paths.global_profile_file}，请手动创建并配置凭据。[/yellow]"
+                    f"[yellow]Cannot write {self.paths.global_profile_file}. Please create it manually with your credentials.[/yellow]"
                 )
 
     def _to_bool(self, value: Optional[str]) -> bool:
@@ -245,16 +235,16 @@ class ConfigManager:
             return None
 
     def _doc_template(self) -> str:
-        return (
-            "# Dogent 文档约束\n\n"
-            "- 文档类型：\n"
-            "- 目标篇幅（字数或页数）：\n"
-            "- 目标读者与背景：\n"
-            "- 语气与风格：\n"
-            "- 语言（默认中文）：\n"
-            "- 输出格式（默认 Markdown）：\n"
-            "- 结构要求（章节、图表、代码、Mermaid 图等）：\n"
-            "- 参考资料与引用格式：\n"
-            "- 图片与图示需求（下载到 ./images 并在文中引用）：\n"
-            "- 其他偏好与禁忌：\n"
-        )
+        try:
+            data = resources.files("dogent.templates").joinpath("doc_template.md")
+            return Path(data).read_text(encoding="utf-8")
+        except Exception:
+            return "# Dogent Writing Constraints\n"
+
+    def _default_profile_template(self) -> str:
+        try:
+            data = resources.files("dogent.templates").joinpath("claude_default.json")
+            return Path(data).read_text(encoding="utf-8")
+        except Exception:
+            # Minimal placeholder to avoid duplication if resources are missing
+            return json.dumps({"profiles": {"default": {}}}, indent=2)

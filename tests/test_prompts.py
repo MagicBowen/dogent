@@ -38,6 +38,21 @@ class PromptTests(unittest.TestCase):
             self.assertIn("content from file", user_prompt)
             self.assertIn("@file sample.txt", user_prompt)
 
+    def test_system_prompt_uses_configured_images_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.doc_preferences.write_text("约束", encoding="utf-8")
+            todo_manager = TodoManager()
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo_manager, history)
+
+            settings = type("Settings", (), {"images_path": "/tmp/custom/images"})
+            prompt = builder.build_system_prompt(settings=settings)
+
+            self.assertIn("/tmp/custom/images", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

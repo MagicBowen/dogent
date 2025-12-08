@@ -63,7 +63,7 @@ class AgentRunner:
         self._last_summary = None
         self._interrupted = False
         self.history.append(
-            summary="用户请求",
+            summary="User request",
             status="started",
             prompt=user_message,
             todos=self.todo_manager.export_items(),
@@ -85,8 +85,8 @@ class AgentRunner:
         except Exception as exc:  # noqa: BLE001
             self.console.print(
                 Panel(
-                    f"[red]会话出错：{exc}[/red]\n请检查凭据或网络设置，或使用 /config 更新 profile。",
-                    title="错误",
+                    f"[red]Session error: {exc}[/red]\nCheck credentials/network or update the profile with /config.",
+                    title="Error",
                 )
             )
             await self._safe_disconnect()
@@ -107,8 +107,8 @@ class AgentRunner:
         except Exception as exc:  # noqa: BLE001
             self.console.print(
                 Panel(
-                    f"[red]流式响应出错：{exc}[/red]\n请检查凭据、网络或重试。",
-                    title="错误",
+                    f"[red]Streaming error: {exc}[/red]\nVerify credentials, network, or retry.",
+                    title="Error",
                 )
             )
 
@@ -162,7 +162,9 @@ class AgentRunner:
 
     def _handle_result(self, message: ResultMessage) -> None:
         cost = f"${message.total_cost_usd:.4f}" if message.total_cost_usd is not None else "n/a"
-        metrics = f"耗时 {message.duration_ms} ms | API {message.duration_api_ms} ms | 费用 {cost}"
+        metrics = (
+            f"Duration {message.duration_ms} ms | API {message.duration_api_ms} ms | Cost {cost}"
+        )
         content_parts = []
         if message.result:
             content_parts.append(message.result)
@@ -171,7 +173,7 @@ class AgentRunner:
         panel_text = "\n\n".join(content_parts)
         self.console.print(Panel(Text(panel_text), title="📝 Session Summary"))
         self.history.append(
-            summary=message.result or "任务完成",
+            summary=message.result or "Task completed",
             status="completed",
             duration_ms=message.duration_ms,
             api_ms=message.duration_api_ms,
@@ -188,7 +190,7 @@ class AgentRunner:
     def _log_tool_result(
         self, name: str, block: ToolResultBlock, summary: str | None = None
     ) -> None:
-        title = "📥 结果" if name == "TodoWrite" else f"📥 结果 {name}"
+        title = "📥 Result" if name == "TodoWrite" else f"📥 Result {name}"
         body = summary or self._shorten(block.content)
         self.console.print(Panel(Text(str(body)), title=title, border_style="green"))
 
@@ -208,12 +210,12 @@ class AgentRunner:
     def _summarize_todos(self, payload: object) -> str:
         items = self.todo_manager._normalize_items(payload)  # type: ignore[attr-defined]
         if not items:
-            return "Todo 更新"
+            return "Todo update"
         status_counts: dict[str, int] = {}
         for item in items:
             status_counts[item.status] = status_counts.get(item.status, 0) + 1
         counts = ", ".join(f"{k}:{v}" for k, v in status_counts.items())
-        return f"Todo 更新 ({len(items)} 项; {counts})"
+        return f"Todo update ({len(items)} items; {counts})"
 
     async def _safe_disconnect(self, interrupted: bool = False) -> None:
         if not self._client:

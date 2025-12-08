@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dogent"
-version = "0.2.0"
+version = "0.3.0"
 description = "CLI-based interactive document-writing agent powered by the Claude Agent SDK."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,4 +24,4 @@ packages = ["dogent"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-dogent = ["prompts/*.md"]
+dogent = ["prompts/*.md", "templates/*.md", "templates/*.json"]

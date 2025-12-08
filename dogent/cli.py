@@ -1,20 +1,23 @@
 from __future__ import annotations
 
-import asyncio
 import argparse
+import asyncio
+import select
 import sys
-import tty
 import termios
+import threading
+import tty
 from contextlib import suppress
 from pathlib import Path
-from typing import Iterable, Tuple, Optional
+from typing import Iterable, Tuple
 
-from rich.console import Console
+from rich.align import Align
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.prompt import Prompt
-from rich.table import Table
 
 from .agent import AgentRunner
+from .commands import CommandRegistry
 from .config import ConfigManager
 from .file_refs import FileAttachment, FileReferenceResolver
 from .history import HistoryManager
@@ -98,7 +101,7 @@ class DogentCLI:
     def __init__(self, root: Path | None = None, console: Console | None = None) -> None:
         self.console = console or Console()
         self.root = root or Path.cwd()
-        self.available_commands = ["/init", "/config", "/exit"]
+        self.registry = CommandRegistry()
         self.paths = DogentPaths(self.root)
         self.todo_manager = TodoManager(console=self.console)
         self.config_manager = ConfigManager(self.paths, console=self.console)
@@ -112,7 +115,9 @@ class DogentCLI:
             history=self.history_manager,
             console=self.console,
         )
+        self._register_commands()
         self.session: PromptSession | None = None
+        self._shutting_down = False
         if PromptSession is not None:
             bindings = KeyBindings()
 
@@ -125,11 +130,34 @@ class DogentCLI:
                     return
                 buf.validate_and_handle()
 
+            @bindings.add("escape", "enter", eager=True)
+            def _(event):  # type: ignore
+                """Insert newline with Alt/Option+Enter."""
+                event.current_buffer.insert_text("\n")
+
             self.session = PromptSession(
-                completer=DogentCompleter(self.root, self.available_commands),
+                completer=DogentCompleter(self.root, self.registry.names()),
                 complete_while_typing=True,
                 key_bindings=bindings,
             )
+
+    def _register_commands(self) -> None:
+        """Register built-in CLI commands; keeps CLI extensible."""
+        self.registry.register(
+            "/init",
+            self._cmd_init,
+            "Create .dogent scaffolding (dogent.md) without overwriting existing files.",
+        )
+        self.registry.register(
+            "/config",
+            self._cmd_config,
+            "Create .dogent/dogent.json (profile reference) and reload settings.",
+        )
+        self.registry.register(
+            "/exit",
+            self._cmd_exit,
+            "Exit Dogent CLI gracefully.",
+        )
 
     def _print_banner(self, settings) -> None:
         art = r"""
@@ -140,13 +168,61 @@ class DogentCLI:
  ██████╔╝╚██████╔╝╚██████╔╝███████╗██║ ╚████║   ██║   
  ╚═════╝  ╚═════╝  ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   
 """
-        model = settings.model or "<未设置>"
-        fast_model = settings.small_model or "<未设置>"
-        base_url = settings.base_url or "<未设置>"
-        body = f"{art}\n模型: {model} | 快速模型: {fast_model} | API: {base_url}\n使用 /init, /config, /exit。按 Esc 可中断当前任务。"
+        model = settings.model or "<not set>"
+        fast_model = settings.small_model or "<not set>"
+        base_url = settings.base_url or "<not set>"
+        commands = ", ".join(self.registry.names()) or "No commands registered"
+        helper_lines = [
+            f"Model: {model}",
+            f"Fast Model: {fast_model}",
+            f"API: {base_url}",
+            f"Commands: {commands}",
+            "Esc interrupts current task • Alt/Option+Enter inserts a newline • Ctrl+C exits cleanly",
+        ]
+        body = Align.center(art.strip("\n"))
+        helper = Align.center("\n".join(helper_lines))
+        content = Group(body, helper)
         self.console.print(
-            Panel(body, title="Dogent", subtitle=None, expand=True, padding=(1, 2))
+            Panel(
+                Align.center(content),
+                title="Dogent",
+                subtitle=None,
+                expand=True,
+                padding=(1, 2),
+            )
         )
+
+    async def _cmd_init(self, _: str) -> bool:
+        created = self.config_manager.create_init_files()
+        if created:
+            rel_paths = "\n".join(str(path.relative_to(self.root)) for path in created)
+            message = f"Created:\n{rel_paths}"
+            style = "green"
+        else:
+            message = "No files created (templates already exist)."
+            style = "yellow"
+        self.console.print(
+            Panel(message, title="Init", border_style=style)
+        )
+        return True
+
+    async def _cmd_config(self, _: str) -> bool:
+        self.config_manager.create_config_template()
+        await self.agent.reset()
+        settings = self.config_manager.load_settings()
+        body = (
+            f"Wrote .dogent/dogent.json with profile reference.\n"
+            f"Profile: {settings.profile or '<not set>'}\n"
+            f"Images path: {settings.images_path}"
+        )
+        self.console.print(
+            Panel(body, title="Config", border_style="green")
+        )
+        return True
+
+    async def _cmd_exit(self, _: str) -> bool:
+        await self._graceful_exit()
+        return False
 
     async def run(self) -> None:
         settings = self.config_manager.load_settings()
@@ -155,6 +231,7 @@ class DogentCLI:
             try:
                 raw = await self._read_input()
             except (EOFError, KeyboardInterrupt):
+                await self._graceful_exit()
                 break
             if not raw:
                 continue
@@ -167,32 +244,40 @@ class DogentCLI:
             message, attachments = self._resolve_attachments(text)
             if attachments:
                 self._show_attachments(attachments)
-            await self._run_with_interrupt(message, attachments)
+            try:
+                await self._run_with_interrupt(message, attachments)
+            except KeyboardInterrupt:
+                await self._graceful_exit()
+                break
 
     async def _run_with_interrupt(self, message: str, attachments: list[FileAttachment]) -> None:
+        """Run a task while listening for Esc without stealing future input."""
+        stop_event = threading.Event()
         agent_task = asyncio.create_task(self.agent.send_message(message, attachments))
-        esc_task = asyncio.create_task(self._wait_for_escape())
-        done, pending = await asyncio.wait(
+        esc_task = asyncio.create_task(self._wait_for_escape(stop_event))
+
+        done, _ = await asyncio.wait(
             {agent_task, esc_task}, return_when=asyncio.FIRST_COMPLETED
         )
         if esc_task in done and esc_task.result():
-            self.console.print("[yellow]检测到 Esc，正在中断当前任务…[/yellow]")
-            await self.agent.interrupt("用户按下 Esc 中断")
+            self.console.print("[yellow]Esc detected, interrupting the current task...[/yellow]")
+            await self.agent.interrupt("User pressed Esc to interrupt.")
             if not agent_task.done():
                 agent_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await agent_task
-        else:
-            esc_task.cancel()
+        stop_event.set()
+        with suppress(asyncio.CancelledError):
+            await esc_task
         if agent_task.done() and not agent_task.cancelled():
             with suppress(Exception):
                 await agent_task
 
-    async def _wait_for_escape(self) -> bool:
+    async def _wait_for_escape(self, stop_event: threading.Event) -> bool:
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._read_escape_key)
+        return await loop.run_in_executor(None, lambda: self._read_escape_key(stop_event))
 
-    def _read_escape_key(self) -> bool:
+    def _read_escape_key(self, stop_event: threading.Event) -> bool:
         fd = sys.stdin.fileno()
         try:
             old_settings = termios.tcgetattr(fd)
@@ -200,7 +285,10 @@ class DogentCLI:
         except Exception:
             return False
         try:
-            while True:
+            while not stop_event.is_set():
+                rlist, _, _ = select.select([fd], [], [], 0.2)
+                if not rlist:
+                    continue
                 ch = sys.stdin.read(1)
                 if ch == "\x1b":
                     return True
@@ -208,38 +296,29 @@ class DogentCLI:
             return False
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return False
 
     async def _handle_command(self, command: str) -> bool:
-        if command == "/exit":
-            self.console.print("退出 Dogent。")
-            return False
-        if command == "/init":
-            created = self.config_manager.create_init_files()
-            if created:
-                files = "\n".join([str(p) for p in created])
-                self.console.print(Panel(f"已创建模板：\n{files}"))
-            else:
-                self.console.print(Panel("未创建新文件，模板已存在。"))
-            return True
-        if command == "/config":
-            self.config_manager.create_config_template()
-            await self.agent.reset()
+        cmd = self.registry.get(command)
+        if not cmd:
+            available = "\n".join(self.registry.descriptions())
             self.console.print(
                 Panel(
-                    f"已生成 {self.paths.config_file}，如需修改凭据或模型请编辑后重试。",
-                    title="配置",
+                    f"Unknown command: {command}\nAvailable commands:\n{available}",
+                    title="Unknown Command",
+                    border_style="red",
                 )
             )
             return True
-        self.console.print("未知命令，支持 /init, /config, /exit")
-        return True
+        return await cmd.handler(command)
 
     async def _read_input(self) -> str:
         loop = asyncio.get_event_loop()
         if self.session:
-            return await loop.run_in_executor(
-                None, lambda: self.session.prompt("dogent> ")
-            )
+            prompt_callable = getattr(self.session, "prompt_async", None)
+            if callable(prompt_callable):
+                return await prompt_callable("dogent> ")
+            return await loop.run_in_executor(None, lambda: self.session.prompt("dogent> "))
         return await loop.run_in_executor(
             None, lambda: Prompt.ask("[bold cyan]dogent>[/bold cyan]")
         )
@@ -247,11 +326,19 @@ class DogentCLI:
     def _resolve_attachments(self, message: str) -> Tuple[str, list[FileAttachment]]:
         return self.file_resolver.extract(message)
 
+    async def _graceful_exit(self) -> None:
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+        with suppress(Exception):
+            await self.agent.reset()
+        self.console.print(Panel("Exiting Dogent. See you soon!", title="Goodbye", border_style="cyan"))
+
     def _show_attachments(self, attachments: Iterable[FileAttachment]) -> None:
         for attachment in attachments:
             self.console.print(
                 Panel(
-                    f"已加载 @file {attachment.path} {'(截断)' if attachment.truncated else ''}",
+                    f"File loaded @file {attachment.path} {'(truncated)' if attachment.truncated else ''}",
                     title="📂 File Reference",
                 )
             )

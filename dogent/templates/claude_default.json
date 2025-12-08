@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "deepseek": {
+      "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me",
+      "ANTHROPIC_MODEL": "deepseek-reasoner",
+      "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-chat",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    }
+  }
+}

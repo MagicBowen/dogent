@@ -39,7 +39,7 @@ class TodoManager:
 
     def render_plain(self) -> str:
         if not self.items:
-            return "无 todo，等待 TodoWrite 工具填充。"
+            return "No todo items yet. Use TodoWrite to populate."
         lines = []
         for item in self.items:
             note = f" — {item.note}" if item.note else ""
@@ -48,12 +48,12 @@ class TodoManager:
         return "\n".join(lines)
 
     def render_table(self) -> Table:
-        table = Table(title="当前 Todo")
-        table.add_column("状态", style="cyan", no_wrap=True)
-        table.add_column("内容", style="white")
-        table.add_column("备注", style="dim")
+        table = Table(title="Current Todo")
+        table.add_column("Status", style="cyan", no_wrap=True)
+        table.add_column("Title", style="white")
+        table.add_column("Note", style="dim")
         if not self.items:
-            table.add_row("-", "无 todo，等待 TodoWrite", "")
+            table.add_row("-", "No todo items yet (waiting for TodoWrite).", "")
             return table
         for item in self.items:
             icon = self._status_icon(item.status)
@@ -64,7 +64,7 @@ class TodoManager:
         if not self.items and not show_empty:
             return None
         if not self.items:
-            return Panel("暂无 Todo，等待 TodoWrite 更新。", title="✅ Todo", border_style="cyan")
+            return Panel("No Todo yet, waiting for TodoWrite update.", title="✅ Todo", border_style="cyan")
         lines: list[str] = []
         for item in self.items:
             icon = self._status_icon(item.status)
