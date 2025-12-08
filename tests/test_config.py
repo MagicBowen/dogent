@@ -16,8 +16,9 @@ class ConfigTests(unittest.TestCase):
             manager.create_init_files()
 
             self.assertTrue(paths.doc_preferences.exists())
-            self.assertTrue(paths.memory_file.exists())
-            self.assertTrue(paths.images_dir.exists())
+            # memory and images should not be auto-created now
+            self.assertFalse(paths.memory_file.exists())
+            self.assertFalse(paths.images_dir.exists())
 
     def test_profile_and_project_resolution(self) -> None:
         original_home = os.environ.get("HOME")
@@ -97,6 +98,15 @@ class ConfigTests(unittest.TestCase):
             else:
                 os.environ[key] = val
 
+    def test_images_path_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            manager = ConfigManager(paths)
+            manager.create_config_template()
+            settings = manager.load_settings()
+            self.assertEqual(settings.images_path, "./images")
+
     def test_profile_md_supported_and_gitignore_not_modified(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as home:
@@ -107,13 +117,15 @@ class ConfigTests(unittest.TestCase):
 
             profile_dir = Path(home) / ".dogent"
             profile_dir.mkdir(parents=True, exist_ok=True)
-            profile_md = profile_dir / "claude.md"
+            profile_md = profile_dir / "claude.json"
             profile_md.write_text(
-                "profile file\n```json\n{\n"
-                '  "profiles": {\n'
-                '    "deepseek": {"ANTHROPIC_AUTH_TOKEN": "md-token"}\n'
-                "  }\n"
-                "}\n```\n",
+                json.dumps(
+                    {
+                        "profiles": {
+                            "deepseek": {"ANTHROPIC_AUTH_TOKEN": "md-token"}
+                        }
+                    }
+                ),
                 encoding="utf-8",
             )
 

@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from dogent.file_refs import FileReferenceResolver
+from dogent.history import HistoryManager
 from dogent.paths import DogentPaths
 from dogent.prompts import PromptBuilder
 from dogent.todo import TodoItem, TodoManager
@@ -24,10 +25,11 @@ class PromptTests(unittest.TestCase):
                 [TodoItem(title="draft section", status="pending")],
                 source="test",
             )
+            history = HistoryManager(paths)
             resolver = FileReferenceResolver(root)
             message, attachments = resolver.extract("Please read @sample.txt")
 
-            builder = PromptBuilder(paths, todo_manager)
+            builder = PromptBuilder(paths, todo_manager, history)
             system_prompt = builder.build_system_prompt()
             user_prompt = builder.build_user_prompt(message, attachments)
 

@@ -8,26 +8,34 @@ from typing import Iterable, List
 from .file_refs import FileAttachment
 from .paths import DogentPaths
 from .todo import TodoManager
+from .history import HistoryManager
 
 
 class PromptBuilder:
     """Builds system and user prompts from templates."""
 
-    def __init__(self, paths: DogentPaths, todo_manager: TodoManager) -> None:
+    def __init__(
+        self, paths: DogentPaths, todo_manager: TodoManager, history: HistoryManager
+    ) -> None:
         self.paths = paths
         self.todo_manager = todo_manager
+        self.history = history
         self._system_template = self._load_template("system.md")
         self._user_template = self._load_template("user_prompt.md")
 
-    def build_system_prompt(self) -> str:
+    def build_system_prompt(self, settings=None) -> str:
         preferences = "未提供，提醒用户运行 /init 并填写 .dogent/dogent.md。"
         if self.paths.doc_preferences.exists():
             preferences = self.paths.doc_preferences.read_text(
                 encoding="utf-8", errors="replace"
             ).strip() or preferences
+        images_path = "./images"
+        if settings and getattr(settings, "images_path", None):
+            images_path = settings.images_path
         return self._system_template.format(
             working_dir=self.paths.root,
             preferences=preferences,
+            images_path=images_path,
         )
 
     def build_user_prompt(
@@ -37,6 +45,7 @@ class PromptBuilder:
             user_message=user_message.strip(),
             todo_block=self.todo_manager.render_plain(),
             attachments=self._format_attachments(attachments),
+            history_block=self.history.to_prompt_block(),
         )
 
     def _format_attachments(self, attachments: Iterable[FileAttachment]) -> str:

@@ -8,6 +8,7 @@ from rich.console import Console
 
 from dogent.agent import AgentRunner
 from dogent.config import ConfigManager
+from dogent.history import HistoryManager
 from dogent.paths import DogentPaths
 from dogent.prompts import PromptBuilder
 from dogent.todo import TodoItem, TodoManager
@@ -38,11 +39,12 @@ class TodoManagerTests(unittest.TestCase):
             root = Path(tmp)
             paths = DogentPaths(root)
             todo_manager = TodoManager(console=console)
-            prompt_builder = PromptBuilder(paths, todo_manager)
+            prompt_builder = PromptBuilder(paths, todo_manager, HistoryManager(paths))
             agent = AgentRunner(
                 config=ConfigManager(paths, console=console),
                 prompt_builder=prompt_builder,
                 todo_manager=todo_manager,
+                history=HistoryManager(paths),
                 console=console,
             )
 
