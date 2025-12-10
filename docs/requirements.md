@@ -100,3 +100,11 @@ The current release focuses on refactoring and fixing minor issues. The overall 
 - Ensure interactive CLI system prompts/titles remain in **English UI**, while the LLM output keeps its original language.
 
 The key design principles outlined above shall be added to **AGENTS.md** as binding architectural guidelines for future development iterations.
+
+## Release 0.4
+
+- 我已经更新了 `dogent/templates/dogent_default.md`，该文件给了各种文章撰写的要求选项，可选配置以及默认配置。如果用户第一次在某个目录下进入 dogent 交互式 cli 的时候，发现该目录下还没有 `.dogent/dogent.md` 文件，则使用该模板生成 `.dogent/dogent.md`，并提示用户进行修改。
+- 修改 dogent 交互式CLI中执行 `/init` 的逻辑，首先`/init` 命令中用户可以增加 prompt 要求作为参数，如 `/init technique paper style long document`，需要根据用户的 prompt 参数要求，将 `dogent/templates/dogent_default.md` 和 用户 prompt 发送给 LLM，让其帮忙生成配置好的 `.dogent/dogent.md`（如果没有，则根据用户要求配置 `dogent/templates/dogent_default.md` 模版生成 `.dogent/dogent.md`），或者改写已有的`.dogent/dogent.md` （依据用户要求改写）。如果用户只是单纯的运行 `/init`，则根据用户之前撰写的内容和要求进行总结后作为用户要求，配置 `dogent/templates/dogent_default.md` 模版生成 `.dogent/dogent.md`或者改写已有的 `.dogent/dogent.md`；
+- user_prompt.md 中不需要携带 `Todo Snapshot` 信息 和 `Recent History` 信息， 请同步修改代码；
+- system prompt 中的模板参数变少了
+- system prompt 和 user_prompt 可能经常改写，dogent.json 的内容可能也会变，因此需要解耦
