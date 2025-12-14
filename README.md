@@ -3,7 +3,7 @@
 CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans, researches, drafts, validates, and polishes long-form documents from the terminal.
 
 ## Features
-- Interactive CLI (`dogent`) with `/init`, `/config`, `/history`, `/help`, `/exit`
+ - Interactive CLI (`dogent`) with `/init`, `/config`, `/history`, `/clear`, `/help`, `/exit`
 - System prompt + per-turn user prompt templates under `dogent/prompts/`
 - Todo panel synced to `TodoWrite` tool calls/results (no seeded todos)
 - @file references load workspace files into each turn
@@ -17,6 +17,7 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
    - `/init` → scaffold `.dogent/dogent.md`
    - `/config` → create `.dogent/dogent.json` (profile reference; actual creds in `~/.dogent/claude.json` or env; includes `images_path`)
    - `/history` → show recent history entries and the latest todo snapshot
+   - `/clear` → reset `.dogent/history.json`, remove `.dogent/memory.md` if present, and clear in-session todos
    - `/help` → display current model/API/profile/images path plus available commands and shortcuts
    - `/exit` → quit
    - Typing `/` shows command suggestions; typing `@` offers file completions; press Esc during a task to interrupt and save progress

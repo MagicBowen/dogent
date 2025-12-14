@@ -197,21 +197,21 @@ User Test Results: PASS
 2) Start `dogent` and run `/history`.
 3) Expect a structured history table (latest entries first) and a todo snapshot reflecting the last recorded todos; if history is empty, a friendly notice is shown.
 
-User Test Results: Pending
+User Test Results: PASS
 
 ### Story 32 – Home Template Version Refresh
 1) Set a temp home: `export HOME=$(mktemp -d)` and run `dogent` once, then exit.
 2) Edit `~/.dogent/prompts/system.md` to add a marker like `OLD_PROMPT` and set `~/.dogent/version` to `0.0.0`.
 3) Run `dogent` again; expect a message that templates synced, `system.md` no longer contains `OLD_PROMPT`, `~/.dogent/version` matches `dogent -v`, and `~/.dogent/claude.json` remains unchanged.
 
-User Test Results: Pending
+User Test Results: PASS
 
 ### Story 33 – Profile Placeholder Warning
 1) Use `~/.dogent/claude.json` with the default `replace-me` token under the `deepseek` profile.
 2) In `uats/sample_workspace`, set `.dogent/dogent.json` profile to `deepseek` (create via `/config` if missing).
 3) Start `dogent` or run `/config`; expect a yellow alert telling you to update placeholder credentials before running tasks.
 
-User Test Results: Pending
+User Test Results: PASS
 
 ### Story 34 – Web Tool Result Clarity
 1) Start a session and trigger a `WebFetch` or `WebSearch` (e.g., ask for a web lookup).
@@ -223,4 +223,11 @@ User Test Results: Pending
 1) Start `dogent` and run `/help`.
 2) Expect a panel showing current model, fast model, API, profile, images path, registered commands, and shortcuts for Esc/Alt+Enter/Ctrl+C.
 
-User Test Results: Pending
+User Test Results: PASS
+
+### Story 36 – Clear History & Memory
+1) In `uats/sample_workspace`, create `.dogent/history.json` with sample entries and `.dogent/memory.md` with any text (or run a task to populate history).
+2) Start `dogent` and run `/clear`.
+3) Expect a confirmation panel listing cleared files; `.dogent/history.json` should contain an empty array, and `.dogent/memory.md` should be removed. Todos in the session reset to empty.
+
+User Test Results: PASS

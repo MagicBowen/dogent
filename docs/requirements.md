@@ -134,3 +134,5 @@ Ultimately, users should be able to optimize prompt templates (system prompts or
 - The results of Tool using，such as WebFetch or WebSearch tool, need to be displayed clearly (mainly indicating success or failure, and the reason for failure if it's a failure)
 
 - Add the `/help` command to display the usage of dogent, including the basic information and core configuration of dogent including information in first welcome panel (model, api url, commands usage...).
+
+- Add the `/clear` command to clear the history and memory if exist.
