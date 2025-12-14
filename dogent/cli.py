@@ -325,7 +325,7 @@ class DogentCLI:
                 "- Ctrl+C: exit gracefully",
             ]
         )
-        self.console.print(Panel(body, title="ℹ️ Help", border_style="cyan"))
+        self.console.print(Panel(body, title="💡 Help", border_style="cyan"))
         return True
 
     async def run(self) -> None:
