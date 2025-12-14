@@ -164,6 +164,11 @@ class DogentCLI:
             "Show recent history entries and the latest todo snapshot.",
         )
         self.registry.register(
+            "/clear",
+            self._cmd_clear,
+            "Clear history and memory files for a fresh start.",
+        )
+        self.registry.register(
             "/help",
             self._cmd_help,
             "Show Dogent usage, models, API, and available commands.",
@@ -275,6 +280,25 @@ class DogentCLI:
         )
         self.console.print(Panel(table, title="📜 History", border_style="cyan"))
         self.console.print(todo_panel)
+        return True
+
+    async def _cmd_clear(self, _: str) -> bool:
+        cleared: list[str] = []
+        self.history_manager.clear()
+        cleared.append(str(self.paths.history_file.relative_to(self.root)))
+        if self.paths.memory_file.exists():
+            with suppress(Exception):
+                self.paths.memory_file.unlink()
+            if not self.paths.memory_file.exists():
+                cleared.append(str(self.paths.memory_file.relative_to(self.root)))
+        self.todo_manager.set_items([])
+        if cleared:
+            body = "Cleared:\n" + "\n".join(cleared)
+            style = "green"
+        else:
+            body = "No history or memory files found to clear."
+            style = "yellow"
+        self.console.print(Panel(body, title="🧹 Clear", border_style=style))
         return True
 
     async def _cmd_exit(self, _: str) -> bool:

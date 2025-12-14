@@ -53,6 +53,46 @@ class HelpAndToolDisplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Success: Fetched page", output)
         self.assertIn("Failed: timeout", output)
 
+    def test_non_web_tool_result_states_success_and_failure(self) -> None:
+        console = Console(record=True, force_terminal=False, color_system=None)
+        runner = AgentRunner(
+            config=None,  # type: ignore[arg-type]
+            prompt_builder=None,  # type: ignore[arg-type]
+            todo_manager=TodoManager(console=console),
+            history=None,  # type: ignore[arg-type]
+            console=console,
+        )
+
+        runner._log_tool_result("Bash", DummyBlock("Command completed"), summary=None)
+        runner._log_tool_result(
+            "Bash",
+            DummyBlock([{"type": "text", "text": "permission denied"}], is_error=True),
+            summary=None,
+        )
+
+        output = console.export_text()
+        self.assertIn("Success: Command completed", output)
+        self.assertIn("Failed: permission denied", output)
+
+    def test_web_search_error_displays_message_blocks(self) -> None:
+        console = Console(record=True, force_terminal=False, color_system=None)
+        runner = AgentRunner(
+            config=None,  # type: ignore[arg-type]
+            prompt_builder=None,  # type: ignore[arg-type]
+            todo_manager=TodoManager(console=console),
+            history=None,  # type: ignore[arg-type]
+            console=console,
+        )
+
+        runner._log_tool_result(
+            "WebSearch",
+            DummyBlock([{"type": "text", "text": "search quota exceeded"}], is_error=True),
+            summary=None,
+        )
+
+        output = console.export_text()
+        self.assertIn("Failed: search quota exceeded", output)
+
 
 if __name__ == "__main__":
     unittest.main()

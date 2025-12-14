@@ -8,7 +8,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - User Value: Installable CLI command `dogent` exists.
 - Acceptance: `pip install .` exposes `dogent`; running shows welcome prompt; `dogent -h/-v` work.
 - Dev Status: Done
-- Acceptance Status: Accepted
+- Acceptance Status: Pending (retest after history.json migration)
 - Verification: Manual install/run check.
 
 ### Story 2: Workspace Bootstrap
@@ -227,21 +227,21 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - User Value: Quickly review recent sessions and todo outcomes without leaving the CLI.
 - Acceptance: `/history` shows recent history entries in a structured view plus the latest todo snapshot; handles empty history gracefully with friendly messaging.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: `tests/test_history_command.py::test_history_command_shows_recent_entries_and_todos`.
 
 ### Story 32: Home Template Version Refresh
 - User Value: Home templates stay current after Dogent upgrades without manual copying.
 - Acceptance: `~/.dogent/version` records the installed Dogent version; when the version changes, prompts/templates under `~/.dogent` are refreshed from packaged defaults while keeping `~/.dogent/claude.json` intact; user is notified on sync.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: `tests/test_config.py::test_home_templates_updated_on_version_change`.
 
 ### Story 33: Profile Placeholder Warning
 - User Value: Avoid running with placeholder credentials.
 - Acceptance: If `.dogent/dogent.json` references a profile whose token in `~/.dogent/claude.json` is missing or still set to `replace-me`, Dogent prints an alert prompting the user to update credentials.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: `tests/test_config.py::test_warns_on_placeholder_profile`.
 
 ### Story 34: Web Tool Result Clarity
@@ -255,5 +255,12 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - User Value: Quick in-CLI reference to models, API, profiles, images path, and available commands.
 - Acceptance: `/help` renders a panel with current model/API/profile/images path, command descriptions, and shortcut tips.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: `tests/test_help_and_tools.py::test_help_command_shows_usage`.
+
+### Story 36: Clear History & Memory
+- User Value: Start a new session without leftover context.
+- Acceptance: `/clear` empties `.dogent/history.json`, removes `.dogent/memory.md` if present, and resets in-memory todos with a confirmation panel; handles missing files gracefully.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `tests/test_clear_command.py::test_clear_command_resets_history_and_memory`.

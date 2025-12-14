@@ -89,3 +89,7 @@ class HistoryManager:
     def _ensure_history_file(self) -> None:
         if not self.paths.history_file.exists():
             self._write_entries([])
+
+    def clear(self) -> None:
+        """Clear all recorded history entries."""
+        self._write_entries([])

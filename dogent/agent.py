@@ -205,20 +205,44 @@ class AgentRunner:
     ) -> None:
         is_error = bool(getattr(block, "is_error", False))
         icon = "❌" if is_error else "📥"
-        status = "Failed" if is_error else "Result"
+        status = "Failed" if is_error else "Success"
         title = f"{icon} {status} {name}"
-        detail = summary or self._shorten(block.content)
-        if name in {"WebFetch", "WebSearch"}:
-            detail = detail or "No details returned."
-            prefix = "Failed" if is_error else "Success"
-            body = f"{prefix}: {detail}"
-        else:
-            body = detail or "No content returned."
-            if is_error:
-                body = f"Reason: {body}"
+        detail = summary or self._format_tool_result_content(block.content)
+        if not detail:
+            detail = "No details returned." if is_error else "No content returned."
+        body = f"{status}: {detail}"
         self.console.print(
             Panel(Text(str(body)), title=title, border_style="red" if is_error else "green")
         )
+
+    def _format_tool_result_content(self, content: object) -> str:
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return self._shorten(content)
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get("type") == "text" and item.get("text"):
+                        parts.append(str(item["text"]))
+                        continue
+                    if item.get("message"):
+                        parts.append(str(item["message"]))
+                        continue
+                    if item.get("error"):
+                        parts.append(str(item["error"]))
+                        continue
+                    if item.get("text"):
+                        parts.append(str(item["text"]))
+                        continue
+                elif item is None:
+                    continue
+                else:
+                    parts.append(str(item))
+            text = "\n".join(part for part in parts if part)
+            return self._shorten(text) if text else ""
+        return self._shorten(str(content))
 
     def _render_todos(self, show_empty: bool = True) -> None:
         if self._skip_todo_render_once:
