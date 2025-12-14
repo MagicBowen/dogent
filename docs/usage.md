@@ -36,7 +36,7 @@
 - `/config` – generate config JSON (profile-only, includes `images_path`).
 - `/exit` – leave the CLI.
 - Typing `/` shows live command suggestions; typing `@` offers file completions.
-- Press `Esc` during an in-progress task to interrupt; progress is saved to `.dogent/history.md`.
+- Press `Esc` during an in-progress task to interrupt; progress is saved to `.dogent/history.json`.
 
 ## Referencing Files
 - Inline `@` references pull file contents into the prompt, e.g. `Review @docs/plan.md`.
@@ -48,7 +48,7 @@
 
 ## Document Writing Expectations
 - Defaults: Chinese, Markdown, citations at the end; images saved under configured `images_path` (default `./images`) and referenced with relative paths.
-- The system prompt enforces planning, research (including online search), sectioned drafting, validation, and final polishing; history in `.dogent/history.md` provides continuity.
+- The system prompt enforces planning, research (including online search), sectioned drafting, validation, and final polishing; history in `.dogent/history.json` provides continuity.
 - Temporary notes go to `.dogent/memory.md` only when needed—create on demand and clean after use.
 
 ## Running Tests

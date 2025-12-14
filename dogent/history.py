@@ -9,13 +9,12 @@ from .paths import DogentPaths
 
 
 class HistoryManager:
-    """Appends structured progress entries to .dogent/history.md."""
+    """Appends structured progress entries to .dogent/history.json."""
 
     def __init__(self, paths: DogentPaths) -> None:
         self.paths = paths
         self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
-        if not self.paths.history_file.exists():
-            self._write_entries([])
+        self._ensure_history_file()
 
     def append(
         self,
@@ -45,9 +44,19 @@ class HistoryManager:
         if not self.paths.history_file.exists():
             return []
         try:
-            return json.loads(self.paths.history_file.read_text(encoding="utf-8"))
+            data = json.loads(self.paths.history_file.read_text(encoding="utf-8"))
+            return data if isinstance(data, list) else []
         except Exception:
             return []
+
+    def read_raw(self) -> str:
+        """Return raw history file contents for template injection."""
+        if not self.paths.history_file.exists():
+            return ""
+        try:
+            return self.paths.history_file.read_text(encoding="utf-8")
+        except Exception:
+            return ""
 
     def to_prompt_block(self, limit: int = 5) -> str:
         entries = self.read_entries()
@@ -67,3 +76,7 @@ class HistoryManager:
             json.dumps(entries, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+    def _ensure_history_file(self) -> None:
+        if not self.paths.history_file.exists():
+            self._write_entries([])

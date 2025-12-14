@@ -10,7 +10,9 @@ from dogent.paths import DogentPaths
 
 class ConfigTests(unittest.TestCase):
     def test_init_files_created(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
             paths = DogentPaths(Path(tmp))
             manager = ConfigManager(paths)
             manager.create_init_files()
@@ -19,6 +21,10 @@ class ConfigTests(unittest.TestCase):
             # memory and images should not be auto-created now
             self.assertFalse(paths.memory_file.exists())
             self.assertFalse(paths.images_dir.exists())
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
 
     def test_profile_and_project_resolution(self) -> None:
         original_home = os.environ.get("HOME")
@@ -82,7 +88,9 @@ class ConfigTests(unittest.TestCase):
             "ANTHROPIC_MODEL": os.environ.get("ANTHROPIC_MODEL"),
             "ANTHROPIC_SMALL_FAST_MODEL": os.environ.get("ANTHROPIC_SMALL_FAST_MODEL"),
         }
-        with tempfile.TemporaryDirectory() as tmp:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
             root = Path(tmp)
             paths = DogentPaths(root)
             manager = ConfigManager(paths)
@@ -92,6 +100,10 @@ class ConfigTests(unittest.TestCase):
 
             options = manager.build_options("sys")
             self.assertIsNone(options.fallback_model)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
         for key, val in original_env.items():
             if val is None:
                 os.environ.pop(key, None)
@@ -99,13 +111,19 @@ class ConfigTests(unittest.TestCase):
                 os.environ[key] = val
 
     def test_images_path_default(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
             root = Path(tmp)
             paths = DogentPaths(root)
             manager = ConfigManager(paths)
             manager.create_config_template()
             settings = manager.load_settings()
             self.assertEqual(settings.images_path, "./images")
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
 
     def test_profile_md_supported_and_gitignore_not_modified(self) -> None:
         original_home = os.environ.get("HOME")
@@ -141,6 +159,43 @@ class ConfigTests(unittest.TestCase):
 
             gitignore_content = gitignore.read_text(encoding="utf-8")
             self.assertNotIn(".dogent/dogent.json", gitignore_content)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_home_bootstrap_copies_prompts_and_templates(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            ConfigManager(paths)
+
+            self.assertTrue(paths.global_prompts_dir.joinpath("system.md").exists())
+            self.assertTrue(paths.global_prompts_dir.joinpath("user_prompt.md").exists())
+            self.assertTrue(paths.global_templates_dir.joinpath("dogent_default.json").exists())
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_config_template_respects_home_template(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            home_templates = Path(tmp_home) / ".dogent" / "templates"
+            home_templates.mkdir(parents=True, exist_ok=True)
+            custom_template = '{"profile": "custom", "images_path": "/data/imgs"}'
+            (home_templates / "dogent_default.json").write_text(
+                custom_template, encoding="utf-8"
+            )
+
+            paths = DogentPaths(Path(tmp))
+            manager = ConfigManager(paths)
+            manager.create_config_template()
+            content = paths.config_file.read_text(encoding="utf-8")
+            self.assertIn('"custom"', content)
+            self.assertIn('"/data/imgs"', content)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

@@ -1,6 +1,10 @@
+import io
+import os
 import tempfile
 import unittest
 from pathlib import Path
+
+from rich.console import Console
 
 from dogent.file_refs import FileReferenceResolver
 from dogent.history import HistoryManager
@@ -52,6 +56,42 @@ class PromptTests(unittest.TestCase):
             prompt = builder.build_system_prompt(settings=settings)
 
             self.assertIn("/tmp/custom/images", prompt)
+
+    def test_template_warns_on_missing_and_reads_config_values(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            prompts_dir = Path(tmp_home) / ".dogent" / "prompts"
+            prompts_dir.mkdir(parents=True, exist_ok=True)
+            (prompts_dir / "system.md").write_text(
+                "Profile {config:profile} nested {config:custom.nested} missing {unknown}",
+                encoding="utf-8",
+            )
+            (prompts_dir / "user_prompt.md").write_text(
+                "User message: {user_message} cfg {config:custom.nested}", encoding="utf-8"
+            )
+
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            todo_manager = TodoManager()
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo_manager, history, console=console)
+
+            config_data = {"profile": "demo", "custom": {"nested": "value"}}
+            system_prompt = builder.build_system_prompt(config=config_data)
+            self.assertIn("demo", system_prompt)
+            self.assertIn("value", system_prompt)
+
+            warning_output = console.file.getvalue()
+            self.assertIn("Warning", warning_output)
+            user_prompt = builder.build_user_prompt("msg", [], config=config_data)
+            self.assertIn("msg", user_prompt)
+            self.assertIn("value", user_prompt)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
 
 
 if __name__ == "__main__":

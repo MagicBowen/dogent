@@ -26,11 +26,23 @@ class DogentPaths:
 
     @property
     def history_file(self) -> Path:
-        return self.dogent_dir / "history.md"
+        return self.dogent_dir / "history.json"
+
+    @property
+    def global_dir(self) -> Path:
+        return Path.home() / ".dogent"
 
     @property
     def global_profile_file(self) -> Path:
-        return Path.home() / ".dogent" / "claude.json"
+        return self.global_dir / "claude.json"
+
+    @property
+    def global_prompts_dir(self) -> Path:
+        return self.global_dir / "prompts"
+
+    @property
+    def global_templates_dir(self) -> Path:
+        return self.global_dir / "templates"
 
     @property
     def images_dir(self) -> Path:

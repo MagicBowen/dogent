@@ -107,7 +107,9 @@ class DogentCLI:
         self.config_manager = ConfigManager(self.paths, console=self.console)
         self.file_resolver = FileReferenceResolver(self.root)
         self.history_manager = HistoryManager(self.paths)
-        self.prompt_builder = PromptBuilder(self.paths, self.todo_manager, self.history_manager)
+        self.prompt_builder = PromptBuilder(
+            self.paths, self.todo_manager, self.history_manager, console=self.console
+        )
         self.agent = AgentRunner(
             config=self.config_manager,
             prompt_builder=self.prompt_builder,

@@ -106,7 +106,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
 ### Story 15: History Persistence
 - User Value: Resume prior progress seamlessly.
-- Acceptance: Structured progress appended to `.dogent/history.md` each task (requests, summaries, todos); system prompt instructs loading history on re-entry; CLI echoes only actually created files on `/init`.
+- Acceptance: Structured progress appended to `.dogent/history.json` each task (requests, summaries, todos); system prompt instructs loading history on re-entry; CLI echoes only actually created files on `/init`.
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: Test/inspection of history write/read and prompt content.
@@ -127,7 +127,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
 ### Story 18: Interrupt with Esc
 - User Value: Stop a task without killing the CLI and keep progress.
-- Acceptance: Esc interrupts Claude Agent SDK task (per SDK docs), records progress to `.dogent/history.md`, then returns to prompt; next prompt should include history so agent resumes, not just a summary.
+- Acceptance: Esc interrupts Claude Agent SDK task (per SDK docs), records progress to `.dogent/history.json`, then returns to prompt; next prompt should include history so the agent resumes, not just a summary.
 - Important Tips: Refer to the corresponding document and example codes in claude-agent-sdk folder for how interrupt claude agent sdk
 - Dev Status: Done
 - Acceptance Status: Accepted
@@ -197,6 +197,22 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: Docs review.
+
+## Release 0.4
+
+### Story 28: Home Template Bootstrap
+- User Value: Users can tweak prompts and default configs under `~/.dogent` without changing code.
+- Acceptance: On first start, copy packaged `dogent/prompts` and `dogent/templates` into `~/.dogent`; `/init` and `/config` generate files from those copies; editing home templates changes generated workspace files.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `tests/test_config.py::test_home_bootstrap_copies_prompts_and_templates`, `tests/test_config.py::test_config_template_respects_home_template`, UAT Release 0.4.
+
+### Story 29: Flexible Prompt Injection
+- User Value: Prompt templates can reference workspace state and config keys safely even after user edits.
+- Acceptance: Templates support placeholders for working dir, history (full/recent), memory, todo list, user input, attachments, and `config:<key>` paths; missing values render empty and warn the user; README lists available parameters.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `tests/test_prompts.py::test_template_warns_on_missing_and_reads_config_values`, README template parameter section, UAT Release 0.4.
 
 ### Story 28: English System UI
 - User Value: Consistent English UI labels while respecting LLM output language.
