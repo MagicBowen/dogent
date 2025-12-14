@@ -9,7 +9,7 @@ Use the sample workspace at `uats/sample_workspace` unless a step says otherwise
 2) Run `dogent -h` for help and `dogent -v` for version.
 3) Run `dogent` (any directory). Expect the Dogent prompt and help message.
 
-User Test Results: PASS
+User Test Results: Pending (retest after history.json migration)
 - when enter dogent cli, show the llm model using and api url in the Dogent prompt and help message.
 
 ### Story 2 – Workspace Bootstrap
@@ -83,7 +83,7 @@ User Test Results: PASS
 User Test Results: PASS
 
 ### Story 15 – History Persistence
-1) Run a task to completion; open `.dogent/history.md` to see a structured entry.
+1) Run a task to completion; open `.dogent/history.json` to see a structured entry.
 2) Restart `dogent` in the same directory; history is available for continuity and records every user request/result; `/init` echoes only created files.
 
 User Test Results: PASS
@@ -102,7 +102,7 @@ User Test Results: PASS
 
 ### Story 18 – Interrupt with Esc
 1) Start a long-running task; press `Esc`.
-2) Task is interrupted via Claude Agent SDK, progress recorded to `.dogent/history.md`, and prompt returns; the next user prompt should include history so the agent resumes without emitting an extra summary.
+2) Task is interrupted via Claude Agent SDK, progress recorded to `.dogent/history.json`, and prompt returns; the next user prompt should include history so the agent resumes without emitting an extra summary.
 
 User Test Results: PASS
 
@@ -165,5 +165,27 @@ User Test Results: PASS
 ### Story 28 – English System UI
 1) Start `dogent` and observe panels, errors, summaries, and banner titles; all UI labels should be English.
 2) Send prompts in another language and confirm LLM responses keep their original language while UI labels stay English.
+
+User Test Results: PASS
+
+## Release 0.4
+
+### Story 28 – Home Template Bootstrap
+1) (Optional backup) Move or rename your real `~/.dogent` if present, or set a temp home: `export HOME=$(mktemp -d)`.
+2) From repo root, run `dogent` once then exit. Expect `~/.dogent/prompts` and `~/.dogent/templates` to be created with `system.md`, `user_prompt.md`, `dogent_default.md`, `dogent_default.json`, `claude_default.json`.
+3) In a fresh workspace (e.g., `uats/sample_workspace`), run `dogent` then `/init` and `/config`. Confirm `.dogent/dogent.md` and `.dogent/dogent.json` match the templates under `~/.dogent/templates` (open both to compare).
+4) Edit `~/.dogent/templates/dogent_default.json` (e.g., change profile to `custom-profile`), remove the workspace `.dogent/dogent.json`, rerun `/config`, and verify the regenerated file reflects the edited template.
+
+User Test Results: PASS
+
+### Story 29 – Flexible Prompt Injection
+1) Edit `~/.dogent/prompts/system.md` to add markers such as `Profile={config:profile}` and `HistoryLast={history:last}`; edit `~/.dogent/prompts/user_prompt.md` to include `ConfigImages={config:images_path}` and `Missing={not_set}`.
+2) In `uats/sample_workspace`, set `.dogent/dogent.json` with `"profile": "uat-profile", "images_path": "/tmp/uat-images", "custom": {"nested": "hello"}`.
+3) Create `.dogent/history.json` with a couple of JSON entries and `.dogent/memory.md` with sample text; ensure todos are empty.
+4) Run `dogent` and send a short message. Observe in the first assistant system rendering that `{config:profile}`, `{history:last}`, `{memory}`, and `{config:images_path}` are injected; `{not_set}` renders empty.
+5) Confirm a yellow warning appears about missing template values (for `{not_set}`) instead of a crash.
+6) (Optional) Add `{config:custom.nested}` to the templates and rerun to see nested config values injected.
+
+Note: history now lives in `.dogent/history.json` (structured JSON).
 
 User Test Results: PASS

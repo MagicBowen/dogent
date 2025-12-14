@@ -1,4 +1,5 @@
 import io
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -35,7 +36,9 @@ class TodoManagerTests(unittest.TestCase):
 
     def test_agent_updates_todo_from_tool(self) -> None:
         console = Console(file=io.StringIO(), force_terminal=True)
-        with tempfile.TemporaryDirectory() as tmp:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
             root = Path(tmp)
             paths = DogentPaths(root)
             todo_manager = TodoManager(console=console)
@@ -54,6 +57,10 @@ class TodoManagerTests(unittest.TestCase):
 
             self.assertEqual(len(todo_manager.items), 1)
             self.assertEqual(todo_manager.items[0].title, "draft")
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
 
 
 if __name__ == "__main__":

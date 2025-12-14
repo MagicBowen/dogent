@@ -66,13 +66,13 @@ Finally, package and deploy the program, complete local testing, and output usag
 
 - After entering the dogent interactive command-line interface (CLI), first display a handcrafted character pattern of "dogent" generated with pure ASCII/Unicode art to enhance the visual appeal of the interactive CLI welcome screen.
 
-- Design a structured format that requires dogent to record the key progress of tasks in `.dogent/history.md` each time. This allows dogent to load previous history and progress when launched in the same directory next time, ensuring continuity between subsequent work sessions. Modify the system prompt to inform the dogent agent of this file’s purpose and enable on-demand loading and usage.
+- Design a structured format that requires dogent to record the key progress of tasks in `.dogent/history.json` each time. This allows dogent to load previous history and progress when launched in the same directory next time, ensuring continuity between subsequent work sessions. Modify the system prompt to inform the dogent agent of this file’s purpose and enable on-demand loading and usage.
 
 - `.dogent/memory.md` is used for temporarily recording information during a single dogent task session. Therefore, the system prompt should instruct the dogent agent to use this file as needed—create it only when required (not every time) and automatically clean it up after use.
 
 - Do not create the images directory by default at startup. This directory serves as the default path for the agent to download images when needed, and users can configure it in .dogent/dogent.json. If no configuration is set, the default path is the images directory in the current working directory. Add a configuration item for the default image download path in the config file created when the user executes the `/config` command.
 
-- When dogent is running in the interactive CLI, allow users to press the Esc key to terminate the current agent task, then input other instructions. (When dogent is interrupted, it must record the progress to `.dogent/history.md` so that previous work progress can be retrieved when resuming.)， How to interrupt claude agent sdk, please refer to the corresponding document and example codes in claude-agent-sdk folder.
+- When dogent is running in the interactive CLI, allow users to press the Esc key to terminate the current agent task, then input other instructions. (When dogent is interrupted, it must record the progress to `.dogent/history.json` so that previous work progress can be retrieved when resuming.)， How to interrupt claude agent sdk, please refer to the corresponding document and example codes in claude-agent-sdk folder.
 
 - Remove the `/todo` command and its associated code from the interactive CLI.
 
@@ -103,8 +103,20 @@ The key design principles outlined above shall be added to **AGENTS.md** as bind
 
 ## Release 0.4
 
-- 我已经更新了 `dogent/templates/dogent_default.md`，该文件给了各种文章撰写的要求选项，可选配置以及默认配置。如果用户第一次在某个目录下进入 dogent 交互式 cli 的时候，发现该目录下还没有 `.dogent/dogent.md` 文件，则使用该模板生成 `.dogent/dogent.md`，并提示用户进行修改。
-- 修改 dogent 交互式CLI中执行 `/init` 的逻辑，首先`/init` 命令中用户可以增加 prompt 要求作为参数，如 `/init technique paper style long document`，需要根据用户的 prompt 参数要求，将 `dogent/templates/dogent_default.md` 和 用户 prompt 发送给 LLM，让其帮忙生成配置好的 `.dogent/dogent.md`（如果没有，则根据用户要求配置 `dogent/templates/dogent_default.md` 模版生成 `.dogent/dogent.md`），或者改写已有的`.dogent/dogent.md` （依据用户要求改写）。如果用户只是单纯的运行 `/init`，则根据用户之前撰写的内容和要求进行总结后作为用户要求，配置 `dogent/templates/dogent_default.md` 模版生成 `.dogent/dogent.md`或者改写已有的 `.dogent/dogent.md`；
-- user_prompt.md 中不需要携带 `Todo Snapshot` 信息 和 `Recent History` 信息， 请同步修改代码；
-- system prompt 中的模板参数变少了
-- system prompt 和 user_prompt 可能经常改写，dogent.json 的内容可能也会变，因此需要解耦
+- Extract the configuration file template corresponding to `template` in the `create_config_template` function in `dogent/config.py` into an independent template file, and place it in the `dogent/templates/dogent_default.json` file. This facilitates modifying the default configuration file and decoupling it from the code;
+
+- The files under `dogent/prompts` and `dogent/templates` need to be copied to the corresponding locations under `~/.dogent` during the first installation of dogent (or the first startup). This allows users to adjust and optimize them independently (including optimizing prompts, modifying and adding default configuration items, etc.). After each startup of dogent, the prompts to be loaded or the default configuration files to be created must be based on the corresponding files under `~/.dogent`;
+
+- Since users are allowed to optimize and modify the prompt templates and configuration file templates under `~/.dogent`, the template parameters referenced in the prompt templates (such as `working_dir`, etc.) will be frequently adjusted and changed. Therefore, a set of flexible template injection schemes needs to be designed and implemented. Prompt templates must also be able to reference configuration parameters in the dogent configuration file, ensuring that users do not need to modify the code after changing variable references in the prompt templates. Some template parameters that I currently think need to be injected into prompts include:
+  - Current working directory: `{working_dir}`
+  - Content in the history file; the full text of the history file can be specified as `{history}`, or only the most recent history records can be referenced as `{history:last}`;
+  - All content in the memory file: `{memory}`
+  - Latest to-do list: `{todo_list}`
+  - Parameters using user prompt: `{user_message}`, `{attachments}`
+  - Configuration items in the configuration file: such as a specific configuration item in `dogent/dogent.json` (`{config:profile}`, `{config:images_path}`), or a custom configuration item added by the user in the configuration file: `{config:user_specified}`
+  - You may continue to design other required template parameters for reference in prompt templates. Finally, please structurally organize all these parameters (which users can configure for prompt templates) and their usage into the README file.
+  - If a template parameter referenced in a user-modified prompt template does not exist, it defaults to an empty string. However, a warning must be printed to the user when generating the prompt template if any referenced parameter is empty;
+
+Ultimately, users should be able to optimize prompt templates (system prompts or other prompt templates) independently without modifying the code, and reference predefined template parameters in prompt templates—including configuration items configured by the user in `dogent/dogent.json`;
+
+- Modify the relevant code according to the above requirements, including the logic for generating and loading prompt templates, and the processing logic for `/init` and `/config` endpoints;

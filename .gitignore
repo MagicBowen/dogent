@@ -6,7 +6,7 @@ build/
 *.egg-info/
 .doc-config.yaml
 .dogent/memory.md
-.dogent/history.md
+.dogent/history.json
 images/
 .claude-local/
 claude-agent-sdk-python/

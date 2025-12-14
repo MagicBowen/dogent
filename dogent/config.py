@@ -41,9 +41,7 @@ class ConfigManager:
         self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
 
         if not self.paths.doc_preferences.exists():
-            self.paths.doc_preferences.write_text(
-                self._doc_template(), encoding="utf-8"
-            )
+            self.paths.doc_preferences.write_text(self._doc_template(), encoding="utf-8")
             created.append(self.paths.doc_preferences)
         # history file ensured by HistoryManager on use; memory is on-demand.
         return created
@@ -51,17 +49,18 @@ class ConfigManager:
     def create_config_template(self) -> None:
         """Create .dogent/dogent.json referencing a profile without embedding secrets."""
         self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
-        template = {
-            "profile": "deepseek",
-            "images_path": "./images",
-        }
-        self.paths.config_file.write_text(
-            json.dumps(template, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        template_text = self._read_home_template("dogent_default.json")
+        if not template_text:
+            template_text = json.dumps(
+                {"profile": "deepseek", "images_path": "./images"},
+                indent=2,
+                ensure_ascii=False,
+            )
+        self.paths.config_file.write_text(template_text, encoding="utf-8")
 
     def load_settings(self) -> DogentSettings:
         """Merge project config, profile, and environment variables."""
-        project_cfg = self._read_json(self.paths.config_file)
+        project_cfg = self.load_project_config()
         profile_name = project_cfg.get("profile")
         profile_cfg = self._load_profile(profile_name)
         env_cfg = self._env_settings()
@@ -87,6 +86,10 @@ class ConfigManager:
             "images_path": project_cfg.get("images_path") or "./images",
         }
         return DogentSettings(**resolved)
+
+    def load_project_config(self) -> Dict[str, Any]:
+        """Read the workspace-level dogent.json file."""
+        return self._read_json(self.paths.config_file)
 
     def build_options(self, system_prompt: str) -> ClaudeAgentOptions:
         """Construct ClaudeAgentOptions for this workspace."""
@@ -206,9 +209,15 @@ class ConfigManager:
         return {}
 
     def _ensure_home_bootstrap(self) -> None:
-        home_dir = self.paths.global_profile_file.parent
+        home_dir = self.paths.global_dir
         if not home_dir.exists():
             home_dir.mkdir(parents=True, exist_ok=True)
+        self._copy_package_dir(
+            "dogent", self.paths.global_prompts_dir, subdir="prompts"
+        )
+        self._copy_package_dir(
+            "dogent", self.paths.global_templates_dir, subdir="templates"
+        )
         if not self.paths.global_profile_file.exists():
             default = self._default_profile_template()
             try:
@@ -235,16 +244,42 @@ class ConfigManager:
             return None
 
     def _doc_template(self) -> str:
-        try:
-            data = resources.files("dogent.templates").joinpath("dogent_default.md")
-            return Path(data).read_text(encoding="utf-8")
-        except Exception:
-            return "# Dogent Writing Constraints\n"
+        template = self._read_home_template("dogent_default.md")
+        return template or "# Dogent Writing Constraints\n"
 
     def _default_profile_template(self) -> str:
+        template = self._read_home_template("claude_default.json")
+        if template:
+            return template
+        # Minimal placeholder to avoid duplication if resources are missing
+        return json.dumps({"profiles": {"default": {}}}, indent=2)
+
+    def _read_home_template(self, name: str) -> str:
+        home_template = self.paths.global_templates_dir / name
+        if home_template.exists():
+            try:
+                return home_template.read_text(encoding="utf-8")
+            except Exception:
+                return ""
         try:
-            data = resources.files("dogent.templates").joinpath("claude_default.json")
-            return Path(data).read_text(encoding="utf-8")
+            data = resources.files("dogent").joinpath("templates").joinpath(name)
+            return data.read_text(encoding="utf-8")
         except Exception:
-            # Minimal placeholder to avoid duplication if resources are missing
-            return json.dumps({"profiles": {"default": {}}}, indent=2)
+            return ""
+
+    def _copy_package_dir(self, package: str, destination: Path, subdir: str) -> None:
+        destination.mkdir(parents=True, exist_ok=True)
+        try:
+            source_root = resources.files(package).joinpath(subdir)
+            for entry in source_root.iterdir():
+                if entry.is_dir():
+                    continue
+                target = destination / entry.name
+                if target.exists():
+                    continue
+                content = entry.read_text(encoding="utf-8")
+                target.write_text(content, encoding="utf-8")
+        except Exception:
+            self.console.print(
+                f"[yellow]Warning: could not copy default templates from {package}[/yellow]"
+            )

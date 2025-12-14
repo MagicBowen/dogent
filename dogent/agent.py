@@ -58,8 +58,13 @@ class AgentRunner:
 
     async def send_message(self, user_message: str, attachments: Iterable[FileAttachment]) -> None:
         settings = self.config.load_settings()
-        system_prompt = self.prompt_builder.build_system_prompt(settings=settings)
-        user_prompt = self.prompt_builder.build_user_prompt(user_message, list(attachments))
+        project_config = self.config.load_project_config()
+        system_prompt = self.prompt_builder.build_system_prompt(
+            settings=settings, config=project_config
+        )
+        user_prompt = self.prompt_builder.build_user_prompt(
+            user_message, list(attachments), settings=settings, config=project_config
+        )
         self._last_summary = None
         self._interrupted = False
         preview = self._shorten(user_message, limit=240)
