@@ -45,6 +45,10 @@ class DogentPaths:
         return self.global_dir / "templates"
 
     @property
+    def global_version_file(self) -> Path:
+        return self.global_dir / "version"
+
+    @property
     def images_dir(self) -> Path:
         return self.root / "images"
 

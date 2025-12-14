@@ -214,9 +214,46 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Acceptance Status: Accepted
 - Verification: `tests/test_prompts.py::test_template_warns_on_missing_and_reads_config_values`, README template parameter section, UAT Release 0.4.
 
-### Story 28: English System UI
+### Story 30: English System UI
 - User Value: Consistent English UI labels while respecting LLM output language.
 - Acceptance: System prompts/panel titles in the interactive CLI remain in English; model output retains original language.
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: UI inspection; prompt/title checks in CLI.
+
+## Release 0.5
+
+### Story 31: History Command
+- User Value: Quickly review recent sessions and todo outcomes without leaving the CLI.
+- Acceptance: `/history` shows recent history entries in a structured view plus the latest todo snapshot; handles empty history gracefully with friendly messaging.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: `tests/test_history_command.py::test_history_command_shows_recent_entries_and_todos`.
+
+### Story 32: Home Template Version Refresh
+- User Value: Home templates stay current after Dogent upgrades without manual copying.
+- Acceptance: `~/.dogent/version` records the installed Dogent version; when the version changes, prompts/templates under `~/.dogent` are refreshed from packaged defaults while keeping `~/.dogent/claude.json` intact; user is notified on sync.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: `tests/test_config.py::test_home_templates_updated_on_version_change`.
+
+### Story 33: Profile Placeholder Warning
+- User Value: Avoid running with placeholder credentials.
+- Acceptance: If `.dogent/dogent.json` references a profile whose token in `~/.dogent/claude.json` is missing or still set to `replace-me`, Dogent prints an alert prompting the user to update credentials.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: `tests/test_config.py::test_warns_on_placeholder_profile`.
+
+### Story 34: Web Tool Result Clarity
+- User Value: Understand web tool outcomes without guessing.
+- Acceptance: WebFetch/WebSearch results show explicit success or failure with the reason when failures occur; displayed in the CLI result panels.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: `tests/test_help_and_tools.py::test_web_tool_result_states_success_and_failure`.
+
+### Story 35: Help Command
+- User Value: Quick in-CLI reference to models, API, profiles, images path, and available commands.
+- Acceptance: `/help` renders a panel with current model/API/profile/images path, command descriptions, and shortcut tips.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: `tests/test_help_and_tools.py::test_help_command_shows_usage`.

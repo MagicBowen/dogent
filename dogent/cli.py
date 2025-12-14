@@ -8,13 +8,16 @@ import termios
 import threading
 import tty
 from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Tuple
+from typing import Any, Iterable, Tuple
 
+from rich import box
 from rich.align import Align
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.prompt import Prompt
+from rich.table import Table
 
 from .agent import AgentRunner
 from .commands import CommandRegistry
@@ -156,6 +159,16 @@ class DogentCLI:
             "Create .dogent/dogent.json (profile reference) and reload settings.",
         )
         self.registry.register(
+            "/history",
+            self._cmd_history,
+            "Show recent history entries and the latest todo snapshot.",
+        )
+        self.registry.register(
+            "/help",
+            self._cmd_help,
+            "Show Dogent usage, models, API, and available commands.",
+        )
+        self.registry.register(
             "/exit",
             self._cmd_exit,
             "Exit Dogent CLI gracefully.",
@@ -222,9 +235,74 @@ class DogentCLI:
         )
         return True
 
+    async def _cmd_history(self, _: str) -> bool:
+        entries = self.history_manager.read_entries()
+        if not entries:
+            self.console.print(
+                Panel(
+                    "No history yet. Run a task to populate history.",
+                    title="📜 History",
+                    border_style="yellow",
+                )
+            )
+            return True
+
+        table = Table(
+            show_header=True,
+            expand=True,
+            box=box.MINIMAL_DOUBLE_HEAD,
+            header_style="bold",
+        )
+        table.add_column("When", style="cyan", no_wrap=True)
+        table.add_column("Status", style="magenta", no_wrap=True)
+        table.add_column("Summary", style="white")
+        table.add_column("Metrics", style="dim")
+
+        for entry in reversed(entries[-5:]):
+            timestamp = self._format_timestamp(entry.get("timestamp"))
+            status = entry.get("status") or "-"
+            summary = self._shorten(entry.get("summary") or "-")
+            metrics = self._format_metrics(entry)
+            table.add_row(
+                timestamp,
+                f"{self._status_icon(status)} {status}",
+                summary,
+                metrics,
+            )
+
+        todo_panel = self.todo_manager.render_snapshot_panel(
+            self.history_manager.latest_todos(), title="✅ Todo Snapshot"
+        )
+        self.console.print(Panel(table, title="📜 History", border_style="cyan"))
+        self.console.print(todo_panel)
+        return True
+
     async def _cmd_exit(self, _: str) -> bool:
         await self._graceful_exit()
         return False
+
+    async def _cmd_help(self, _: str) -> bool:
+        settings = self.config_manager.load_settings()
+        commands = "\n".join(self.registry.descriptions()) or "No commands registered"
+        body = "\n".join(
+            [
+                f"Model: {settings.model or '<not set>'}",
+                f"Fast Model: {settings.small_model or '<not set>'}",
+                f"API: {settings.base_url or '<not set>'}",
+                f"Profile: {settings.profile or '<not set>'}",
+                f"Images path: {settings.images_path}",
+                "",
+                "Commands:",
+                commands,
+                "",
+                "Shortcuts:",
+                "- Esc: interrupt current task",
+                "- Alt/Option+Enter: insert newline",
+                "- Ctrl+C: exit gracefully",
+            ]
+        )
+        self.console.print(Panel(body, title="ℹ️ Help", border_style="cyan"))
+        return True
 
     async def run(self) -> None:
         settings = self.config_manager.load_settings()
@@ -379,6 +457,43 @@ class DogentCLI:
         panel = self.todo_manager.render_panel(show_empty=show_empty)
         if panel:
             self.console.print(panel)
+
+    def _format_timestamp(self, ts: Any) -> str:
+        if not ts:
+            return "-"
+        try:
+            dt = datetime.fromisoformat(str(ts))
+            return dt.astimezone().strftime("%Y-%m-%d %H:%M")
+        except Exception:
+            return str(ts)
+
+    def _format_metrics(self, entry: dict[str, Any]) -> str:
+        duration = entry.get("duration_ms")
+        api = entry.get("duration_api_ms")
+        cost = entry.get("cost_usd")
+        parts: list[str] = []
+        if duration is not None:
+            parts.append(f"Duration {duration} ms")
+        if api is not None:
+            parts.append(f"API {api} ms")
+        if cost is not None:
+            parts.append(f"Cost ${cost:.4f}")
+        return " · ".join(parts) if parts else "-"
+
+    def _status_icon(self, status: str) -> str:
+        normalized = (status or "").lower()
+        mapping = {
+            "started": "⏳",
+            "running": "🔄",
+            "interrupted": "⛔",
+            "completed": "✅",
+            "error": "❌",
+        }
+        return mapping.get(normalized, "•")
+
+    def _shorten(self, text: Any, limit: int = 120) -> str:
+        raw = str(text).replace("\n", " ").strip()
+        return raw if len(raw) <= limit else f"{raw[:limit]} …"
 
 
 def main() -> None:

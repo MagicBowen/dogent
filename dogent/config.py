@@ -12,6 +12,7 @@ from importlib import resources
 
 from claude_agent_sdk import ClaudeAgentOptions
 
+from . import __version__
 from .paths import DogentPaths
 
 
@@ -63,6 +64,7 @@ class ConfigManager:
         project_cfg = self.load_project_config()
         profile_name = project_cfg.get("profile")
         profile_cfg = self._load_profile(profile_name)
+        self._warn_if_placeholder_profile(profile_name, profile_cfg)
         env_cfg = self._env_settings()
 
         anthropic_cfg: Dict[str, Any] = {}
@@ -212,12 +214,32 @@ class ConfigManager:
         home_dir = self.paths.global_dir
         if not home_dir.exists():
             home_dir.mkdir(parents=True, exist_ok=True)
+        current_version = self._current_version()
+        stored_version = self._read_home_version()
+        first_bootstrap = stored_version is None
+        needs_refresh = stored_version is not None and stored_version != current_version
         self._copy_package_dir(
-            "dogent", self.paths.global_prompts_dir, subdir="prompts"
+            "dogent",
+            self.paths.global_prompts_dir,
+            subdir="prompts",
+            overwrite=needs_refresh,
         )
         self._copy_package_dir(
-            "dogent", self.paths.global_templates_dir, subdir="templates"
+            "dogent",
+            self.paths.global_templates_dir,
+            subdir="templates",
+            overwrite=needs_refresh,
         )
+        if needs_refresh:
+            msg = (
+                f"Updated ~/.dogent templates from version {stored_version} to {current_version}."
+                if stored_version
+                else f"Synced ~/.dogent templates for dogent {current_version}."
+            )
+            self.console.print(f"[cyan]{msg}[/cyan]")
+        elif first_bootstrap:
+            self.console.print(f"[cyan]Synced ~/.dogent templates for dogent {current_version}.[/cyan]")
+        self._write_home_version(current_version)
         if not self.paths.global_profile_file.exists():
             default = self._default_profile_template()
             try:
@@ -267,7 +289,14 @@ class ConfigManager:
         except Exception:
             return ""
 
-    def _copy_package_dir(self, package: str, destination: Path, subdir: str) -> None:
+    def _copy_package_dir(
+        self,
+        package: str,
+        destination: Path,
+        subdir: str,
+        *,
+        overwrite: bool = False,
+    ) -> None:
         destination.mkdir(parents=True, exist_ok=True)
         try:
             source_root = resources.files(package).joinpath(subdir)
@@ -275,11 +304,49 @@ class ConfigManager:
                 if entry.is_dir():
                     continue
                 target = destination / entry.name
-                if target.exists():
+                if target.exists() and not overwrite:
                     continue
                 content = entry.read_text(encoding="utf-8")
                 target.write_text(content, encoding="utf-8")
         except Exception:
             self.console.print(
                 f"[yellow]Warning: could not copy default templates from {package}[/yellow]"
+            )
+
+    def _read_home_version(self) -> Optional[str]:
+        path = self.paths.global_version_file
+        if not path.exists():
+            return None
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+            return text or None
+        except Exception:
+            return None
+
+    def _write_home_version(self, version: str) -> None:
+        try:
+            self.paths.global_version_file.write_text(version, encoding="utf-8")
+        except Exception:
+            self.console.print(
+                f"[yellow]Warning: failed to record Dogent version at {self.paths.global_version_file}.[/yellow]"
+            )
+
+    def _current_version(self) -> str:
+        try:
+            return __version__
+        except Exception:
+            return "0.0.0"
+
+    def _warn_if_placeholder_profile(
+        self, profile_name: Optional[str], profile_cfg: Dict[str, Any]
+    ) -> None:
+        if not profile_name or not profile_cfg:
+            return
+        token = profile_cfg.get("auth_token")
+        if token is None or (isinstance(token, str) and "replace" in token.lower()):
+            self.console.print(
+                "[yellow]"
+                f"Profile '{profile_name}' in {self.paths.global_profile_file} still has placeholder credentials. "
+                "Please update it before running Dogent."
+                "[/yellow]"
             )

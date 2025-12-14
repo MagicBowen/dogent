@@ -71,6 +71,15 @@ class HistoryManager:
             lines.append(f"- [{status}] {summary} ({ts})")
         return "\n".join(lines)
 
+    def latest_todos(self) -> list[dict[str, Any]]:
+        """Return the most recently recorded todo list."""
+        entries = self.read_entries()
+        for entry in reversed(entries):
+            todos = entry.get("todos")
+            if todos is not None:
+                return todos or []
+        return []
+
     def _write_entries(self, entries: list[dict[str, Any]]) -> None:
         self.paths.history_file.write_text(
             json.dumps(entries, ensure_ascii=False, indent=2),
