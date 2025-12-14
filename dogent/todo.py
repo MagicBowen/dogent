@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Iterable, List, Optional
 
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -72,6 +73,26 @@ class TodoManager:
             lines.append(f"{icon} {item.title}{note}")
         text = Text("\n".join(lines))
         return Panel(text, title="✅ Todo", border_style="cyan")
+
+    def render_snapshot_panel(self, payload: Any, title: str = "✅ Todo Snapshot") -> Panel:
+        """Render a standalone todo panel without mutating current state."""
+        items = self._normalize_items(payload) or []
+        table = Table(
+            show_header=True,
+            expand=True,
+            box=box.MINIMAL_DOUBLE_HEAD,
+            show_lines=False,
+        )
+        table.add_column("Status", style="cyan", no_wrap=True)
+        table.add_column("Title", style="white")
+        table.add_column("Note", style="dim")
+        if not items:
+            table.add_row("-", "No todo history recorded yet.", "")
+        else:
+            for item in items:
+                icon = self._status_icon(item.status)
+                table.add_row(f"{icon} {item.status}", item.title, item.note or "")
+        return Panel(table, title=title, border_style="green")
 
     def _normalize_items(self, payload: Any) -> Optional[List[TodoItem]]:
         """Accept varied payloads and return a normalized list of TodoItem."""

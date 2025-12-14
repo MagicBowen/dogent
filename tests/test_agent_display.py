@@ -37,7 +37,7 @@ class AgentDisplayTests(unittest.TestCase):
             runner._log_tool_result("WebFetch", block)
             output = console.file.getvalue()
             self.assertIn("Failed WebFetch", output)
-            self.assertIn("Reason: timeout", output)
+            self.assertIn("Failed: timeout", output)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

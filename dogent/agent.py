@@ -207,11 +207,15 @@ class AgentRunner:
         icon = "❌" if is_error else "📥"
         status = "Failed" if is_error else "Result"
         title = f"{icon} {status} {name}"
-        body = summary or self._shorten(block.content)
-        if not body:
-            body = "No content returned."
-        if is_error:
-            body = f"Reason: {body}"
+        detail = summary or self._shorten(block.content)
+        if name in {"WebFetch", "WebSearch"}:
+            detail = detail or "No details returned."
+            prefix = "Failed" if is_error else "Success"
+            body = f"{prefix}: {detail}"
+        else:
+            body = detail or "No content returned."
+            if is_error:
+                body = f"Reason: {body}"
         self.console.print(
             Panel(Text(str(body)), title=title, border_style="red" if is_error else "green")
         )

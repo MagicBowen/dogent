@@ -162,12 +162,6 @@ User Test Results: PASS
 
 User Test Results: PASS
 
-### Story 28 – English System UI
-1) Start `dogent` and observe panels, errors, summaries, and banner titles; all UI labels should be English.
-2) Send prompts in another language and confirm LLM responses keep their original language while UI labels stay English.
-
-User Test Results: PASS
-
 ## Release 0.4
 
 ### Story 28 – Home Template Bootstrap
@@ -189,3 +183,44 @@ User Test Results: PASS
 Note: history now lives in `.dogent/history.json` (structured JSON).
 
 User Test Results: PASS
+
+### Story 30 – English System UI
+1) Start `dogent` and observe panels, errors, summaries, and banner titles; all UI labels should be English.
+2) Send prompts in another language and confirm LLM responses keep their original language while UI labels stay English.
+
+User Test Results: PASS
+
+## Release 0.5
+
+### Story 31 – History Command
+1) In `uats/sample_workspace`, ensure `.dogent/history.json` has at least one entry (run a quick task if needed).
+2) Start `dogent` and run `/history`.
+3) Expect a structured history table (latest entries first) and a todo snapshot reflecting the last recorded todos; if history is empty, a friendly notice is shown.
+
+User Test Results: Pending
+
+### Story 32 – Home Template Version Refresh
+1) Set a temp home: `export HOME=$(mktemp -d)` and run `dogent` once, then exit.
+2) Edit `~/.dogent/prompts/system.md` to add a marker like `OLD_PROMPT` and set `~/.dogent/version` to `0.0.0`.
+3) Run `dogent` again; expect a message that templates synced, `system.md` no longer contains `OLD_PROMPT`, `~/.dogent/version` matches `dogent -v`, and `~/.dogent/claude.json` remains unchanged.
+
+User Test Results: Pending
+
+### Story 33 – Profile Placeholder Warning
+1) Use `~/.dogent/claude.json` with the default `replace-me` token under the `deepseek` profile.
+2) In `uats/sample_workspace`, set `.dogent/dogent.json` profile to `deepseek` (create via `/config` if missing).
+3) Start `dogent` or run `/config`; expect a yellow alert telling you to update placeholder credentials before running tasks.
+
+User Test Results: Pending
+
+### Story 34 – Web Tool Result Clarity
+1) Start a session and trigger a `WebFetch` or `WebSearch` (e.g., ask for a web lookup).
+2) Observe the tool result panels: they should say “Success: ...” on success and “Failed: <reason>” on failure, making the outcome obvious.
+
+User Test Results: Pending
+
+### Story 35 – Help Command
+1) Start `dogent` and run `/help`.
+2) Expect a panel showing current model, fast model, API, profile, images path, registered commands, and shortcuts for Esc/Alt+Enter/Ctrl+C.
+
+User Test Results: Pending

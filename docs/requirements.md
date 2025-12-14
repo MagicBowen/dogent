@@ -120,3 +120,17 @@ The key design principles outlined above shall be added to **AGENTS.md** as bind
 Ultimately, users should be able to optimize prompt templates (system prompts or other prompt templates) independently without modifying the code, and reference predefined template parameters in prompt templates—including configuration items configured by the user in `dogent/dogent.json`;
 
 - Modify the relevant code according to the above requirements, including the logic for generating and loading prompt templates, and the processing logic for `/init` and `/config` endpoints;
+
+## Release 0.5
+
+- Add the `/history` command, allowing users to view the main history in a structured format, as well as the final status of the todo list. It needs to be displayed concisely, structurally, and beautifully.
+
+- Record the latest version of dogent in the `.dogent` directory under the user's home. If, during the first installation or startup after dogent is upgraded, it is found that the configuration in the .dogent directory under home is from a previous version, the latest version of the template and prompt files need to be used to replace the old version.
+
+- When updating the templates and prompts in the .dogent directory under the user's home, the user-configured claude.json should not be replaced. 
+
+- When a user configures a profile in dogent.json in their own working directory, if it references a profile in claude.json under user home `.dognet` folder, but the user has not modified the configuration of the corresponding profile in claude.json (for example, there is a default profile deepseek, but the key is "replace-me"), an alert message also needs to be given to the user, asking them to modify the necessary configuration first.
+
+- The results of Tool using，such as WebFetch or WebSearch tool, need to be displayed clearly (mainly indicating success or failure, and the reason for failure if it's a failure)
+
+- Add the `/help` command to display the usage of dogent, including the basic information and core configuration of dogent including information in first welcome panel (model, api url, commands usage...).

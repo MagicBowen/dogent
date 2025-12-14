@@ -1,0 +1,58 @@
+import os
+import tempfile
+import unittest
+from pathlib import Path
+
+from rich.console import Console
+
+from dogent.agent import AgentRunner
+from dogent.cli import DogentCLI
+from dogent.todo import TodoManager
+
+
+class DummyBlock:
+    def __init__(self, content, is_error=False) -> None:
+        self.content = content
+        self.is_error = is_error
+        self.tool_use_id = "id"
+
+
+class HelpAndToolDisplayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_help_command_shows_usage(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(record=True, force_terminal=False, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console)
+
+            await cli._cmd_help("/help")
+
+            output = console.export_text()
+            self.assertIn("Model", output)
+            self.assertIn("/help", output)
+            self.assertIn("Commands", output)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_web_tool_result_states_success_and_failure(self) -> None:
+        console = Console(record=True, force_terminal=False, color_system=None)
+        runner = AgentRunner(
+            config=None,  # type: ignore[arg-type]
+            prompt_builder=None,  # type: ignore[arg-type]
+            todo_manager=TodoManager(console=console),
+            history=None,  # type: ignore[arg-type]
+            console=console,
+        )
+
+        runner._log_tool_result("WebFetch", DummyBlock("Fetched page"), summary=None)
+        runner._log_tool_result("WebSearch", DummyBlock("timeout", is_error=True), summary=None)
+
+        output = console.export_text()
+        self.assertIn("Success: Fetched page", output)
+        self.assertIn("Failed: timeout", output)
+
+
+if __name__ == "__main__":
+    unittest.main()
