@@ -29,6 +29,10 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 - Env fallback: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 - History is stored in `.dogent/history.json` (structured JSON, managed automatically); temporary scratch lives in `.dogent/memory.md` when created on demand.
 
+## Web Search Setup (Release 0.6)
+
+Dogent supports custom web search providers (Google CSE / Bing / Brave) via `~/.dogent/web.json` and `.dogent/dogent.json` `web_profile`. See `docs/usage.md` for setup steps and examples.
+
 ## Templates & Parameters
 - On first run, Dogent copies default prompts/config templates into `~/.dogent/prompts` and `~/.dogent/templates`. Edit these to tune prompts (`system.md`, `user_prompt.md`) or defaults (`dogent_default.md`, `dogent_default.json`, `claude_default.json`).
 - `/init` and `/config` generate workspace files from the templates under `~/.dogent/templates`; prompt rendering also reads from `~/.dogent/prompts`.
@@ -47,6 +51,6 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 
 ## Development Notes
 - All prompt text lives in `dogent/prompts/` for manual tuning
-- Tests: `python -m unittest`
-- Stories and acceptance: `docs/stories.md`
+- Tests: `python -m unittest discover -s tests -v`
+- Stories and acceptance: `docs/todo.md`
 - Usage guide: `docs/usage.md`

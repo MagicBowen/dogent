@@ -14,6 +14,7 @@ from claude_agent_sdk import ClaudeAgentOptions
 
 from . import __version__
 from .paths import DogentPaths
+from .web_tools import DOGENT_WEB_ALLOWED_TOOLS, create_dogent_web_mcp_server
 
 
 @dataclass
@@ -26,6 +27,8 @@ class DogentSettings:
     disable_nonessential_traffic: bool
     profile: Optional[str]
     images_path: str
+    web_profile: Optional[str]
+    web_mode: str
 
 
 class ConfigManager:
@@ -53,7 +56,7 @@ class ConfigManager:
         template_text = self._read_home_template("dogent_default.json")
         if not template_text:
             template_text = json.dumps(
-                {"profile": "deepseek", "images_path": "./images"},
+                {"profile": "deepseek", "images_path": "./images", "web_profile": ""},
                 indent=2,
                 ensure_ascii=False,
             )
@@ -65,6 +68,16 @@ class ConfigManager:
         profile_name = project_cfg.get("profile")
         profile_cfg = self._load_profile(profile_name)
         self._warn_if_placeholder_profile(profile_name, profile_cfg)
+        raw_web_profile = project_cfg.get("web_profile")
+        web_profile_name = self._normalize_web_profile(raw_web_profile)
+        web_profile_cfg: Dict[str, Any] = {}
+        if web_profile_name:
+            web_profile_cfg = self._load_web_profile(web_profile_name)
+            if not web_profile_cfg:
+                self._warn_if_missing_web_profile(web_profile_name)
+                web_profile_name = None
+            else:
+                self._warn_if_placeholder_web_profile(web_profile_name, web_profile_cfg)
         env_cfg = self._env_settings()
 
         anthropic_cfg: Dict[str, Any] = {}
@@ -86,6 +99,8 @@ class ConfigManager:
             ),
             "profile": profile_name,
             "images_path": project_cfg.get("images_path") or "./images",
+            "web_profile": web_profile_name,
+            "web_mode": "custom" if web_profile_name else "native",
         }
         return DogentSettings(**resolved)
 
@@ -98,6 +113,8 @@ class ConfigManager:
         settings = self.load_settings()
         env = self._build_env(settings)
 
+        use_custom_web = bool(settings.web_profile)
+
         allowed_tools = [
             "Read",
             "Write",
@@ -108,13 +125,25 @@ class ConfigManager:
             "Grep",
             "Glob",
             "Task",
-            "WebFetch",
-            "WebSearch",
+            "WebFetch" if not use_custom_web else None,
+            "WebSearch" if not use_custom_web else None,
             "TodoWrite",
             "BashOutput",
             "SlashCommand",
             "NotebookEdit",
         ]
+        allowed_tools = [t for t in allowed_tools if t]
+        mcp_servers = None
+        if use_custom_web:
+            allowed_tools.extend(DOGENT_WEB_ALLOWED_TOOLS)
+            mcp_servers = {
+                "dogent": create_dogent_web_mcp_server(
+                    root=self.paths.root,
+                    images_path=settings.images_path,
+                    web_profile_name=settings.web_profile,
+                    web_profile_cfg=self._load_web_profile(settings.web_profile),
+                )
+            }
 
         add_dirs = []
         if self.paths.claude_dir.exists():
@@ -135,6 +164,7 @@ class ConfigManager:
             allowed_tools=allowed_tools,
             add_dirs=add_dirs,
             env=env,
+            mcp_servers=mcp_servers,
         )
         return options
 
@@ -210,6 +240,38 @@ class ConfigManager:
                 return data
         return {}
 
+    def _read_web_file(self) -> Dict[str, Any]:
+        path = self.paths.global_web_file
+        if path.exists():
+            data = self._read_json(path)
+            if data:
+                return data
+        return {}
+
+    def _load_web_profile(self, profile_name: Optional[str]) -> Dict[str, Any]:
+        if not profile_name:
+            return {}
+        data = self._read_web_file()
+        if not data:
+            return {}
+        profiles = data.get("profiles") or data
+        chosen = profiles.get(profile_name, {})
+        if not isinstance(chosen, dict):
+            return {}
+        return chosen
+    
+    def _normalize_web_profile(self, raw: Any) -> Optional[str]:
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            cleaned = raw.strip()
+            if not cleaned:
+                return None
+            if cleaned.lower() == "default":
+                return None
+            return cleaned
+        return None
+
     def _ensure_home_bootstrap(self) -> None:
         home_dir = self.paths.global_dir
         if not home_dir.exists():
@@ -251,6 +313,17 @@ class ConfigManager:
                 self.console.print(
                     f"[yellow]Cannot write {self.paths.global_profile_file}. Please create it manually with your credentials.[/yellow]"
                 )
+        if not self.paths.global_web_file.exists():
+            default = self._default_web_template()
+            try:
+                self.paths.global_web_file.write_text(default, encoding="utf-8")
+                self.console.print(
+                    f"[cyan]Created default web config at {self.paths.global_web_file}. Edit it with your search API credentials.[/cyan]"
+                )
+            except PermissionError:
+                self.console.print(
+                    f"[yellow]Cannot write {self.paths.global_web_file}. Please create it manually with your search API credentials.[/yellow]"
+                )
 
     def _to_bool(self, value: Optional[str]) -> bool:
         if value is None:
@@ -275,6 +348,12 @@ class ConfigManager:
             return template
         # Minimal placeholder to avoid duplication if resources are missing
         return json.dumps({"profiles": {"default": {}}}, indent=2)
+
+    def _default_web_template(self) -> str:
+        template = self._read_home_template("web_default.json")
+        if template:
+            return template
+        return json.dumps({"profiles": {"default": {"provider": "google_cse"}}}, indent=2)
 
     def _read_home_template(self, name: str) -> str:
         home_template = self.paths.global_templates_dir / name
@@ -350,3 +429,32 @@ class ConfigManager:
                 "Please update it before running Dogent."
                 "[/yellow]"
             )
+
+    def _warn_if_placeholder_web_profile(
+        self, profile_name: Optional[str], profile_cfg: Dict[str, Any]
+    ) -> None:
+        if not profile_name or not profile_cfg:
+            return
+        provider = str(profile_cfg.get("provider") or "")
+        key_fields = ("api_key", "key", "token", "subscription_key")
+        placeholder = False
+        for field in key_fields:
+            value = profile_cfg.get(field)
+            if isinstance(value, str) and "replace" in value.lower():
+                placeholder = True
+                break
+        if placeholder:
+            self.console.print(
+                "[yellow]"
+                f"Web profile '{profile_name}' in {self.paths.global_web_file} still has placeholder credentials "
+                f"(provider={provider or 'unknown'}). Please update it before running web tools."
+                "[/yellow]"
+            )
+
+    def _warn_if_missing_web_profile(self, profile_name: str) -> None:
+        self.console.print(
+            "[yellow]"
+            f"Web profile '{profile_name}' not found in {self.paths.global_web_file}. "
+            "Falling back to native WebSearch/WebFetch."
+            "[/yellow]"
+        )

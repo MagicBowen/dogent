@@ -191,11 +191,13 @@ class DogentCLI:
         model = settings.model or "<not set>"
         fast_model = settings.small_model or "<not set>"
         base_url = settings.base_url or "<not set>"
+        web_label = settings.web_profile or "default (native)"
         commands = ", ".join(self.registry.names()) or "No commands registered"
         helper_lines = [
             f"Model: {model}",
             f"Fast Model: {fast_model}",
             f"API: {base_url}",
+            f"Web Profile: {web_label}",
             f"Commands: {commands}",
             "Esc interrupts current task • Alt/Option+Enter inserts a newline • Ctrl+C exits cleanly",
         ]
@@ -314,6 +316,7 @@ class DogentCLI:
                 f"Fast Model: {settings.small_model or '<not set>'}",
                 f"API: {settings.base_url or '<not set>'}",
                 f"Profile: {settings.profile or '<not set>'}",
+                f"Web Profile: {settings.web_profile or 'default (native)'}",
                 f"Images path: {settings.images_path}",
                 "",
                 "Commands:",

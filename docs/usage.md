@@ -31,6 +31,95 @@
 
 - Environment fallback if no profile/config is provided.
 
+## Web Search Setup (Release 0.6)
+
+Dogent supports two modes:
+
+- Native mode (default): if `.dogent/dogent.json` has no `web_profile` (or it is empty/`"default"`), Dogent uses Claude Agent SDK’s built-in `WebSearch` / `WebFetch`.
+- Custom mode: if `.dogent/dogent.json` sets `web_profile` to a real profile name that exists in `~/.dogent/web.json`, Dogent uses `mcp__dogent__web_search` / `mcp__dogent__web_fetch` (with your configured provider).
+
+If you set `web_profile` to a name that does not exist in `~/.dogent/web.json`, Dogent warns at startup and falls back to native mode.
+
+### Configure `~/.dogent/web.json`
+
+Dogent creates `~/.dogent/web.json` on first run. It stores named search provider profiles:
+
+```json
+{
+  "profiles": {
+    "google": {
+      "provider": "google_cse",
+      "api_key": "replace-me",
+      "cse_id": "replace-me",
+      "timeout_s": 20,
+      "user_agent": "dogent"
+    },
+    "bing": {
+      "provider": "bing",
+      "api_key": "replace-me",
+      "endpoint": "https://api.bing.microsoft.com/v7.0",
+      "timeout_s": 20,
+      "user_agent": "dogent"
+    },
+    "brave": {
+      "provider": "brave",
+      "api_key": "replace-me",
+      "endpoint": "https://api.search.brave.com/res/v1",
+      "timeout_s": 20,
+      "user_agent": "dogent"
+    }
+  }
+}
+```
+
+Then select one profile per workspace in `.dogent/dogent.json`:
+
+```json
+{
+  "profile": "deepseek",
+  "images_path": "./images",
+  "web_profile": "brave"
+}
+```
+
+### Google Custom Search (google_cse) — Apply & Configure
+
+1. Create a Google Cloud project.
+2. Enable the **Custom Search API** (JSON API).
+3. Create an API key.
+4. Create a **Programmable Search Engine** (Custom Search Engine) and get its **Search engine ID** (also called `cx`).
+5. Put the values into `~/.dogent/web.json` under a profile (e.g., `google`) and set `.dogent/dogent.json` `web_profile` to `"google"`.
+
+Notes:
+- For image search, ensure your Programmable Search Engine is configured to search the web (or the sites you need).
+- Treat API keys as secrets; do not commit them into your repo.
+
+### Brave Search API (brave) — Apply & Configure
+
+1. Sign up for Brave Search API access (Brave developer/portal) and create a subscription.
+2. Create an API key (token).
+3. Put the token into `~/.dogent/web.json` under a profile (e.g., `brave`):
+
+```json
+{
+  "profiles": {
+    "brave": {
+      "provider": "brave",
+      "api_key": "YOUR_BRAVE_API_KEY",
+      "endpoint": "https://api.search.brave.com/res/v1",
+      "timeout_s": 20,
+      "user_agent": "dogent"
+    }
+  }
+}
+```
+
+4. Set `.dogent/dogent.json` `web_profile` to `"brave"` and restart `dogent`.
+
+Notes:
+- Dogent sends the token using the `X-Subscription-Token` request header.
+- Web and image searches return structured results; downloaded images are saved into `images_path` and returned with a Markdown snippet.
+
 ## Commands Inside the CLI
 - `/init` – create writing constraint template and scratch memory.
 - `/config` – generate config JSON (profile-only, includes `images_path`).
@@ -52,5 +141,5 @@
 - Temporary notes go to `.dogent/memory.md` only when needed—create on demand and clean after use.
 
 ## Running Tests
-- From the project root: `python -m unittest`
+- From the project root: `python -m unittest discover -s tests -v`
 - Tests cover config/profile merge, prompt assembly, and todo syncing behavior.

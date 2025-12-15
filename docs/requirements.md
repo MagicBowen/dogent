@@ -136,3 +136,12 @@ Ultimately, users should be able to optimize prompt templates (system prompts or
 - Add the `/help` command to display the usage of dogent, including the basic information and core configuration of dogent including information in first welcome panel (model, api url, commands usage...).
 
 - Add the `/clear` command to clear the history and memory if exist.
+
+## Release 0.6
+
+- Since using the native WebSearch and WebFetch tools always results in failures, I hope to develop two similar tools myself and then register them with Claude Agent ADK. WebSearch needs to be configured with search APIs (such as Google's or Bing's Custom Search API). These configurations are similar to those in claude.json, and I want users to be able to configure them in appropriate configuration files. When dogent is launched for the first time, these files will be generated in the .dogent directory under the user's home directory, allowing users to configure specific API and key information, etc. If users have multiple configurations, they can configure them in the .dogent/dogent.json file of the current project, similar to profile configuration.
+- I need to develop a tool similar to WebFetch, register it with the Claude Agent SDK, and use it to download and retrieve content from specified URLs found through WebSearch. It is necessary to filter out meaningless characters and formats from the web pages and return the core content as tool results (for submission to the model). A complete solution design based on this is required to avoid and solve various problems.
+- I need WebSearch to be able to search for images, such as searching on Google Image or finding them in web pages. Then WebFetch can download the specified images, place them in the images_path directory configured in the current dogent, and name them. After that, the images can be referenced in the written articles (if it is in markdown format, the normal image reference method should be used). A complete solution design based on this is required to avoid and solve various problems.
+- Fallback behavior:
+  - If user does not configure `web_profile` (missing/empty) or sets `web_profile` to `"default"`, Dogent should use the default Claude Agent SDK `WebSearch` and `WebFetch`.
+  - If user configures a `web_profile` name that does not exist in `~/.dogent/web.json`, Dogent should warn the user at startup and fall back to default `WebSearch` and `WebFetch`.

@@ -214,8 +214,8 @@ User Test Results: PASS
 User Test Results: PASS
 
 ### Story 34 – Web Tool Result Clarity
-1) Start a session and trigger a `WebFetch` or `WebSearch` (e.g., ask for a web lookup).
-2) Observe the tool result panels: they should say “Success: ...” on success and “Failed: <reason>” on failure, making the outcome obvious.
+1) Start a session and trigger a Dogent web tool call (e.g., ask for a web lookup or to fetch a URL).
+2) Observe the tool result panels for `mcp__dogent__web_search` / `mcp__dogent__web_fetch`: they should say “Success: ...” on success and “Failed: <reason>” on failure, making the outcome obvious.
 
 User Test Results: Pending
 
@@ -231,3 +231,40 @@ User Test Results: PASS
 3) Expect a confirmation panel listing cleared files; `.dogent/history.json` should contain an empty array, and `.dogent/memory.md` should be removed. Todos in the session reset to empty.
 
 User Test Results: PASS
+
+## Release 0.6
+
+### Story 37 – Web Tool Config Bootstrap
+1) Set a temp home: `export HOME=$(mktemp -d)`.
+2) Run `dogent` once, then `/exit`. Expect `~/.dogent/web.json` to be created (alongside `~/.dogent/claude.json`).
+3) In `uats/sample_workspace`, run `dogent` then `/config`. Confirm `.dogent/dogent.json` includes `web_profile` (may be empty by default).
+4) Run `/help` and confirm it shows a “Web Profile” line.
+5) With `web_profile` empty or set to `default`, ask for web research and confirm Dogent uses native `WebSearch`/`WebFetch`.
+
+User Test Results: Pending
+
+### Story 38 – Custom WebSearch Tool
+1) Edit `~/.dogent/web.json` and configure a real provider profile (Google CSE or Bing). Set `.dogent/dogent.json` `web_profile` to that profile name.
+2) Start `dogent` and ask: “Search the web for <topic> and list the top 3 links with 1-line summaries.”
+3) Expect a tool call to `mcp__dogent__web_search` and structured results.
+
+Fallback check (no keys):
+- With placeholder keys, expect the tool result panel to clearly explain how to configure `~/.dogent/web.json` and `web_profile`.
+
+User Test Results: Pending
+
+### Story 39 – Custom WebFetch Tool (Text + Images)
+1) Ask: “Fetch https://example.com and summarize the core content.”
+2) Expect a tool call to `mcp__dogent__web_fetch` and readable extracted text (may be truncated).
+3) Ask: “Search an image for <keyword> and download 1 image to images_path, then show the Markdown reference.”
+4) Expect an image saved under `images_path` (default `./images`) and a Markdown snippet like `![image](images/...)`.
+
+User Test Results: Pending
+
+### Story 40 – Prompts & Tool Wiring
+1) Verify `dogent/prompts/system.md` lists `mcp__dogent__web_search` and `mcp__dogent__web_fetch`.
+2) Set `.dogent/dogent.json` `web_profile` to a real configured profile and request web research; confirm Dogent uses `mcp__dogent__web_search` / `mcp__dogent__web_fetch`.
+3) Set `.dogent/dogent.json` `web_profile` to `default` (or empty) and request web research; confirm Dogent uses native `WebSearch` / `WebFetch`.
+4) Set `.dogent/dogent.json` `web_profile` to a non-existent name; restart `dogent` and confirm a startup warning is shown and native tools are used.
+
+User Test Results: Pending
