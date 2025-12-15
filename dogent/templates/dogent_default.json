@@ -1,4 +1,5 @@
 {
   "profile": "deepseek",
-  "images_path": "./images"
+  "images_path": "./images",
+  "web_profile": ""
 }

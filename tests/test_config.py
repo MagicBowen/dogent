@@ -240,6 +240,88 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(paths.global_prompts_dir.joinpath("system.md").exists())
             self.assertTrue(paths.global_prompts_dir.joinpath("user_prompt.md").exists())
             self.assertTrue(paths.global_templates_dir.joinpath("dogent_default.json").exists())
+            self.assertTrue(paths.global_templates_dir.joinpath("web_default.json").exists())
+            self.assertTrue(paths.global_web_file.exists())
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_build_options_registers_dogent_web_tools(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            manager = ConfigManager(paths)
+            options = manager.build_options("sys")
+
+            self.assertIsNone(options.mcp_servers)
+            self.assertIn("WebSearch", options.allowed_tools)
+            self.assertIn("WebFetch", options.allowed_tools)
+            self.assertNotIn("mcp__dogent__web_search", options.allowed_tools)
+            self.assertNotIn("mcp__dogent__web_fetch", options.allowed_tools)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_build_options_uses_dogent_web_tools_when_profile_set(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            manager = ConfigManager(paths)
+
+            # Configure workspace to use a real web profile
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.config_file.write_text(
+                json.dumps({"profile": "deepseek", "images_path": "./images", "web_profile": "google"}),
+                encoding="utf-8",
+            )
+            # Configure home web profile
+            paths.global_dir.mkdir(parents=True, exist_ok=True)
+            paths.global_web_file.write_text(
+                json.dumps(
+                    {"profiles": {"google": {"provider": "google_cse", "api_key": "k", "cse_id": "cx"}}}
+                ),
+                encoding="utf-8",
+            )
+
+            options = manager.build_options("sys")
+            self.assertIsNotNone(options.mcp_servers)
+            self.assertIn("dogent", options.mcp_servers)
+            self.assertIn("mcp__dogent__web_search", options.allowed_tools)
+            self.assertIn("mcp__dogent__web_fetch", options.allowed_tools)
+            self.assertNotIn("WebSearch", options.allowed_tools)
+            self.assertNotIn("WebFetch", options.allowed_tools)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_warns_on_missing_web_profile_and_falls_back_native(self) -> None:
+        original_home = os.environ.get("HOME")
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=False, color_system=None)
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.config_file.write_text(
+                json.dumps({"web_profile": "does-not-exist"}),
+                encoding="utf-8",
+            )
+
+            manager = ConfigManager(paths, console=console)
+            options = manager.build_options("sys")
+
+            out = buf.getvalue()
+            self.assertIn("Web profile 'does-not-exist' not found", out)
+            self.assertIsNone(options.mcp_servers)
+            self.assertIn("WebSearch", options.allowed_tools)
+            self.assertIn("WebFetch", options.allowed_tools)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

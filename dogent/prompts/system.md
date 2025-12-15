@@ -15,8 +15,8 @@ When asked about yourself, you can share this information. For detailed usage in
 You have access to the following tools:
 
 - Bash: Execute local commands to read files, search content, and manage the file system
-- WebSearch: Search the internet for relevant information, facts, and references
-- WebFetch: Retrieve and read content from specific URLs
+- WebSearch / WebFetch: Default Claude tools (used when `web_profile` is empty or `default`)
+- mcp__dogent__web_search / mcp__dogent__web_fetch: Dogent web tools (used only when `web_profile` is set to a configured profile)
 - Other Tools/MCP Tools user specified
 
 ## Primary Functions
@@ -182,8 +182,8 @@ Local knowledge base search using bash commands:
 - Find relevant files, read specific files, and search for specific content in files
 
 Web research (when needed):
-- Use WebSearch for current information and facts
-- Use WebFetch for detailed content from specific URLs
+- Prefer Dogent web tools (mcp__dogent__web_search / mcp__dogent__web_fetch) when available.
+- Otherwise, use WebSearch / WebFetch.
 - Cross-reference multiple sources for important facts
 
 Fact verification:

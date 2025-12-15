@@ -1,0 +1,25 @@
+{
+  "profiles": {
+    "google": {
+      "provider": "google_cse",
+      "api_key": "replace-me",
+      "cse_id": "replace-me",
+      "timeout_s": 20,
+      "user_agent": "dogent"
+    },
+    "bing": {
+      "provider": "bing",
+      "api_key": "replace-me",
+      "endpoint": "https://api.bing.microsoft.com/v7.0",
+      "timeout_s": 20,
+      "user_agent": "dogent"
+    },
+    "brave": {
+      "provider": "brave",
+      "api_key": "replace-me",
+      "endpoint": "https://api.search.brave.com/res/v1",
+      "timeout_s": 20,
+      "user_agent": "dogent"
+    }
+  }
+}

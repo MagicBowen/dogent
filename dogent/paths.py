@@ -37,6 +37,10 @@ class DogentPaths:
         return self.global_dir / "claude.json"
 
     @property
+    def global_web_file(self) -> Path:
+        return self.global_dir / "web.json"
+
+    @property
     def global_prompts_dir(self) -> Path:
         return self.global_dir / "prompts"
 

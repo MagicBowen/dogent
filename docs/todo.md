@@ -264,3 +264,33 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: `tests/test_clear_command.py::test_clear_command_resets_history_and_memory`.
+
+## Release 0.6
+
+### Story 37: Web Tool Config Bootstrap
+- User Value: Configure reliable web search/fetch providers without editing code.
+- Acceptance: On first run, Dogent creates `~/.dogent/web.json` (kept on upgrades); workspace `.dogent/dogent.json` can select `web_profile`; if `web_profile` is missing/empty/`default`, Dogent uses native `WebSearch`/`WebFetch`; `/help` shows the active web mode/profile.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: `tests/test_config.py::test_home_bootstrap_copies_prompts_and_templates`, config fallback tests, UAT Release 0.6.
+
+### Story 38: Custom WebSearch Tool
+- User Value: Perform reliable web + image search even when native WebSearch fails.
+- Acceptance: A custom tool `mcp__dogent__web_search` uses `~/.dogent/web.json` provider config to return structured results for web and image queries; missing/placeholder config returns a clear error message.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: `tests/test_web_tools.py::test_web_search_returns_structured_results`, `tests/test_web_tools.py::test_parse_google_cse_results_image_mode`.
+
+### Story 39: Custom WebFetch Tool (Text + Images)
+- User Value: Fetch readable page content and download images for documents.
+- Acceptance: A custom tool `mcp__dogent__web_fetch` fetches URLs, extracts core readable text for HTML, and downloads images into `images_path` (creating it on demand) with safe filenames and a Markdown reference snippet.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: `tests/test_web_tools.py::test_web_fetch_extracts_text`, `tests/test_web_tools.py::test_web_fetch_downloads_image`, `tests/test_web_tools.py::test_extract_text_from_html_strips_noise`.
+
+### Story 40: Prompts & Tool Wiring
+- User Value: Agent consistently uses Dogent’s reliable web tools during research and image workflows.
+- Acceptance: System prompt explains both native and Dogent web tools; Dogent registers MCP tools only when `web_profile` is set to a real profile; otherwise it uses native `WebSearch`/`WebFetch`; invalid `web_profile` warns at startup and falls back to native tools.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: config fallback tests, `dogent/prompts/system.md` tool section check.
