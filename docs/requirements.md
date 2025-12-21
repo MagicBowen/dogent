@@ -20,7 +20,7 @@ Specific requirements are as follows:
 - The system prompt stays constant; per-turn user prompts must dynamically include current todo state and `@file` references. Do not seed default todos—todos come from the model via TodoWrite and must be kept in sync with tool results.
 - The Tasks panel must update live based on TodoWrite tool results; detect TodoWrite tool outputs in the agent stream and render the changes in CLI UI to user immediately.
 - Users can make requests to the Agent through the interactive CLI. Users can use the @ symbol to reference files in the current directory (like Claude Code, with a dropdown selection when users input @)
-- Anthropic/Claude credentials and model settings may be managed globally in `~/.dogent/claude.json` as named profiles (e.g., `deepseek`, `glm`). A project’s `.dogent/dogent.json` can reference a profile name to populate `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`. If no profile is referenced or found, fall back to environment variables.
+- Anthropic/Claude credentials and model settings may be managed globally in `~/.dogent/claude.json` as named profiles (e.g., `deepseek`, `glm`). A project’s `.dogent/dogent.json` can reference a profile name via `llm_profile` to populate `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`. If no profile is referenced or found, fall back to environment variables.
 
     ```
     export ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic"
@@ -113,7 +113,7 @@ The key design principles outlined above shall be added to **AGENTS.md** as bind
   - All content in the memory file: `{memory}`
   - Latest to-do list: `{todo_list}`
   - Parameters using user prompt: `{user_message}`, `{attachments}`
-  - Configuration items in the configuration file: such as a specific configuration item in `dogent/dogent.json` (`{config:profile}`, `{config:images_path}`), or a custom configuration item added by the user in the configuration file: `{config:user_specified}`
+  - Configuration items in the configuration file: such as a specific configuration item in `dogent/dogent.json` (`{config:llm_profile}`, `{config:images_path}`), or a custom configuration item added by the user in the configuration file: `{config:user_specified}` (legacy `{config:profile}` remains supported)
   - You may continue to design other required template parameters for reference in prompt templates. Finally, please structurally organize all these parameters (which users can configure for prompt templates) and their usage into the README file.
   - If a template parameter referenced in a user-modified prompt template does not exist, it defaults to an empty string. However, a warning must be printed to the user when generating the prompt template if any referenced parameter is empty;
 

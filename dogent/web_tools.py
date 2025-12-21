@@ -17,6 +17,10 @@ from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool
 from . import __version__
 
 DOGENT_WEB_ALLOWED_TOOLS = ["mcp__dogent__web_search", "mcp__dogent__web_fetch"]
+DOGENT_WEB_TOOL_DISPLAY_NAMES = {
+    "mcp__dogent__web_search": "dogent_web_search",
+    "mcp__dogent__web_fetch": "dogent_web_fetch",
+}
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,18 @@ def _http_get(url: str, *, headers: dict[str, str], timeout_s: float) -> HttpRes
         headers_out = {k: v for k, v in resp.headers.items()}
         body = resp.read()
         return HttpResponse(url=resp.geturl(), status=status, headers=headers_out, body=body)
+
+
+def _default_user_agent(web_profile_cfg: dict[str, Any]) -> str:
+    configured = str(web_profile_cfg.get("user_agent") or "").strip()
+    if not configured:
+        return f"dogent/{__version__}"
+    lowered = configured.lower()
+    if lowered in {"dogent", "replace-me"}:
+        return f"dogent/{__version__}"
+    if lowered.startswith("dogent/") and lowered.split("/", 1)[1].strip() == "":
+        return f"dogent/{__version__}"
+    return configured
 
 
 def _sanitize_filename(name: str) -> str:
@@ -288,7 +304,7 @@ def create_dogent_web_tools(
             }
 
         timeout_s = float(web_profile_cfg.get("timeout_s") or 20)
-        user_agent = str(web_profile_cfg.get("user_agent") or f"dogent/{__version__}")
+        user_agent = _default_user_agent(web_profile_cfg)
         headers = {"User-Agent": user_agent}
 
         try:
@@ -380,7 +396,7 @@ def create_dogent_web_tools(
             return {"content": [{"type": "text", "text": "mode must be auto, text, or image"}], "is_error": True}
 
         timeout_s = float(web_profile_cfg.get("timeout_s") or 25)
-        user_agent = str(web_profile_cfg.get("user_agent") or f"dogent/{__version__}")
+        user_agent = _default_user_agent(web_profile_cfg)
         headers = {"User-Agent": user_agent, "Accept": "*/*"}
 
         try:

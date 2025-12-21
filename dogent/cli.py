@@ -197,6 +197,7 @@ class DogentCLI:
             f"Model: {model}",
             f"Fast Model: {fast_model}",
             f"API: {base_url}",
+            f"LLM Profile: {settings.profile or '<not set>'}",
             f"Web Profile: {web_label}",
             f"Commands: {commands}",
             "Esc interrupts current task • Alt/Option+Enter inserts a newline • Ctrl+C exits cleanly",
@@ -233,8 +234,8 @@ class DogentCLI:
         await self.agent.reset()
         settings = self.config_manager.load_settings()
         body = (
-            f"Wrote .dogent/dogent.json with profile reference.\n"
-            f"Profile: {settings.profile or '<not set>'}\n"
+            f"Wrote .dogent/dogent.json with llm_profile reference.\n"
+            f"LLM Profile: {settings.profile or '<not set>'}\n"
             f"Images path: {settings.images_path}"
         )
         self.console.print(
@@ -315,7 +316,7 @@ class DogentCLI:
                 f"Model: {settings.model or '<not set>'}",
                 f"Fast Model: {settings.small_model or '<not set>'}",
                 f"API: {settings.base_url or '<not set>'}",
-                f"Profile: {settings.profile or '<not set>'}",
+                f"LLM Profile: {settings.profile or '<not set>'}",
                 f"Web Profile: {settings.web_profile or 'default (native)'}",
                 f"Images path: {settings.images_path}",
                 "",

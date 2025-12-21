@@ -51,12 +51,12 @@ class ConfigManager:
         return created
 
     def create_config_template(self) -> None:
-        """Create .dogent/dogent.json referencing a profile without embedding secrets."""
+        """Create .dogent/dogent.json referencing an llm_profile without embedding secrets."""
         self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
         template_text = self._read_home_template("dogent_default.json")
         if not template_text:
             template_text = json.dumps(
-                {"profile": "deepseek", "images_path": "./images", "web_profile": ""},
+                {"llm_profile": "deepseek", "images_path": "./images", "web_profile": ""},
                 indent=2,
                 ensure_ascii=False,
             )
@@ -65,7 +65,7 @@ class ConfigManager:
     def load_settings(self) -> DogentSettings:
         """Merge project config, profile, and environment variables."""
         project_cfg = self.load_project_config()
-        profile_name = project_cfg.get("profile")
+        profile_name = project_cfg.get("llm_profile") or project_cfg.get("profile")
         profile_cfg = self._load_profile(profile_name)
         self._warn_if_placeholder_profile(profile_name, profile_cfg)
         raw_web_profile = project_cfg.get("web_profile")
@@ -106,7 +106,31 @@ class ConfigManager:
 
     def load_project_config(self) -> Dict[str, Any]:
         """Read the workspace-level dogent.json file."""
-        return self._read_json(self.paths.config_file)
+        data = self._read_json(self.paths.config_file)
+        return self._normalize_project_config(data)
+
+    def _normalize_project_config(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize config keys while staying backward compatible."""
+        if not data:
+            return {}
+        normalized = dict(data)
+        new_val = normalized.get("llm_profile")
+        old_val = normalized.get("profile")
+
+        if new_val and old_val and str(new_val).strip() != str(old_val).strip():
+            self.console.print(
+                "[yellow]Warning: both 'llm_profile' and legacy 'profile' are set in .dogent/dogent.json; "
+                "using 'llm_profile'.[/yellow]"
+            )
+        if not new_val and old_val:
+            normalized["llm_profile"] = old_val
+            self.console.print(
+                "[yellow]Warning: .dogent/dogent.json uses legacy key 'profile'. Please rename it to "
+                "'llm_profile' for clarity.[/yellow]"
+            )
+        if new_val and "profile" not in normalized:
+            normalized["profile"] = new_val
+        return normalized
 
     def build_options(self, system_prompt: str) -> ClaudeAgentOptions:
         """Construct ClaudeAgentOptions for this workspace."""

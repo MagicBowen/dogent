@@ -20,7 +20,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
 ### Story 3: Config & Profiles
 - User Value: Configure credentials via `/config`, profiles, env fallback.
-- Acceptance: `.dogent/dogent.json` references profile; profile overrides env; env used when missing.
+- Acceptance: `.dogent/dogent.json` references `llm_profile`; the selected profile overrides env; env used when missing.
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: `tests/test_config.py::test_profile_and_project_resolution`, `tests/test_config.py::test_profile_md_supported_and_gitignore_not_modified`.
@@ -239,7 +239,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
 ### Story 33: Profile Placeholder Warning
 - User Value: Avoid running with placeholder credentials.
-- Acceptance: If `.dogent/dogent.json` references a profile whose token in `~/.dogent/claude.json` is missing or still set to `replace-me`, Dogent prints an alert prompting the user to update credentials.
+- Acceptance: If `.dogent/dogent.json` references an `llm_profile` whose token in `~/.dogent/claude.json` is missing or still set to `replace-me`, Dogent prints an alert prompting the user to update credentials.
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: `tests/test_config.py::test_warns_on_placeholder_profile`.
@@ -253,7 +253,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
 ### Story 35: Help Command
 - User Value: Quick in-CLI reference to models, API, profiles, images path, and available commands.
-- Acceptance: `/help` renders a panel with current model/API/profile/images path, command descriptions, and shortcut tips.
+- Acceptance: `/help` renders a panel with current model/API/LLM profile/web profile/images path, command descriptions, and shortcut tips.
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: `tests/test_help_and_tools.py::test_help_command_shows_usage`.
@@ -269,21 +269,21 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
 ### Story 37: Web Tool Config Bootstrap
 - User Value: Configure reliable web search/fetch providers without editing code.
-- Acceptance: On first run, Dogent creates `~/.dogent/web.json` (kept on upgrades); workspace `.dogent/dogent.json` can select `web_profile`; if `web_profile` is missing/empty/`default`, Dogent uses native `WebSearch`/`WebFetch`; `/help` shows the active web mode/profile.
+- Acceptance: On first run, Dogent creates `~/.dogent/web.json` (kept on upgrades); workspace `.dogent/dogent.json` can select `web_profile`; if `web_profile` is missing/empty/`default`, Dogent uses native `WebSearch`/`WebFetch`; `/help` shows the active web mode/profile and LLM profile.
 - Dev Status: Done
 - Acceptance Status: Pending
 - Verification: `tests/test_config.py::test_home_bootstrap_copies_prompts_and_templates`, config fallback tests, UAT Release 0.6.
 
 ### Story 38: Custom WebSearch Tool
 - User Value: Perform reliable web + image search even when native WebSearch fails.
-- Acceptance: A custom tool `mcp__dogent__web_search` uses `~/.dogent/web.json` provider config to return structured results for web and image queries; missing/placeholder config returns a clear error message.
+- Acceptance: A custom tool `dogent_web_search` (tool ID: `mcp__dogent__web_search`) uses `~/.dogent/web.json` provider config to return structured results for web and image queries; missing/placeholder config returns a clear error message.
 - Dev Status: Done
 - Acceptance Status: Pending
 - Verification: `tests/test_web_tools.py::test_web_search_returns_structured_results`, `tests/test_web_tools.py::test_parse_google_cse_results_image_mode`.
 
 ### Story 39: Custom WebFetch Tool (Text + Images)
 - User Value: Fetch readable page content and download images for documents.
-- Acceptance: A custom tool `mcp__dogent__web_fetch` fetches URLs, extracts core readable text for HTML, and downloads images into `images_path` (creating it on demand) with safe filenames and a Markdown reference snippet.
+- Acceptance: A custom tool `dogent_web_fetch` (tool ID: `mcp__dogent__web_fetch`) fetches URLs, extracts core readable text for HTML, and downloads images into `images_path` (creating it on demand) with safe filenames and a Markdown reference snippet.
 - Dev Status: Done
 - Acceptance Status: Pending
 - Verification: `tests/test_web_tools.py::test_web_fetch_extracts_text`, `tests/test_web_tools.py::test_web_fetch_downloads_image`, `tests/test_web_tools.py::test_extract_text_from_html_strips_noise`.

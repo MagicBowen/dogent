@@ -1,5 +1,5 @@
 {
-  "profile": "deepseek",
+  "llm_profile": "deepseek",
   "images_path": "./images",
   "web_profile": ""
 }
