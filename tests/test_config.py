@@ -42,7 +42,7 @@ class ConfigTests(unittest.TestCase):
             system_prompt = prompts_dir / "system.md"
             system_prompt.write_text("old prompt", encoding="utf-8")
             default_cfg = templates_dir / "dogent_default.json"
-            default_cfg.write_text('{"profile": "old"}', encoding="utf-8")
+            default_cfg.write_text('{"llm_profile": "old"}', encoding="utf-8")
             version_file = home_dir / "version"
             version_file.write_text("0.0.0", encoding="utf-8")
             profile_file = home_dir / "claude.json"
@@ -79,7 +79,7 @@ class ConfigTests(unittest.TestCase):
             root = Path(tmp)
             paths = DogentPaths(root)
             paths.dogent_dir.mkdir(parents=True, exist_ok=True)
-            paths.config_file.write_text(json.dumps({"profile": "deepseek"}), encoding="utf-8")
+            paths.config_file.write_text(json.dumps({"llm_profile": "deepseek"}), encoding="utf-8")
 
             manager = ConfigManager(paths, console=console)
             manager.load_settings()
@@ -121,7 +121,7 @@ class ConfigTests(unittest.TestCase):
 
             paths.dogent_dir.mkdir(parents=True, exist_ok=True)
             project_cfg = {
-                "profile": "deepseek",
+                "llm_profile": "deepseek",
                 "anthropic": {
                     "base_url": "https://project.example",
                     "model": "project-model",
@@ -218,7 +218,7 @@ class ConfigTests(unittest.TestCase):
             manager.create_config_template()
 
             cfg = json.loads(paths.config_file.read_text(encoding="utf-8"))
-            self.assertEqual(cfg.get("profile"), "deepseek")
+            self.assertEqual(cfg.get("llm_profile"), "deepseek")
 
             settings = manager.load_settings()
             self.assertEqual(settings.auth_token, "md-token")
@@ -276,7 +276,7 @@ class ConfigTests(unittest.TestCase):
             # Configure workspace to use a real web profile
             paths.dogent_dir.mkdir(parents=True, exist_ok=True)
             paths.config_file.write_text(
-                json.dumps({"profile": "deepseek", "images_path": "./images", "web_profile": "google"}),
+                json.dumps({"llm_profile": "deepseek", "images_path": "./images", "web_profile": "google"}),
                 encoding="utf-8",
             )
             # Configure home web profile
@@ -333,7 +333,7 @@ class ConfigTests(unittest.TestCase):
             os.environ["HOME"] = tmp_home
             home_templates = Path(tmp_home) / ".dogent" / "templates"
             home_templates.mkdir(parents=True, exist_ok=True)
-            custom_template = '{"profile": "custom", "images_path": "/data/imgs"}'
+            custom_template = '{"llm_profile": "custom", "images_path": "/data/imgs"}'
             (home_templates / "dogent_default.json").write_text(
                 custom_template, encoding="utf-8"
             )
@@ -344,6 +344,43 @@ class ConfigTests(unittest.TestCase):
             content = paths.config_file.read_text(encoding="utf-8")
             self.assertIn('"custom"', content)
             self.assertIn('"/data/imgs"', content)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_legacy_profile_key_is_supported(self) -> None:
+        original_home = os.environ.get("HOME")
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=False, color_system=None)
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            home_dir = Path(tmp_home) / ".dogent"
+            home_dir.mkdir(parents=True, exist_ok=True)
+            (home_dir / "claude.json").write_text(
+                json.dumps(
+                    {
+                        "profiles": {
+                            "deepseek": {
+                                "ANTHROPIC_BASE_URL": "https://profile.example",
+                                "ANTHROPIC_AUTH_TOKEN": "token",
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.config_file.write_text(json.dumps({"profile": "deepseek"}), encoding="utf-8")
+
+            manager = ConfigManager(paths, console=console)
+            settings = manager.load_settings()
+            self.assertEqual(settings.profile, "deepseek")
+            self.assertEqual(settings.base_url, "https://profile.example")
+            self.assertIn("legacy key 'profile'", buf.getvalue())
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

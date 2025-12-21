@@ -93,6 +93,21 @@ class HelpAndToolDisplayTests(unittest.IsolatedAsyncioTestCase):
         output = console.export_text()
         self.assertIn("Failed: search quota exceeded", output)
 
+    def test_custom_web_tools_display_friendly_names(self) -> None:
+        console = Console(record=True, force_terminal=False, color_system=None)
+        runner = AgentRunner(
+            config=None,  # type: ignore[arg-type]
+            prompt_builder=None,  # type: ignore[arg-type]
+            todo_manager=TodoManager(console=console),
+            history=None,  # type: ignore[arg-type]
+            console=console,
+        )
+
+        runner._log_tool_result("mcp__dogent__web_search", DummyBlock("ok"), summary=None)
+        output = console.export_text()
+        self.assertIn("dogent_web_search", output)
+        self.assertNotIn("mcp__dogent__web_search", output)
+
 
 if __name__ == "__main__":
     unittest.main()

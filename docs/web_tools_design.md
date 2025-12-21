@@ -45,7 +45,7 @@ Example shape:
 
 ```json
 {
-  "profile": "deepseek",
+  "llm_profile": "deepseek",
   "images_path": "./images",
   "web_profile": "google"
 }
@@ -55,12 +55,12 @@ Example shape:
 
 Dogent registers an in-process SDK MCP server named `dogent`, exposing:
 
-- `mcp__dogent__web_search`
-- `mcp__dogent__web_fetch`
+- `mcp__dogent__web_search` (displayed as `dogent_web_search`)
+- `mcp__dogent__web_fetch` (displayed as `dogent_web_fetch`)
 
 Native `WebSearch`/`WebFetch` are used when `web_profile` is empty or `default`.
 
-### `mcp__dogent__web_search`
+### `dogent_web_search` (`mcp__dogent__web_search`)
 
 Inputs:
 
@@ -81,7 +81,7 @@ Error handling:
 
 - Missing `web_profile`, missing provider config, placeholder credentials, or HTTP errors return `is_error=true` and an actionable message.
 
-### `mcp__dogent__web_fetch`
+### `dogent_web_fetch` (`mcp__dogent__web_fetch`)
 
 Inputs:
 
@@ -93,6 +93,7 @@ Inputs:
 Behavior:
 
 - Fetches the URL via HTTP GET with a configurable timeout and user agent.
+- Default user agent is `dogent/<version>` (you typically don’t need to configure it).
 - If the content is HTML, extracts readable text by stripping scripts/styles/navigation and normalizing whitespace.
 - If the content is an image (or `mode=image`), saves it to `images_path` (creating the directory on demand) using a safe filename and returns a Markdown snippet.
 

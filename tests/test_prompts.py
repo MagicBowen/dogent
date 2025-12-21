@@ -64,7 +64,7 @@ class PromptTests(unittest.TestCase):
             prompts_dir = Path(tmp_home) / ".dogent" / "prompts"
             prompts_dir.mkdir(parents=True, exist_ok=True)
             (prompts_dir / "system.md").write_text(
-                "Profile {config:profile} nested {config:custom.nested} missing {unknown}",
+                "Profile {config:llm_profile} nested {config:custom.nested} missing {unknown}",
                 encoding="utf-8",
             )
             (prompts_dir / "user_prompt.md").write_text(
@@ -78,7 +78,7 @@ class PromptTests(unittest.TestCase):
             history = HistoryManager(paths)
             builder = PromptBuilder(paths, todo_manager, history, console=console)
 
-            config_data = {"profile": "demo", "custom": {"nested": "value"}}
+            config_data = {"llm_profile": "demo", "custom": {"nested": "value"}}
             system_prompt = builder.build_system_prompt(config=config_data)
             self.assertIn("demo", system_prompt)
             self.assertIn("value", system_prompt)

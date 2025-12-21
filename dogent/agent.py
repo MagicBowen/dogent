@@ -23,6 +23,7 @@ from .file_refs import FileAttachment
 from .prompts import PromptBuilder
 from .history import HistoryManager
 from .todo import TodoManager
+from .web_tools import DOGENT_WEB_TOOL_DISPLAY_NAMES
 
 
 class AgentRunner:
@@ -98,7 +99,7 @@ class AgentRunner:
         except Exception as exc:  # noqa: BLE001
             self.console.print(
                 Panel(
-                    f"[red]Session error: {exc}[/red]\nCheck credentials/network or update the profile with /config.",
+                    f"[red]Session error: {exc}[/red]\nCheck credentials/network or update the LLM profile with /config.",
                     title="Error",
                 )
             )
@@ -185,6 +186,7 @@ class AgentRunner:
         content_parts.append(metrics)
         panel_text = "\n\n".join(content_parts)
         self.console.print(Panel(Text(panel_text), title="📝 Session Summary"))
+        todos_snapshot = self.todo_manager.export_items()
         self.history.append(
             summary=message.result or "Task completed",
             status="completed",
@@ -192,11 +194,15 @@ class AgentRunner:
             api_ms=message.duration_api_ms,
             cost_usd=message.total_cost_usd,
             prompt=None,
-            todos=self.todo_manager.export_items(),
+            todos=todos_snapshot,
         )
+        self.todo_manager.set_items([])
+
+    def _display_tool_name(self, name: str) -> str:
+        return DOGENT_WEB_TOOL_DISPLAY_NAMES.get(name, name)
 
     def _log_tool_use(self, block: ToolUseBlock, summary: str | None = None) -> None:
-        title = f"⚙️  {block.name}"
+        title = f"⚙️  {self._display_tool_name(block.name)}"
         body = summary or self._shorten(block.input)
         self.console.print(Panel(Text(str(body)), title=title, border_style="cyan"))
 
@@ -206,7 +212,8 @@ class AgentRunner:
         is_error = bool(getattr(block, "is_error", False))
         icon = "❌" if is_error else "📥"
         status = "Failed" if is_error else "Success"
-        title = f"{icon} {status} {name}"
+        display_name = self._display_tool_name(name)
+        title = f"{icon} {status} {display_name}"
         detail = summary or self._format_tool_result_content(block.content)
         if not detail:
             detail = "No details returned." if is_error else "No content returned."

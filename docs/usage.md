@@ -9,10 +9,10 @@
 1. Navigate to your project directory.
 2. Run `dogent` (or `dogent -h` for help) to enter the interactive shell; an ASCII banner and model/API info are shown.
 3. Use `/init` to generate `.dogent/dogent.md`.
-4. Use `/config` to scaffold `.dogent/dogent.json` (profile-only, includes `images_path` default); edit the profile name or supply env vars for credentials.
+4. Use `/config` to scaffold `.dogent/dogent.json` (`llm_profile` reference only, includes `images_path` default); edit `llm_profile` or supply env vars for credentials.
 
 ## Credentials & Profiles
-- Local config: `.dogent/dogent.json` (profile reference only) plus `images_path` for downloads (defaults to `./images` when not set).
+- Local config: `.dogent/dogent.json` (`llm_profile` reference only) plus `images_path` for downloads (defaults to `./images` when not set).
 - Global profiles: `~/.dogent/claude.json`, e.g.:
   ```json
   {
@@ -36,7 +36,7 @@
 Dogent supports two modes:
 
 - Native mode (default): if `.dogent/dogent.json` has no `web_profile` (or it is empty/`"default"`), Dogent uses Claude Agent SDK’s built-in `WebSearch` / `WebFetch`.
-- Custom mode: if `.dogent/dogent.json` sets `web_profile` to a real profile name that exists in `~/.dogent/web.json`, Dogent uses `mcp__dogent__web_search` / `mcp__dogent__web_fetch` (with your configured provider).
+- Custom mode: if `.dogent/dogent.json` sets `web_profile` to a real profile name that exists in `~/.dogent/web.json`, Dogent uses the custom tools `dogent_web_search` / `dogent_web_fetch` (tool IDs: `mcp__dogent__web_search` / `mcp__dogent__web_fetch`) with your configured provider.
 
 If you set `web_profile` to a name that does not exist in `~/.dogent/web.json`, Dogent warns at startup and falls back to native mode.
 
@@ -51,32 +51,31 @@ Dogent creates `~/.dogent/web.json` on first run. It stores named search provide
       "provider": "google_cse",
       "api_key": "replace-me",
       "cse_id": "replace-me",
-      "timeout_s": 20,
-      "user_agent": "dogent"
+      "timeout_s": 20
     },
     "bing": {
       "provider": "bing",
       "api_key": "replace-me",
       "endpoint": "https://api.bing.microsoft.com/v7.0",
-      "timeout_s": 20,
-      "user_agent": "dogent"
+      "timeout_s": 20
     },
     "brave": {
       "provider": "brave",
       "api_key": "replace-me",
       "endpoint": "https://api.search.brave.com/res/v1",
-      "timeout_s": 20,
-      "user_agent": "dogent"
+      "timeout_s": 20
     }
   }
 }
 ```
 
+Dogent sends `User-Agent: dogent/<version>` automatically; you typically don't need to configure a user agent.
+
 Then select one profile per workspace in `.dogent/dogent.json`:
 
 ```json
 {
-  "profile": "deepseek",
+  "llm_profile": "deepseek",
   "images_path": "./images",
   "web_profile": "brave"
 }
@@ -107,8 +106,7 @@ Notes:
       "provider": "brave",
       "api_key": "YOUR_BRAVE_API_KEY",
       "endpoint": "https://api.search.brave.com/res/v1",
-      "timeout_s": 20,
-      "user_agent": "dogent"
+      "timeout_s": 20
     }
   }
 }
@@ -122,7 +120,7 @@ Notes:
 
 ## Commands Inside the CLI
 - `/init` – create writing constraint template and scratch memory.
-- `/config` – generate config JSON (profile-only, includes `images_path`).
+- `/config` – generate config JSON (`llm_profile` reference only, includes `images_path`).
 - `/exit` – leave the CLI.
 - Typing `/` shows live command suggestions; typing `@` offers file completions.
 - Press `Esc` during an in-progress task to interrupt; progress is saved to `.dogent/history.json`.

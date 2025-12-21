@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from dogent import __version__
 from dogent.web_tools import (
     HttpResponse,
     create_dogent_web_tools,
@@ -65,6 +66,7 @@ class WebToolsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_web_fetch_extracts_text(self) -> None:
         def fake_get(url: str, headers: dict[str, str], timeout_s: float) -> HttpResponse:
+            self.assertEqual(headers.get("User-Agent"), f"dogent/{__version__}")
             body = b"<html><head><title>T</title></head><body><p>A</p><p>B</p></body></html>"
             return HttpResponse(
                 url=url,
@@ -89,6 +91,7 @@ class WebToolsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_web_search_returns_structured_results(self) -> None:
         def fake_get(url: str, headers: dict[str, str], timeout_s: float) -> HttpResponse:
+            self.assertEqual(headers.get("User-Agent"), f"dogent/{__version__}")
             payload = {
                 "items": [
                     {"title": "T1", "link": "https://example.com/1", "snippet": "S1"},
@@ -118,6 +121,7 @@ class WebToolsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_web_search_brave_provider(self) -> None:
         def fake_get(url: str, headers: dict[str, str], timeout_s: float) -> HttpResponse:
+            self.assertEqual(headers.get("User-Agent"), f"dogent/{__version__}")
             self.assertIn("X-Subscription-Token", headers)
             payload = {
                 "web": {
@@ -147,8 +151,30 @@ class WebToolsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(parsed["provider"], "brave")
         self.assertEqual(parsed["results"][0]["url"], "https://example.com")
 
+    async def test_web_tools_user_agent_dogent_is_upgraded_to_versioned(self) -> None:
+        def fake_get(url: str, headers: dict[str, str], timeout_s: float) -> HttpResponse:
+            self.assertEqual(headers.get("User-Agent"), f"dogent/{__version__}")
+            return HttpResponse(
+                url=url,
+                status=200,
+                headers={"Content-Type": "application/json; charset=utf-8"},
+                body=json.dumps({"items": []}).encode("utf-8"),
+            )
+
+        tools = create_dogent_web_tools(
+            root=Path("."),
+            images_path="./images",
+            web_profile_name="default",
+            web_profile_cfg={"provider": "google_cse", "api_key": "k", "cse_id": "cx", "user_agent": "dogent"},
+            http_get=fake_get,
+        )
+        web_search = next(tool for tool in tools if tool.name == "web_search")
+        result = await web_search.handler({"query": "q", "mode": "web", "num_results": 1})
+        self.assertIn("content", result)
+
     async def test_web_fetch_downloads_image(self) -> None:
         def fake_get(url: str, headers: dict[str, str], timeout_s: float) -> HttpResponse:
+            self.assertEqual(headers.get("User-Agent"), f"dogent/{__version__}")
             return HttpResponse(
                 url=url,
                 status=200,

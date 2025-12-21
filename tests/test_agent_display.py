@@ -12,7 +12,7 @@ from dogent.config import ConfigManager
 from dogent.history import HistoryManager
 from dogent.paths import DogentPaths
 from dogent.prompts import PromptBuilder
-from dogent.todo import TodoManager
+from dogent.todo import TodoItem, TodoManager
 
 
 class AgentDisplayTests(unittest.TestCase):
@@ -38,6 +38,39 @@ class AgentDisplayTests(unittest.TestCase):
             output = console.file.getvalue()
             self.assertIn("Failed WebFetch", output)
             self.assertIn("Failed: timeout", output)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_todos_clear_after_normal_completion(self) -> None:
+        class DummyResult:
+            result = "done"
+            total_cost_usd = 0.0
+            duration_ms = 1
+            duration_api_ms = 1
+
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            todo = TodoManager(console=console)
+            todo.set_items([TodoItem(title="old")])
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo, history)
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=builder,
+                todo_manager=todo,
+                history=history,
+                console=console,
+            )
+
+            runner._handle_result(DummyResult())  # type: ignore[arg-type]
+            self.assertEqual(todo.items, [])
+
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
