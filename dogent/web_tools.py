@@ -61,11 +61,21 @@ def _sanitize_filename(name: str) -> str:
     return cleaned or "asset"
 
 
-def _resolve_images_dir(root: Path, images_path: str) -> Path:
-    path = Path(images_path)
-    if not path.is_absolute():
-        path = root / path
-    return path
+def _resolve_output_dir(root: Path, output_dir: str) -> Path:
+    """Resolve a workspace-relative output directory, preventing traversal outside root."""
+    raw = str(output_dir or "").strip()
+    if not raw:
+        raise ValueError("Missing required field: output_dir")
+    path = Path(raw)
+    if path.is_absolute():
+        raise ValueError("output_dir must be a workspace-relative path (not absolute).")
+    root_resolved = root.resolve()
+    resolved = (root / path).resolve()
+    try:
+        resolved.relative_to(root_resolved)
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("output_dir must stay within the workspace.") from exc
+    return resolved
 
 
 def _readable_output_path(root: Path, path: Path) -> str:
@@ -224,7 +234,6 @@ def parse_brave_results(payload: dict[str, Any], *, mode: str) -> list[dict[str,
 def create_dogent_web_tools(
     *,
     root: Path,
-    images_path: str,
     web_profile_name: Optional[str],
     web_profile_cfg: dict[str, Any],
     http_get: Callable[[str, dict[str, str], float], HttpResponse] | None = None,
@@ -251,6 +260,10 @@ def create_dogent_web_tools(
             "url": {"type": "string", "description": "http(s) URL to fetch"},
             "mode": {"type": "string", "description": "auto, text, or image", "default": "auto"},
             "max_chars": {"type": "integer", "description": "Max returned text chars", "default": 12000},
+            "output_dir": {
+                "type": "string",
+                "description": "Workspace-relative directory to save images (required for image downloads).",
+            },
             "filename": {"type": "string", "description": "Optional filename when downloading an image"},
         },
         "required": ["url"],
@@ -375,13 +388,14 @@ def create_dogent_web_tools(
 
     @tool(
         "web_fetch",
-        "Fetch a URL. Extract readable text for HTML, or download images into images_path and return a Markdown link.",
+        "Fetch a URL. Extract readable text for HTML, or download images into output_dir and return a Markdown link.",
         web_fetch_schema,
     )
     async def web_fetch(args: dict[str, Any]) -> dict[str, Any]:
         url = str(args.get("url") or "").strip()
         mode = str(args.get("mode") or "auto").strip().lower()
         max_chars = int(args.get("max_chars") or 12000)
+        output_dir = str(args.get("output_dir") or "").strip()
         filename = str(args.get("filename") or "").strip()
 
         if not url:
@@ -419,8 +433,11 @@ def create_dogent_web_tools(
 
         is_image = content_type.startswith("image/")
         if mode == "image" or (mode == "auto" and is_image):
-            images_dir = _resolve_images_dir(root, images_path)
-            images_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                out_dir = _resolve_output_dir(root, output_dir)
+            except ValueError as exc:
+                return {"content": [{"type": "text", "text": str(exc)}], "is_error": True}
+            out_dir.mkdir(parents=True, exist_ok=True)
 
             ext = ""
             if content_type.startswith("image/"):
@@ -437,10 +454,10 @@ def create_dogent_web_tools(
                 base = f"image_{url_hash}"
             if not base.lower().endswith(suffix.lower()):
                 base = base + suffix
-            target = images_dir / base
+            target = out_dir / base
             if target.exists():
                 url_hash = hashlib.sha1(resp.url.encode("utf-8")).hexdigest()[:10]  # noqa: S324
-                target = images_dir / f"{target.stem}_{url_hash}{target.suffix}"
+                target = out_dir / f"{target.stem}_{url_hash}{target.suffix}"
             target.write_bytes(body)
 
             display_path = _readable_output_path(root, target)
@@ -490,14 +507,12 @@ def create_dogent_web_tools(
 def create_dogent_web_mcp_server(
     *,
     root: Path,
-    images_path: str,
     web_profile_name: Optional[str],
     web_profile_cfg: dict[str, Any],
     http_get: Callable[[str, dict[str, str], float], HttpResponse] | None = None,
 ):
     tools = create_dogent_web_tools(
         root=root,
-        images_path=images_path,
         web_profile_name=web_profile_name,
         web_profile_cfg=web_profile_cfg,
         http_get=http_get,

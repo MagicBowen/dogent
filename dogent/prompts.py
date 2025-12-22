@@ -102,15 +102,9 @@ class PromptBuilder:
         recent_history = self.history.to_prompt_block()
         memory_content = self._read_memory()
         todo_plain = self.todo_manager.render_plain()
-        images_path = (
-            getattr(settings, "images_path", None)
-            or self._resolve_config_value(config, "images_path")
-            or "./images"
-        )
         return {
             "working_dir": str(self.paths.root),
             "preferences": preferences,
-            "images_path": images_path,
             "history": history_full,
             "history:last": recent_history,
             "history_block": recent_history,

@@ -26,7 +26,6 @@ class DogentSettings:
     api_timeout_ms: Optional[int]
     disable_nonessential_traffic: bool
     profile: Optional[str]
-    images_path: str
     web_profile: Optional[str]
     web_mode: str
 
@@ -56,7 +55,7 @@ class ConfigManager:
         template_text = self._read_home_template("dogent_default.json")
         if not template_text:
             template_text = json.dumps(
-                {"llm_profile": "deepseek", "images_path": "./images", "web_profile": ""},
+                {"llm_profile": "deepseek", "web_profile": "default"},
                 indent=2,
                 ensure_ascii=False,
             )
@@ -98,7 +97,6 @@ class ConfigManager:
                 else env_cfg.get("disable_nonessential_traffic")
             ),
             "profile": profile_name,
-            "images_path": project_cfg.get("images_path") or "./images",
             "web_profile": web_profile_name,
             "web_mode": "custom" if web_profile_name else "native",
         }
@@ -112,7 +110,7 @@ class ConfigManager:
     def _normalize_project_config(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize config keys while staying backward compatible."""
         if not data:
-            return {}
+            return {"web_profile": "default"}
         normalized = dict(data)
         new_val = normalized.get("llm_profile")
         old_val = normalized.get("profile")
@@ -130,6 +128,12 @@ class ConfigManager:
             )
         if new_val and "profile" not in normalized:
             normalized["profile"] = new_val
+
+        raw_web_profile = normalized.get("web_profile")
+        if raw_web_profile is None:
+            normalized["web_profile"] = "default"
+        elif isinstance(raw_web_profile, str) and not raw_web_profile.strip():
+            normalized["web_profile"] = "default"
         return normalized
 
     def build_options(self, system_prompt: str) -> ClaudeAgentOptions:
@@ -163,7 +167,6 @@ class ConfigManager:
             mcp_servers = {
                 "dogent": create_dogent_web_mcp_server(
                     root=self.paths.root,
-                    images_path=settings.images_path,
                     web_profile_name=settings.web_profile,
                     web_profile_cfg=self._load_web_profile(settings.web_profile),
                 )

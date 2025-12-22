@@ -55,17 +55,17 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
 ### Story 8: Writing Workflow Prompting
 - User Value: Agent guided to plan → research → section drafts → validate → polish in Chinese Markdown.
-- Acceptance: System prompt enforces steps, todo usage, citations, configurable images path, memory hints (create on demand, clean after use).
+- Acceptance: System prompt enforces steps, todo usage, citations, and image download guidance via `dogent_web_fetch` with per-call `output_dir`; memory hints (create on demand, clean after use).
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: Manual e2e content check.
 
 ### Story 9: Research & Images
 - User Value: Agent can search web and download images into `./images` and reference them.
-- Acceptance: Network/search tool enabled; download helper or workflow instructions present; images saved and referenced.
-- Dev Status: Todo
-- Acceptance Status: Pending
-- Verification: Manual e2e once implemented.
+- Acceptance: Web tools enabled; image download workflow uses `dogent_web_fetch` with `output_dir` (e.g., `./images`); images saved and referenced via returned Markdown snippet.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `tests/test_web_tools.py::test_web_fetch_downloads_image`, UAT Release 0.6 Story 39.
 
 ### Story 10: Validation & Citations
 - User Value: Agent validates facts, tracks checks in todo, and emits reference list at end.
@@ -248,12 +248,12 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - User Value: Understand web tool outcomes without guessing.
 - Acceptance: WebFetch/WebSearch results show explicit success or failure with the reason when failures occur; displayed in the CLI result panels.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: `tests/test_help_and_tools.py::test_web_tool_result_states_success_and_failure`.
 
 ### Story 35: Help Command
-- User Value: Quick in-CLI reference to models, API, profiles, images path, and available commands.
-- Acceptance: `/help` renders a panel with current model/API/LLM profile/web profile/images path, command descriptions, and shortcut tips.
+- User Value: Quick in-CLI reference to models, API, profiles, and available commands.
+- Acceptance: `/help` renders a panel with current model/API/LLM profile/web profile, command descriptions, and shortcut tips.
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: `tests/test_help_and_tools.py::test_help_command_shows_usage`.
@@ -271,26 +271,26 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - User Value: Configure reliable web search/fetch providers without editing code.
 - Acceptance: On first run, Dogent creates `~/.dogent/web.json` (kept on upgrades); workspace `.dogent/dogent.json` can select `web_profile`; if `web_profile` is missing/empty/`default`, Dogent uses native `WebSearch`/`WebFetch`; `/help` shows the active web mode/profile and LLM profile.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: `tests/test_config.py::test_home_bootstrap_copies_prompts_and_templates`, config fallback tests, UAT Release 0.6.
 
 ### Story 38: Custom WebSearch Tool
 - User Value: Perform reliable web + image search even when native WebSearch fails.
 - Acceptance: A custom tool `dogent_web_search` (tool ID: `mcp__dogent__web_search`) uses `~/.dogent/web.json` provider config to return structured results for web and image queries; missing/placeholder config returns a clear error message.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: `tests/test_web_tools.py::test_web_search_returns_structured_results`, `tests/test_web_tools.py::test_parse_google_cse_results_image_mode`.
 
 ### Story 39: Custom WebFetch Tool (Text + Images)
 - User Value: Fetch readable page content and download images for documents.
-- Acceptance: A custom tool `dogent_web_fetch` (tool ID: `mcp__dogent__web_fetch`) fetches URLs, extracts core readable text for HTML, and downloads images into `images_path` (creating it on demand) with safe filenames and a Markdown reference snippet.
+- Acceptance: A custom tool `dogent_web_fetch` (tool ID: `mcp__dogent__web_fetch`) fetches URLs, extracts core readable text for HTML, and downloads images into a workspace-relative `output_dir` (creating it on demand) with safe filenames and a Markdown reference snippet.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: `tests/test_web_tools.py::test_web_fetch_extracts_text`, `tests/test_web_tools.py::test_web_fetch_downloads_image`, `tests/test_web_tools.py::test_extract_text_from_html_strips_noise`.
 
 ### Story 40: Prompts & Tool Wiring
 - User Value: Agent consistently uses Dogent’s reliable web tools during research and image workflows.
 - Acceptance: System prompt explains both native and Dogent web tools; Dogent registers MCP tools only when `web_profile` is set to a real profile; otherwise it uses native `WebSearch`/`WebFetch`; invalid `web_profile` warns at startup and falls back to native tools.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: config fallback tests, `dogent/prompts/system.md` tool section check.

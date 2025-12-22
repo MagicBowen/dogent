@@ -53,7 +53,7 @@ User Test Results: PASS
 
 ### Story 8 – Writing Workflow Prompting
 1) With `.dogent/dogent.md` filled, ask for a multi-section document plan (Chinese Markdown) and completion.
-2) Expected: agent plans via todos, drafts in sections, mentions citations and images path `./images`, and references `.dogent/memory.md` for scratch use.
+2) Expected: agent plans via todos, drafts in sections, mentions citations and (when needed) saving images under a user-chosen directory like `./images`, and references `.dogent/memory.md` for scratch use.
 
 User Test Results: PASS
 
@@ -95,8 +95,8 @@ User Test Results: PASS
 User Test Results: PASS
 
 ### Story 17 – Configurable Images Path
-1) Run `/config`; verify `.dogent/dogent.json` contains `images_path` (default `./images`).
-2) Confirm no `images/` dir from `/init`; set custom path and ensure agent references it.
+1) Run `/config`; verify `.dogent/dogent.json` does not contain an `images_path` setting.
+2) When requesting an image download, explicitly specify a workspace-relative output directory in the request (e.g., “download to ./images”) so the model passes it to `dogent_web_fetch`.
 
 User Test Results: PASS
 
@@ -134,7 +134,7 @@ User Test Results: PASS
 
 ### Story 23 – Prompt Optimization
 1) Inspect `dogent/prompts/system.md` and `dogent/prompts/user_prompt.md` to confirm best-practice structure and no hardcoded image paths.
-2) In a session, set a custom images path in `.dogent/dogent.json`; verify the system prompt reflects it by observing agent behavior.
+2) In a session, request an image download and specify an output directory (e.g., `./images`) and verify the model passes it to `dogent_web_fetch` and references the returned Markdown snippet.
 
 User Test Results: PASS
 
@@ -173,10 +173,10 @@ User Test Results: PASS
 User Test Results: PASS
 
 ### Story 29 – Flexible Prompt Injection
-1) Edit `~/.dogent/prompts/system.md` to add markers such as `Profile={config:llm_profile}` and `HistoryLast={history:last}`; edit `~/.dogent/prompts/user_prompt.md` to include `ConfigImages={config:images_path}` and `Missing={not_set}`.
-2) In `uats/sample_workspace`, set `.dogent/dogent.json` with `"llm_profile": "uat-profile", "images_path": "/tmp/uat-images", "custom": {"nested": "hello"}`.
+1) Edit `~/.dogent/prompts/system.md` to add markers such as `Profile={config:llm_profile}` and `HistoryLast={history:last}`; edit `~/.dogent/prompts/user_prompt.md` to include markers and `Missing={not_set}`.
+2) In `uats/sample_workspace`, set `.dogent/dogent.json` with `"llm_profile": "uat-profile", "custom": {"nested": "hello"}`.
 3) Create `.dogent/history.json` with a couple of JSON entries and `.dogent/memory.md` with sample text; ensure todos are empty.
-4) Run `dogent` and send a short message. Observe in the first assistant system rendering that `{config:llm_profile}` (and legacy `{config:profile}`), `{history:last}`, `{memory}`, and `{config:images_path}` are injected; `{not_set}` renders empty.
+4) Run `dogent` and send a short message. Observe in the first assistant system rendering that `{config:llm_profile}` (and legacy `{config:profile}`), `{history:last}`, and `{memory}` are injected; `{not_set}` renders empty.
 5) Confirm a yellow warning appears about missing template values (for `{not_set}`) instead of a crash.
 6) (Optional) Add `{config:custom.nested}` to the templates and rerun to see nested config values injected.
 
@@ -217,11 +217,11 @@ User Test Results: PASS
 1) Start a session and trigger a Dogent web tool call (e.g., ask for a web lookup or to fetch a URL).
 2) Observe the tool result panels for `dogent_web_search` / `dogent_web_fetch` (tool IDs: `mcp__dogent__web_search` / `mcp__dogent__web_fetch`): they should say “Success: ...” on success and “Failed: <reason>” on failure, making the outcome obvious.
 
-User Test Results: Pending
+User Test Results: PASS
 
 ### Story 35 – Help Command
 1) Start `dogent` and run `/help`.
-2) Expect a panel showing current model, fast model, API, LLM profile, web profile, images path, registered commands, and shortcuts for Esc/Alt+Enter/Ctrl+C.
+2) Expect a panel showing current model, fast model, API, LLM profile, web profile, registered commands, and shortcuts for Esc/Alt+Enter/Ctrl+C.
 
 User Test Results: PASS
 
@@ -237,11 +237,11 @@ User Test Results: PASS
 ### Story 37 – Web Tool Config Bootstrap
 1) Set a temp home: `export HOME=$(mktemp -d)`.
 2) Run `dogent` once, then `/exit`. Expect `~/.dogent/web.json` to be created (alongside `~/.dogent/claude.json`).
-3) In `uats/sample_workspace`, run `dogent` then `/config`. Confirm `.dogent/dogent.json` includes `web_profile` (may be empty by default).
+3) In `uats/sample_workspace`, run `dogent` then `/config`. Confirm `.dogent/dogent.json` includes `web_profile` (default `default`).
 4) Run `/help` and confirm it shows a “Web Profile” line.
 5) With `web_profile` empty or set to `default`, ask for web research and confirm Dogent uses native `WebSearch`/`WebFetch`.
 
-User Test Results: Pending (retest after fixes)
+User Test Results: PASS
 
 ### Story 38 – Custom WebSearch Tool
 1) Edit `~/.dogent/web.json` and configure a real provider profile (Google CSE or Bing). Set `.dogent/dogent.json` `web_profile` to that profile name.
@@ -251,15 +251,15 @@ User Test Results: Pending (retest after fixes)
 Fallback check (no keys):
 - With placeholder keys, expect the tool result panel to clearly explain how to configure `~/.dogent/web.json` and `web_profile`.
 
-User Test Results: Pending (retest after fixes)
+User Test Results: PASS
 
 ### Story 39 – Custom WebFetch Tool (Text + Images)
 1) Ask: “Fetch https://example.com and summarize the core content.”
 2) Expect a tool call to `dogent_web_fetch` (tool ID: `mcp__dogent__web_fetch`) and readable extracted text (may be truncated).
-3) Ask: “Search an image for <keyword> and download 1 image to images_path, then show the Markdown reference.”
-4) Expect an image saved under `images_path` (default `./images`) and a Markdown snippet like `![image](images/...)`.
+3) Ask: “Search an image for <keyword> and download 1 image to ./images, then show the Markdown reference.”
+4) Expect an image saved under `./images` and a Markdown snippet like `![image](images/...)`.
 
-User Test Results: Pending (retest after fixes)
+User Test Results: PASS
 
 ### Story 40 – Prompts & Tool Wiring
 1) Verify `dogent/prompts/system.md` lists `dogent_web_search` and `dogent_web_fetch` (tool IDs: `mcp__dogent__web_search` / `mcp__dogent__web_fetch`).
@@ -267,4 +267,4 @@ User Test Results: Pending (retest after fixes)
 3) Set `.dogent/dogent.json` `web_profile` to `default` (or empty) and request web research; confirm Dogent uses native `WebSearch` / `WebFetch`.
 4) Set `.dogent/dogent.json` `web_profile` to a non-existent name; restart `dogent` and confirm a startup warning is shown and native tools are used.
 
-User Test Results: Pending (retest after fixes)
+User Test Results: PASS
