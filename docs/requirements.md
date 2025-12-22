@@ -145,3 +145,7 @@ Ultimately, users should be able to optimize prompt templates (system prompts or
 - Fallback behavior:
   - If user does not configure `web_profile` (missing/empty) or sets `web_profile` to `"default"`, Dogent should use the default Claude Agent SDK `WebSearch` and `WebFetch`.
   - If user configures a `web_profile` name that does not exist in `~/.dogent/web.json`, Dogent should warn the user at startup and fall back to default `WebSearch` and `WebFetch`.
+
+## Release 0.7
+
+- 
