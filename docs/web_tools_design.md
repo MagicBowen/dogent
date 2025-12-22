@@ -5,7 +5,7 @@ This document describes the design for Dogent’s custom web tools that replace 
 ## Goals
 
 - Provide reliable web search and URL fetching as Claude Agent SDK tools.
-- Support image discovery + image download into the configured `images_path`.
+- Support image discovery + image download into a user-specified output directory.
 - Keep configuration user-editable under `~/.dogent`, with per-project selection in `.dogent/dogent.json`.
 - Return tool results that are short, readable, and model-friendly (with truncation limits).
 
@@ -46,7 +46,6 @@ Example shape:
 ```json
 {
   "llm_profile": "deepseek",
-  "images_path": "./images",
   "web_profile": "google"
 }
 ```
@@ -88,6 +87,7 @@ Inputs:
 - `url` (required)
 - `mode`: `auto`, `text`, or `image` (default `auto`)
 - `max_chars`: text truncation limit (default `12000`)
+- `output_dir`: workspace-relative directory to save images (required for image downloads)
 - `filename`: optional for image downloads
 
 Behavior:
@@ -95,7 +95,7 @@ Behavior:
 - Fetches the URL via HTTP GET with a configurable timeout and user agent.
 - Default user agent is `dogent/<version>` (you typically don’t need to configure it).
 - If the content is HTML, extracts readable text by stripping scripts/styles/navigation and normalizing whitespace.
-- If the content is an image (or `mode=image`), saves it to `images_path` (creating the directory on demand) using a safe filename and returns a Markdown snippet.
+- If the content is an image (or `mode=image`), saves it to `output_dir` (creating the directory on demand) using a safe filename and returns a Markdown snippet.
 
 Safety considerations:
 

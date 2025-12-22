@@ -156,7 +156,7 @@ class DogentCLI:
         self.registry.register(
             "/config",
             self._cmd_config,
-            "Create .dogent/dogent.json (profile reference) and reload settings.",
+            "Create .dogent/dogent.json (llm_profile and web_profile) and reload settings.",
         )
         self.registry.register(
             "/history",
@@ -235,8 +235,7 @@ class DogentCLI:
         settings = self.config_manager.load_settings()
         body = (
             f"Wrote .dogent/dogent.json with llm_profile reference.\n"
-            f"LLM Profile: {settings.profile or '<not set>'}\n"
-            f"Images path: {settings.images_path}"
+            f"LLM Profile: {settings.profile or '<not set>'}"
         )
         self.console.print(
             Panel(body, title="Config", border_style="green")
@@ -318,7 +317,6 @@ class DogentCLI:
                 f"API: {settings.base_url or '<not set>'}",
                 f"LLM Profile: {settings.profile or '<not set>'}",
                 f"Web Profile: {settings.web_profile or 'default (native)'}",
-                f"Images path: {settings.images_path}",
                 "",
                 "Commands:",
                 commands,

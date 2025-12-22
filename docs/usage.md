@@ -9,10 +9,10 @@
 1. Navigate to your project directory.
 2. Run `dogent` (or `dogent -h` for help) to enter the interactive shell; an ASCII banner and model/API info are shown.
 3. Use `/init` to generate `.dogent/dogent.md`.
-4. Use `/config` to scaffold `.dogent/dogent.json` (`llm_profile` reference only, includes `images_path` default); edit `llm_profile` or supply env vars for credentials.
+4. Use `/config` to scaffold `.dogent/dogent.json` (`llm_profile` and `web_profile`); edit `llm_profile` or `web_profile` (or supply env vars for credentials).
 
 ## Credentials & Profiles
-- Local config: `.dogent/dogent.json` (`llm_profile` reference only) plus `images_path` for downloads (defaults to `./images` when not set).
+- Local config: `.dogent/dogent.json` (`llm_profile` reference only).
 - Global profiles: `~/.dogent/claude.json`, e.g.:
   ```json
   {
@@ -76,7 +76,6 @@ Then select one profile per workspace in `.dogent/dogent.json`:
 ```json
 {
   "llm_profile": "deepseek",
-  "images_path": "./images",
   "web_profile": "brave"
 }
 ```
@@ -116,11 +115,11 @@ Notes:
 
 Notes:
 - Dogent sends the token using the `X-Subscription-Token` request header.
-- Web and image searches return structured results; downloaded images are saved into `images_path` and returned with a Markdown snippet.
+- Web and image searches return structured results; image downloads return a Markdown snippet using the path you provided.
 
 ## Commands Inside the CLI
 - `/init` – create writing constraint template and scratch memory.
-- `/config` – generate config JSON (`llm_profile` reference only, includes `images_path`).
+- `/config` – generate config JSON for `llm_profile` and `web_profile`.
 - `/exit` – leave the CLI.
 - Typing `/` shows live command suggestions; typing `@` offers file completions.
 - Press `Esc` during an in-progress task to interrupt; progress is saved to `.dogent/history.json`.
@@ -134,7 +133,8 @@ Notes:
 - No default todos are created; the list always reflects the latest TodoWrite result.
 
 ## Document Writing Expectations
-- Defaults: Chinese, Markdown, citations at the end; images saved under configured `images_path` (default `./images`) and referenced with relative paths.
+- Defaults: Chinese, Markdown, citations at the end.
+- For image downloads, choose an output directory per call (e.g., `./images`) and pass it to `dogent_web_fetch`.
 - The system prompt enforces planning, research (including online search), sectioned drafting, validation, and final polishing; history in `.dogent/history.json` provides continuity.
 - Temporary notes go to `.dogent/memory.md` only when needed—create on demand and clean after use.
 

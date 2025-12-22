@@ -77,7 +77,6 @@ class WebToolsTests(unittest.IsolatedAsyncioTestCase):
 
         tools = create_dogent_web_tools(
             root=Path("."),
-            images_path="./images",
             web_profile_name="default",
             web_profile_cfg={"provider": "google_cse", "timeout_s": 1},
             http_get=fake_get,
@@ -107,7 +106,6 @@ class WebToolsTests(unittest.IsolatedAsyncioTestCase):
 
         tools = create_dogent_web_tools(
             root=Path("."),
-            images_path="./images",
             web_profile_name="default",
             web_profile_cfg={"provider": "google_cse", "api_key": "k", "cse_id": "cx"},
             http_get=fake_get,
@@ -139,7 +137,6 @@ class WebToolsTests(unittest.IsolatedAsyncioTestCase):
 
         tools = create_dogent_web_tools(
             root=Path("."),
-            images_path="./images",
             web_profile_name="brave",
             web_profile_cfg={"provider": "brave", "api_key": "k"},
             http_get=fake_get,
@@ -163,7 +160,6 @@ class WebToolsTests(unittest.IsolatedAsyncioTestCase):
 
         tools = create_dogent_web_tools(
             root=Path("."),
-            images_path="./images",
             web_profile_name="default",
             web_profile_cfg={"provider": "google_cse", "api_key": "k", "cse_id": "cx", "user_agent": "dogent"},
             http_get=fake_get,
@@ -186,13 +182,14 @@ class WebToolsTests(unittest.IsolatedAsyncioTestCase):
             root = Path(tmp)
             tools = create_dogent_web_tools(
                 root=root,
-                images_path="./images",
                 web_profile_name="default",
                 web_profile_cfg={"provider": "google_cse", "timeout_s": 1},
                 http_get=fake_get,
             )
             web_fetch = next(tool for tool in tools if tool.name == "web_fetch")
-            result = await web_fetch.handler({"url": "https://example.com/a.png", "mode": "image"})
+            result = await web_fetch.handler(
+                {"url": "https://example.com/a.png", "mode": "image", "output_dir": "./images"}
+            )
             text = result["content"][0]["text"]
             self.assertIn("Saved image to:", text)
             images_dir = root / "images"

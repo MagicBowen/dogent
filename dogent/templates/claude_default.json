@@ -7,6 +7,14 @@
       "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-chat",
       "API_TIMEOUT_MS": 600000,
       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
-    }
+    },
+    "glm4.6": {
+      "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me",
+      "ANTHROPIC_MODEL": "glm-4.6",
+      "ANTHROPIC_SMALL_FAST_MODEL": "glm-4.6",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    }    
   }
 }

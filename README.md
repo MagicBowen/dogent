@@ -15,16 +15,16 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 2. Run: `dogent` (or `dogent -h/-v`) in your project directory — ASCII banner shows model/API.
 3. Commands:
    - `/init` → scaffold `.dogent/dogent.md`
-   - `/config` → create `.dogent/dogent.json` (`llm_profile` reference; actual creds in `~/.dogent/claude.json` or env; includes `images_path`)
+   - `/config` → create `.dogent/dogent.json` (`llm_profile` + `web_profile`; actual creds in `~/.dogent/claude.json` or env)
    - `/history` → show recent history entries and the latest todo snapshot
    - `/clear` → reset `.dogent/history.json`, remove `.dogent/memory.md` if present, and clear in-session todos
-   - `/help` → display current model/API/LLM profile/web profile/images path plus available commands and shortcuts
+   - `/help` → display current model/API/LLM profile/web profile plus available commands and shortcuts
    - `/exit` → quit
    - Typing `/` shows command suggestions; typing `@` offers file completions; press Esc during a task to interrupt and save progress
 4. Reference files with `@path/to/file` in your message; Dogent injects their contents. Tool results (e.g., WebFetch/WebSearch) show clear success/failure panels with reasons.
 
 ## Configuration
-- Project config: `.dogent/dogent.json` (`llm_profile` reference only, includes `images_path`)
+- Project config: `.dogent/dogent.json` (`llm_profile` reference only)
 - Global profiles: `~/.dogent/claude.json` with named profiles (see `docs/usage.md` for JSON examples)
 - Env fallback: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 - History is stored in `.dogent/history.json` (structured JSON, managed automatically); temporary scratch lives in `.dogent/memory.md` when created on demand.
@@ -37,7 +37,7 @@ Dogent supports custom web search providers (Google CSE / Bing / Brave) via `~/.
 - On first run, Dogent copies default prompts/config templates into `~/.dogent/prompts` and `~/.dogent/templates`. Edit these to tune prompts (`system.md`, `user_prompt.md`) or defaults (`dogent_default.md`, `dogent_default.json`, `claude_default.json`).
 - `/init` and `/config` generate workspace files from the templates under `~/.dogent/templates`; prompt rendering also reads from `~/.dogent/prompts`.
 - Template placeholders you can use (unknown or empty values render as empty strings and emit a warning):
-  - `working_dir`, `preferences`, `images_path`
+  - `working_dir`, `preferences`
   - `history` (raw `.dogent/history.json`), `history:last`/`history_block` (recent entries)
   - `memory`
   - `todo_block`/`todo_list`
@@ -46,7 +46,7 @@ Dogent supports custom web search providers (Google CSE / Bing / Brave) via `~/.
 
 ## Writing Expectations
 - Defaults to Chinese + Markdown, with citations collected at the end
-- Downloads images to configured `images_path` (default `./images`) and references them with relative paths
+- For image downloads, pass a workspace-relative `output_dir` to `dogent_web_fetch` (e.g., `./images`) and reference the returned Markdown snippet
 - Uses `.dogent/memory.md` for scratch notes only when needed; `.dogent/history.json` records progress for continuity
 
 ## Development Notes

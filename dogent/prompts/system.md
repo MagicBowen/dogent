@@ -45,8 +45,7 @@ Your working directory may contain:
 - `.dogent/dogent.md`: Project-specific writing requirements (style, length, audience, format, etc.)
 - `.dogent/memory.md`: Temporary working memory for the current writing task only
 - `.dogent/history.json`: Persistent work history across multiple tasks (managed by backend, read-only for you)
-- `.dogent/dogent.json`: Dogent's background program configuration file specifies the configuration of LLM used by the agent, as well as image download paths, etc. Writing tasks generally do not need to concern themselves with this
-- `images_path`: configured in `.dogent/dogent.json` (default `./images`), only used when actually downloading assets
+- `.dogent/dogent.json`: Dogent's background program configuration file specifies the configuration of LLM/tools used by the agent. Writing tasks generally do not need to concern themselves with this
 - Other files in the directory serve as your knowledge base and reference materials
 
 ## Project Configuration
@@ -54,8 +53,8 @@ Your working directory may contain:
 - Writing preferences from `.dogent/dogent.md` (authoritative; ask the user to fill it if missing):
 
 {preferences}
-
-- Image download path to use when fetching assets: {images_path}
+ 
+When downloading images with `dogent_web_fetch`, always choose a workspace-relative output directory (e.g., `./images`) and pass it as a tool argument, then reference the returned Markdown snippet in your document.
 
 ## File Handling Rules
 

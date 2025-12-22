@@ -176,21 +176,6 @@ class ConfigTests(unittest.TestCase):
             else:
                 os.environ[key] = val
 
-    def test_images_path_default(self) -> None:
-        original_home = os.environ.get("HOME")
-        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
-            os.environ["HOME"] = tmp_home
-            root = Path(tmp)
-            paths = DogentPaths(root)
-            manager = ConfigManager(paths)
-            manager.create_config_template()
-            settings = manager.load_settings()
-            self.assertEqual(settings.images_path, "./images")
-        if original_home is not None:
-            os.environ["HOME"] = original_home
-        else:
-            os.environ.pop("HOME", None)
-
     def test_profile_md_supported_and_gitignore_not_modified(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as home:
@@ -276,7 +261,7 @@ class ConfigTests(unittest.TestCase):
             # Configure workspace to use a real web profile
             paths.dogent_dir.mkdir(parents=True, exist_ok=True)
             paths.config_file.write_text(
-                json.dumps({"llm_profile": "deepseek", "images_path": "./images", "web_profile": "google"}),
+                json.dumps({"llm_profile": "deepseek", "web_profile": "google"}),
                 encoding="utf-8",
             )
             # Configure home web profile
@@ -333,7 +318,7 @@ class ConfigTests(unittest.TestCase):
             os.environ["HOME"] = tmp_home
             home_templates = Path(tmp_home) / ".dogent" / "templates"
             home_templates.mkdir(parents=True, exist_ok=True)
-            custom_template = '{"llm_profile": "custom", "images_path": "/data/imgs"}'
+            custom_template = '{"llm_profile": "custom"}'
             (home_templates / "dogent_default.json").write_text(
                 custom_template, encoding="utf-8"
             )
@@ -343,7 +328,6 @@ class ConfigTests(unittest.TestCase):
             manager.create_config_template()
             content = paths.config_file.read_text(encoding="utf-8")
             self.assertIn('"custom"', content)
-            self.assertIn('"/data/imgs"', content)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
