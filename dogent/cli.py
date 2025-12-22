@@ -24,6 +24,8 @@ from .commands import CommandRegistry
 from .config import ConfigManager
 from .file_refs import FileAttachment, FileReferenceResolver
 from .history import HistoryManager
+from .lesson_drafter import ClaudeLessonDrafter, LessonDrafter
+from .lessons import LessonIncident, LessonsManager
 from .paths import DogentPaths
 from .prompts import PromptBuilder
 from .todo import TodoManager
@@ -50,16 +52,47 @@ class DogentCompleter(Completer):
     def get_completions(self, document: Document, complete_event):  # type: ignore[override]
         text = document.text_before_cursor
         if text.startswith("/"):
-            for cmd in self._match_commands(text):
-                yield Completion(cmd, start_position=-len(text))
+            for comp in self._command_completions(text):
+                yield comp
             return
 
         if "@" in text:
             for comp in self._match_files(text):
                 yield comp
 
-    def _match_commands(self, text: str) -> list[str]:
-        return [c for c in self.commands if c.startswith(text)] or self.commands
+    def _command_completions(self, text: str) -> Iterable[Completion]:
+        tokens = text.split()
+        if not tokens:
+            return []
+
+        command = tokens[0]
+        if len(tokens) == 1 and not text.endswith(" "):
+            matches = [c for c in self.commands if c.startswith(command)]
+            if not matches:
+                return []
+            return [Completion(cmd, start_position=-len(command)) for cmd in matches]
+
+        # If the user has already started typing arguments and then types spaces,
+        # do not keep re-suggesting "fixed" args on every subsequent space.
+        if len(tokens) >= 2 and text.endswith(" "):
+            return []
+
+        if len(tokens) == 1 and text.endswith(" "):
+            return self._arg_completions(command, "")
+
+        arg_prefix = "" if text.endswith(" ") else tokens[-1]
+        return self._arg_completions(command, arg_prefix)
+
+    def _arg_completions(self, command: str, arg_prefix: str) -> Iterable[Completion]:
+        options: list[str] = []
+        if command == "/learn":
+            options = ["on", "off"]
+        elif command == "/clean":
+            options = ["history", "lesson", "memory", "all"]
+        if not options:
+            return []
+        matches = [opt for opt in options if opt.startswith(arg_prefix)]
+        return [Completion(opt, start_position=-len(arg_prefix)) for opt in matches]
 
     def _match_files(self, text: str) -> Iterable[Completion]:
         at_index = text.rfind("@")
@@ -101,7 +134,13 @@ class DogentCompleter(Completer):
 class DogentCLI:
     """Interactive CLI interface for Dogent."""
 
-    def __init__(self, root: Path | None = None, console: Console | None = None) -> None:
+    def __init__(
+        self,
+        root: Path | None = None,
+        console: Console | None = None,
+        *,
+        lesson_drafter: LessonDrafter | None = None,
+    ) -> None:
         self.console = console or Console()
         self.root = root or Path.cwd()
         self.registry = CommandRegistry()
@@ -110,6 +149,8 @@ class DogentCLI:
         self.config_manager = ConfigManager(self.paths, console=self.console)
         self.file_resolver = FileReferenceResolver(self.root)
         self.history_manager = HistoryManager(self.paths)
+        project_cfg = self.config_manager.load_project_config()
+        self.lessons_manager = LessonsManager(self.paths, console=self.console)
         self.prompt_builder = PromptBuilder(
             self.paths, self.todo_manager, self.history_manager, console=self.console
         )
@@ -120,6 +161,13 @@ class DogentCLI:
             history=self.history_manager,
             console=self.console,
         )
+        self.lesson_drafter: LessonDrafter = lesson_drafter or ClaudeLessonDrafter(
+            config=self.config_manager,
+            paths=self.paths,
+            console=self.console,
+        )
+        self.auto_learn_enabled: bool = bool(project_cfg.get("learn_auto", True))
+        self._armed_incident: LessonIncident | None = None
         self._register_commands()
         self.session: PromptSession | None = None
         self._shutting_down = False
@@ -159,14 +207,24 @@ class DogentCLI:
             "Create .dogent/dogent.json (llm_profile and web_profile) and reload settings.",
         )
         self.registry.register(
+            "/learn",
+            self._cmd_learn,
+            "Save a lesson: /learn <text> or toggle auto prompt with /learn on|off.",
+        )
+        self.registry.register(
+            "/lessons",
+            self._cmd_lessons,
+            "Show recent lessons and where to edit .dogent/lessons.md.",
+        )
+        self.registry.register(
             "/history",
             self._cmd_history,
             "Show recent history entries and the latest todo snapshot.",
         )
         self.registry.register(
-            "/clear",
-            self._cmd_clear,
-            "Clear history and memory files for a fresh start.",
+            "/clean",
+            self._cmd_clean,
+            "Clean workspace state: /clean [history|lesson|memory|all].",
         )
         self.registry.register(
             "/help",
@@ -234,11 +292,101 @@ class DogentCLI:
         await self.agent.reset()
         settings = self.config_manager.load_settings()
         body = (
-            f"Wrote .dogent/dogent.json with llm_profile reference.\n"
-            f"LLM Profile: {settings.profile or '<not set>'}"
+            "Wrote .dogent/dogent.json with llm_profile and web_profile references.\n"
+            f"LLM Profile: {settings.profile or '<not set>'}\n"
+            f"Web Profile: {settings.web_profile or 'default (native)'}"
         )
         self.console.print(
             Panel(body, title="Config", border_style="green")
+        )
+        return True
+
+    async def _cmd_learn(self, command: str) -> bool:
+        parts = command.split(maxsplit=1)
+        arg = parts[1].strip() if len(parts) > 1 else ""
+        lowered = arg.lower()
+        if lowered in {"on", "off"}:
+            self.auto_learn_enabled = lowered == "on"
+            with suppress(Exception):
+                self.config_manager.set_learn_auto(self.auto_learn_enabled)
+            state = "on" if self.auto_learn_enabled else "off"
+            self.console.print(
+                Panel(
+                    f"Automatic 'Save a lesson?' prompt is now {state}. (Saved to .dogent/dogent.json)",
+                    title="📝 Learn",
+                    border_style="green",
+                )
+            )
+            return True
+
+        if not arg:
+            state = "on" if self.auto_learn_enabled else "off"
+            rel = self.paths.lessons_file.relative_to(self.root)
+            self.console.print(
+                Panel(
+                    "\n".join(
+                        [
+                            f"Auto learn prompt: {state}",
+                            f"Lessons file: {rel}",
+                            "",
+                            "Usage:",
+                            "- /learn on|off",
+                            "- /learn <free text>",
+                            "- /lessons",
+                        ]
+                    ),
+                    title="📝 Learn",
+                    border_style="cyan",
+                )
+            )
+            return True
+
+        incident = self._armed_incident
+        self._armed_incident = None
+        self.console.print(
+            Panel(
+                "Drafting lesson entry (this may take a moment)...",
+                title="📝 Learn",
+                border_style="cyan",
+            )
+        )
+        drafted = await self._draft_lesson(incident, arg)
+        drafted = self._ensure_user_note_in_lesson(drafted, arg)
+        path = self.lessons_manager.append_entry(drafted)
+        self.console.print(
+            Panel(
+                f"Saved lesson to {path.relative_to(self.root)}",
+                title="📝 Learn",
+                border_style="green",
+            )
+        )
+        return True
+
+    async def _cmd_lessons(self, _: str) -> bool:
+        titles = self.lessons_manager.list_recent_titles(limit=5)
+        rel = self.paths.lessons_file.relative_to(self.root)
+        if not titles:
+            self.console.print(
+                Panel(
+                    "\n".join(
+                        [
+                            "No lessons recorded yet.",
+                            f"File: {rel}",
+                            "Add one with: /learn <text>",
+                        ]
+                    ),
+                    title="📚 Lessons",
+                    border_style="yellow",
+                )
+            )
+            return True
+        body = "\n".join([f"- {t}" for t in titles])
+        self.console.print(
+            Panel(
+                "\n".join([f"File: {rel}", "", "Recent:", body]),
+                title="📚 Lessons",
+                border_style="cyan",
+            )
         )
         return True
 
@@ -284,23 +432,61 @@ class DogentCLI:
         self.console.print(todo_panel)
         return True
 
-    async def _cmd_clear(self, _: str) -> bool:
+    async def _cmd_clean(self, command: str) -> bool:
+        return await self._cmd_clean_target(command)
+
+    async def _cmd_clean_target(self, command: str) -> bool:
+        parts = command.split(maxsplit=1)
+        target = parts[1].strip().lower() if len(parts) > 1 else ""
+        if not target:
+            target = "all"
+        if target == "lessons":
+            target = "lesson"
+
+        valid = {"history", "lesson", "memory", "all"}
+        if target not in valid:
+            self.console.print(
+                Panel(
+                    "\n".join(
+                        [
+                            f"Unknown clean target: {target}",
+                            "Valid targets: history, lesson, memory, all",
+                            "Example: /clean history",
+                        ]
+                    ),
+                    title="🧹 Clean",
+                    border_style="red",
+                )
+            )
+            return True
+
         cleared: list[str] = []
-        self.history_manager.clear()
-        cleared.append(str(self.paths.history_file.relative_to(self.root)))
-        if self.paths.memory_file.exists():
+        if target in {"history", "all"}:
+            self.history_manager.clear()
+            cleared.append(str(self.paths.history_file.relative_to(self.root)))
+
+        if target in {"memory", "all"} and self.paths.memory_file.exists():
             with suppress(Exception):
                 self.paths.memory_file.unlink()
             if not self.paths.memory_file.exists():
                 cleared.append(str(self.paths.memory_file.relative_to(self.root)))
+
+        if target in {"lesson", "all"} and self.paths.lessons_file.exists():
+            with suppress(Exception):
+                self.paths.lessons_file.unlink()
+            if not self.paths.lessons_file.exists():
+                cleared.append(str(self.paths.lessons_file.relative_to(self.root)))
+
+        # Always reset in-session todos for a clean interaction state.
         self.todo_manager.set_items([])
+
         if cleared:
             body = "Cleared:\n" + "\n".join(cleared)
             style = "green"
         else:
-            body = "No history or memory files found to clear."
+            body = "Nothing to clear for the selected target."
             style = "yellow"
-        self.console.print(Panel(body, title="🧹 Clear", border_style=style))
+        self.console.print(Panel(body, title="🧹 Clean", border_style=style))
         return True
 
     async def _cmd_exit(self, _: str) -> bool:
@@ -350,6 +536,10 @@ class DogentCLI:
             message, attachments = self._resolve_attachments(text)
             if attachments:
                 self._show_attachments(attachments)
+            if self._armed_incident and self.auto_learn_enabled:
+                if await self._confirm_save_lesson():
+                    await self._save_lesson_from_incident(self._armed_incident, message)
+                self._armed_incident = None
             try:
                 await self._run_with_interrupt(message, attachments)
             except KeyboardInterrupt:
@@ -389,6 +579,7 @@ class DogentCLI:
         if agent_task.done() and not agent_task.cancelled():
             with suppress(Exception):
                 await agent_task
+        self._arm_lesson_capture_if_needed()
 
     async def _wait_for_escape(self, stop_event: threading.Event) -> bool:
         loop = asyncio.get_event_loop()
@@ -433,9 +624,12 @@ class DogentCLI:
             esc_task.cancel()
             with suppress(asyncio.CancelledError):
                 await esc_task
+        # Arm lesson capture after a user interrupt.
+        self._arm_lesson_capture_if_needed()
 
     async def _handle_command(self, command: str) -> bool:
-        cmd = self.registry.get(command)
+        cmd_name = command.split(maxsplit=1)[0]
+        cmd = self.registry.get(cmd_name)
         if not cmd:
             available = "\n".join(self.registry.descriptions())
             self.console.print(
@@ -448,15 +642,18 @@ class DogentCLI:
             return True
         return await cmd.handler(command)
 
-    async def _read_input(self) -> str:
+    async def _read_input(self, prompt: str = "dogent> ") -> str:
         loop = asyncio.get_event_loop()
         if self.session:
             prompt_callable = getattr(self.session, "prompt_async", None)
             if callable(prompt_callable):
-                return await prompt_callable("dogent> ")
-            return await loop.run_in_executor(None, lambda: self.session.prompt("dogent> "))
+                return await prompt_callable(prompt)
+            return await loop.run_in_executor(None, lambda: self.session.prompt(prompt))
         return await loop.run_in_executor(
-            None, lambda: Prompt.ask("[bold cyan]dogent>[/bold cyan]")
+            None,
+            lambda: Prompt.ask(
+                "[bold cyan]dogent>[/bold cyan]" if prompt == "dogent> " else prompt
+            ),
         )
 
     def _resolve_attachments(self, message: str) -> Tuple[str, list[FileAttachment]]:
@@ -509,7 +706,7 @@ class DogentCLI:
     def _status_icon(self, status: str) -> str:
         normalized = (status or "").lower()
         mapping = {
-            "started": "⏳",
+            "started": "🟢",
             "running": "🔄",
             "interrupted": "⛔",
             "completed": "✅",
@@ -520,6 +717,97 @@ class DogentCLI:
     def _shorten(self, text: Any, limit: int = 120) -> str:
         raw = str(text).replace("\n", " ").strip()
         return raw if len(raw) <= limit else f"{raw[:limit]} …"
+
+    def _arm_lesson_capture_if_needed(self) -> None:
+        outcome = getattr(self.agent, "last_outcome", None)
+        if not outcome:
+            return
+        status = str(getattr(outcome, "status", "") or "")
+        remaining = str(getattr(outcome, "remaining_todos_markdown", "") or "")
+        if status not in {"error", "interrupted"}:
+            return
+        self._armed_incident = LessonIncident(
+            status=status,
+            summary=str(getattr(outcome, "summary", "") or ""),
+            todos_markdown=remaining.strip(),
+        )
+
+    async def _confirm_save_lesson(self) -> bool:
+        answer = (await self._read_input("Save a lesson from the last failure/interrupt? [Y/n] ")).strip()
+        if not answer:
+            return True
+        lowered = answer.lower()
+        if lowered.startswith("y"):
+            return True
+        if lowered.startswith("n"):
+            return False
+        return True
+
+    async def _draft_lesson(self, incident: LessonIncident | None, user_text: str) -> str:
+        try:
+            if incident is not None:
+                return await self.lesson_drafter.draft_from_incident(incident, user_text)
+            return await self.lesson_drafter.draft_from_free_text(user_text)
+        except Exception as exc:  # noqa: BLE001
+            summary = incident.summary if incident else "(manual)"
+            todos = incident.todos_markdown if incident else ""
+            return "\n".join(
+                [
+                    "### Problem",
+                    summary,
+                    "",
+                    "### Cause",
+                    "(LLM drafting failed)",
+                    "",
+                    "### Correct Approach",
+                    user_text.strip(),
+                    "",
+                    "### Remaining Todos",
+                    todos or "(none)",
+                    "",
+                    f"(Drafting error: {exc})",
+                ]
+            ).strip()
+
+    async def _save_lesson_from_incident(self, incident: LessonIncident, user_correction: str) -> None:
+        self.console.print(
+            Panel(
+                "Drafting lesson entry (this may take a moment)...",
+                title="📝 Learn",
+                border_style="cyan",
+            )
+        )
+        drafted = await self._draft_lesson(incident, user_correction)
+        drafted = self._ensure_user_note_in_lesson(drafted, user_correction)
+        path = self.lessons_manager.append_entry(drafted)
+        self.console.print(
+            Panel(
+                f"Saved lesson to {path.relative_to(self.root)}",
+                title="📝 Learn",
+                border_style="green",
+            )
+        )
+
+    def _ensure_user_note_in_lesson(self, lesson_md: str, user_note: str) -> str:
+        note = user_note.strip()
+        if not note:
+            return lesson_md
+        quote = "\n".join(["> " + line for line in note.splitlines()])
+        if quote in lesson_md:
+            return lesson_md
+        marker = "### Correct Approach"
+        insertion = "\n\n**User correction (verbatim):**\n" + quote + "\n"
+        if marker not in lesson_md:
+            return lesson_md.rstrip() + "\n\n" + marker + insertion
+
+        idx = lesson_md.find(marker)
+        header_end = lesson_md.find("\n", idx)
+        if header_end == -1:
+            header_end = len(lesson_md)
+        next_heading = lesson_md.find("\n### ", header_end)
+        if next_heading == -1:
+            return lesson_md.rstrip() + insertion
+        return lesson_md[:next_heading].rstrip() + insertion + lesson_md[next_heading:]
 
 
 def main() -> None:

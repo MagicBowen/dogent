@@ -258,9 +258,9 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Acceptance Status: Accepted
 - Verification: `tests/test_help_and_tools.py::test_help_command_shows_usage`.
 
-### Story 36: Clear History & Memory
+### Story 36: Clean History & Memory
 - User Value: Start a new session without leftover context.
-- Acceptance: `/clear` empties `.dogent/history.json`, removes `.dogent/memory.md` if present, and resets in-memory todos with a confirmation panel; handles missing files gracefully.
+- Acceptance: `/clean` empties `.dogent/history.json`, removes `.dogent/memory.md` if present, and resets in-memory todos with a confirmation panel; handles missing files gracefully.
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: `tests/test_clear_command.py::test_clear_command_resets_history_and_memory`.
@@ -294,3 +294,48 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: config fallback tests, `dogent/prompts/system.md` tool section check.
+
+## Release 0.7.0
+
+### Story 41: Lessons (Continuous Improvement)
+- User Value: Dogent avoids repeating the same mistakes by recording failures + correct approaches and reusing them in later tasks.
+- Acceptance:
+  - Lessons are stored in `.dogent/lessons.md` (project-only, user-editable).
+  - Failure/interrupt signal:
+    - If the user interrupts (Esc/Ctrl+C), the run is recorded in `.dogent/history.json` with status `interrupted`.
+    - If the agent run fails or ends prematurely (and the user did not interrupt), the run is recorded in `.dogent/history.json` with status `error` (not `completed`).
+    - Do not detect failure by parsing free-form summary text.
+  - After a run with status `error` or `interrupted`, the next user message triggers a “Save a lesson?” prompt with default **Y**.
+  - If accepted, Dogent uses the LLM to draft a structured lesson using the last failure Summary and the user’s correction message as context, appends it to `.dogent/lessons.md`, then proceeds with the user’s request (retry).
+  - `/learn <free text>` appends a new lesson (LLM rewrites into a consistent format).
+  - `/learn on|off` toggles the automatic “Save a lesson?” prompt.
+  - `/lessons` displays a short list of recent lessons and points to `.dogent/lessons.md` for editing.
+  - The full `.dogent/lessons.md` content is injected into prompt context on each new task (no relevance filtering for now; truncation with notice is allowed if needed).
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `tests/test_lessons.py`, `tests/test_cli_learn.py`, UAT Release 0.7.0.
+
+### Story 42: Failure Summary Status Clarity
+- User Value: Immediately understand that the run failed (or was interrupted) and why, and use it as a reliable trigger for lesson capture.
+- Acceptance:
+  - When a run exits the agent loop with unfinished todos, the Summary panel title clearly shows status (e.g., `❌ Failed` / `⛔ Interrupted` / `✅ Completed`).
+  - Summary content includes the result/reason and a concise “Remaining Todos” section when todos exist.
+  - `.dogent/history.json` records status as `error` for failures and `interrupted` for user interrupts (not `completed`).
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `tests/test_agent_display.py::test_unfinished_todos_marks_run_failed_and_preserves_todos`, UAT Release 0.7.0.
+
+### Story 43: Targeted Clean Command
+- User Value: Selectively clear history, lessons, or memory without wiping everything.
+- Acceptance:
+  - `/clean` supports a single optional target arg: `history`, `lesson`, `memory`, or `all`.
+  - `/clean` without args defaults to `all`.
+  - When the user types `/clean `, the CLI shows a dropdown completion list with these target options.
+  - `/clean history` clears `.dogent/history.json`.
+  - `/clean memory` removes `.dogent/memory.md` if present.
+  - `/clean lesson` removes `.dogent/lessons.md` if present.
+  - `/clean all` clears history and removes memory + lessons.
+  - Each run prints a confirmation panel listing which targets were cleared.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: Add unit tests for selective clearing and completion options; add UAT steps under Release 0.7.0.

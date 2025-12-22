@@ -50,16 +50,62 @@ class ConfigManager:
         return created
 
     def create_config_template(self) -> None:
-        """Create .dogent/dogent.json referencing an llm_profile without embedding secrets."""
+        """Create or update .dogent/dogent.json without overwriting existing user settings."""
         self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
         template_text = self._read_home_template("dogent_default.json")
-        if not template_text:
-            template_text = json.dumps(
-                {"llm_profile": "deepseek", "web_profile": "default"},
-                indent=2,
-                ensure_ascii=False,
-            )
-        self.paths.config_file.write_text(template_text, encoding="utf-8")
+
+        defaults: Dict[str, Any] = {}
+        if template_text:
+            try:
+                parsed = json.loads(template_text)
+                if isinstance(parsed, dict):
+                    defaults = parsed
+            except json.JSONDecodeError:
+                defaults = {}
+        if not defaults:
+            defaults = {"llm_profile": "deepseek", "web_profile": "default", "learn_auto": True}
+
+        current = self._read_json(self.paths.config_file)
+        if not current:
+            merged = dict(defaults)
+        else:
+            merged = dict(current)
+            for key, value in defaults.items():
+                if key not in merged:
+                    merged[key] = value
+
+        raw_web_profile = merged.get("web_profile")
+        if raw_web_profile is None:
+            merged["web_profile"] = "default"
+        elif isinstance(raw_web_profile, str) and not raw_web_profile.strip():
+            merged["web_profile"] = "default"
+
+        if "learn_auto" not in merged or merged.get("learn_auto") is None:
+            merged["learn_auto"] = True
+
+        self.paths.config_file.write_text(
+            json.dumps(merged, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    def set_learn_auto(self, enabled: bool) -> None:
+        """Persist workspace auto-learn toggle in .dogent/dogent.json."""
+        self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+        if not self.paths.config_file.exists():
+            self.create_config_template()
+        data = self._read_json(self.paths.config_file) or {}
+        if not isinstance(data, dict):
+            data = {}
+        data["learn_auto"] = bool(enabled)
+        raw_web_profile = data.get("web_profile")
+        if raw_web_profile is None:
+            data["web_profile"] = "default"
+        elif isinstance(raw_web_profile, str) and not raw_web_profile.strip():
+            data["web_profile"] = "default"
+        self.paths.config_file.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
     def load_settings(self) -> DogentSettings:
         """Merge project config, profile, and environment variables."""
@@ -110,7 +156,7 @@ class ConfigManager:
     def _normalize_project_config(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize config keys while staying backward compatible."""
         if not data:
-            return {"web_profile": "default"}
+            return {"web_profile": "default", "learn_auto": True}
         normalized = dict(data)
         new_val = normalized.get("llm_profile")
         old_val = normalized.get("profile")
@@ -134,6 +180,20 @@ class ConfigManager:
             normalized["web_profile"] = "default"
         elif isinstance(raw_web_profile, str) and not raw_web_profile.strip():
             normalized["web_profile"] = "default"
+
+        raw_learn_auto = normalized.get("learn_auto")
+        if raw_learn_auto is None:
+            normalized["learn_auto"] = True
+        elif isinstance(raw_learn_auto, str):
+            normalized["learn_auto"] = raw_learn_auto.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "y",
+                "on",
+            }
+        else:
+            normalized["learn_auto"] = bool(raw_learn_auto)
         return normalized
 
     def build_options(self, system_prompt: str) -> ClaudeAgentOptions:

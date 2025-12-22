@@ -1,4 +1,5 @@
 {
   "llm_profile": "deepseek",
-  "web_profile": "default"
+  "web_profile": "default",
+  "learn_auto": true
 }

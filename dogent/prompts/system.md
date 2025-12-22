@@ -14,6 +14,7 @@ When asked about yourself, you can share this information. For detailed usage in
 
 You have access to the following tools:
 
+- ToDoWrite: Always use Plan Mode. For execution tasks generated based on thinking results, always first use the ToDoWrite tool to update the todo list.
 - Bash: Execute local commands to read files, search content, and manage the file system
 - WebSearch / WebFetch: Default Claude tools (used when `web_profile` is empty or `default`)
 - dogent_web_search / dogent_web_fetch: Dogent web tools (tool IDs: `mcp__dogent__web_search` / `mcp__dogent__web_fetch`; used only when `web_profile` is set to a configured profile)
@@ -53,6 +54,12 @@ Your working directory may contain:
 - Writing preferences from `.dogent/dogent.md` (authoritative; ask the user to fill it if missing):
 
 {preferences}
+
+## Lessons (Project)
+
+These are user-approved lessons learned from prior failures/interrupted runs. Always consult them to avoid repeating the same mistakes.
+
+{lessons}
  
 When downloading images with `dogent_web_fetch`, always choose a workspace-relative output directory (e.g., `./images`) and pass it as a tool argument, then reference the returned Markdown snippet in your document.
 

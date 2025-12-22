@@ -21,7 +21,7 @@ User Test Results: PASS
 
 ### Story 3 – Config & Profiles
 1) In the same session, run `/config`.
-2) Confirm `.dogent/dogent.json` is created with an `llm_profile` field only (no embedded secrets); `.gitignore` should remain unchanged.
+2) Confirm `.dogent/dogent.json` is created with `llm_profile` and `web_profile` fields (no embedded secrets); `.gitignore` should remain unchanged.
 3) Create `~/.dogent/claude.json` with a profile and check merged values by re-entering the session (Dogent reconnects with new settings).
 
 User Test Results: PASS
@@ -227,8 +227,8 @@ User Test Results: PASS
 
 ### Story 36 – Clear History & Memory
 1) In `uats/sample_workspace`, create `.dogent/history.json` with sample entries and `.dogent/memory.md` with any text (or run a task to populate history).
-2) Start `dogent` and run `/clear`.
-3) Expect a confirmation panel listing cleared files; `.dogent/history.json` should contain an empty array, and `.dogent/memory.md` should be removed. Todos in the session reset to empty.
+2) Start `dogent` and run `/clean all`.
+3) Expect a confirmation panel listing cleared files; `.dogent/history.json` should contain an empty array, and `.dogent/memory.md` should be removed (and `.dogent/lessons.md` removed if present). Todos in the session reset to empty.
 
 User Test Results: PASS
 
@@ -268,3 +268,69 @@ User Test Results: PASS
 4) Set `.dogent/dogent.json` `web_profile` to a non-existent name; restart `dogent` and confirm a startup warning is shown and native tools are used.
 
 User Test Results: PASS
+
+## Release 0.7.0
+
+### Story 41 – Lessons (Continuous Improvement)
+Pre-check (clean start recommended):
+1) From repo root: `cd uats/sample_workspace`
+2) (Optional) Remove prior lessons to start clean: `rm -f .dogent/lessons.md`
+3) Start `dogent`. If `.dogent/` is missing, run `/init` and `/config` first.
+4) Run `/learn on` then `/lessons` (expect “No lessons recorded yet.” on a clean start).
+
+Interrupt → auto lesson capture:
+5) Send a prompt that forces todos and a long run, e.g.: “Use TodoWrite to create 3–5 steps for X, start executing step 1 slowly, and keep going until I interrupt.”
+6) Once the Todo panel shows unfinished items, press `Esc`.
+7) Expect Summary panel title `⛔ Interrupted` and a “Remaining Todos” section.
+8) At the next `dogent>` prompt, type ONE message that includes your correction + a retry request, then press Enter.
+9) Expect: “Save a lesson from the last failure/interrupt? [Y/n]” — press Enter for **Y**.
+10) Expect a `📝 Learn` panel saying it saved to `.dogent/lessons.md`.
+11) Run `/lessons` and confirm it shows recent titles; open `.dogent/lessons.md` and confirm a new `## ...` entry exists.
+
+Manual save + toggle:
+12) Run `/learn off`, repeat steps 5–7, then send any message; confirm you are NOT prompted to save a lesson automatically.
+13) Run `/learn <free text>` and confirm `.dogent/lessons.md` is appended.
+14) Restart `dogent` in the same workspace and confirm `/learn` remains `off` (it is persisted in `.dogent/dogent.json`).
+
+Optional injection check:
+15) Ask: “Summarize the Lessons section you have in your context.” Confirm it references what you saved in `.dogent/lessons.md`.
+
+- Previous issues addressed:
+  - Lesson drafting now prints an in-progress panel, so the CLI doesn’t look “stuck”.
+  - Lessons now always include the user’s correction prompt verbatim under `### Correct Approach`.
+  - Lesson drafting prompt was tightened for conciseness and clearer titles; removed `{remaining_todos}` from the lesson draft template.
+  - `/learn on|off` is persisted to `.dogent/dogent.json` (default on when absent).
+  - `/history` “started” status uses 🟢.
+  - Command completion no longer shows the full command list after typing a space; `/learn ` suggests `on/off`.
+
+- Fixes applied:
+  - `dogent/templates/dogent_default.json` now includes `learn_auto` defaults, and `/config` merges defaults into an existing `.dogent/dogent.json` instead of overwriting it.
+  - Lesson auto-capture now arms on any `error` / `interrupted` outcome (even if the todo list is empty), so you still get the “Save a lesson?” prompt after API errors or early interrupts.
+  - The lesson drafter no longer warns about missing `remaining_todos` even if an old home template still contains that placeholder.
+  - Command completion no longer re-suggests `/learn on/off` after you start typing free-form text; it only suggests args immediately after `/learn `.
+  - Lesson drafting prompt now focuses on the user’s suggested fix/rule (the correction is the primary signal), producing shorter, more reusable lessons.
+
+
+User Test Results: PASS
+
+
+### Story 42 – Failure Summary Status Clarity
+Goal: verify that when a run ends with unfinished todos (and you did not interrupt), the Summary is clearly marked as failed and history status is `error`.
+
+1) In the same session, run `/learn off` (to avoid extra prompts during this story).
+2) Send a prompt that leaves at least one todo unfinished at the end, e.g.:
+   “Use TodoWrite to create 3 todos. Mark only the first as completed, leave the others pending, then stop and output a final result.”
+3) Expect Summary panel title `❌ Failed` and content including “Result/Reason” and “Remaining Todos”.
+4) Run `/history` and confirm the latest entry status is `error` (not `completed`); optionally verify in `.dogent/history.json`.
+
+User Test Results: PASS
+
+### Story 43 – Targeted Clear Command
+1) In `uats/sample_workspace`, ensure you have `.dogent/history.json`, `.dogent/memory.md`, and `.dogent/lessons.md` (run any task, create a memory file, and record a lesson if needed).
+2) Type `/clean ` and confirm the CLI dropdown suggests: `history`, `lesson`, `memory`, `all`.
+3) Run `/clean memory`; confirm `.dogent/memory.md` is removed and other targets remain.
+4) Run `/clean lesson`; confirm `.dogent/lessons.md` is removed and other targets remain.
+5) Run `/clean history`; confirm `.dogent/history.json` is emptied.
+6) (Optional) Recreate the files, then run `/clean all` and confirm all three targets are cleaned.
+
+User Test Results: Pending
