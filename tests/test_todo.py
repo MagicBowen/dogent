@@ -34,6 +34,19 @@ class TodoManagerTests(unittest.TestCase):
         self.assertEqual(manager.items[0].title, "研究 SDK")
         self.assertEqual(manager.items[0].status, "completed")
 
+    def test_remaining_markdown_reports_unfinished(self) -> None:
+        manager = TodoManager()
+        manager.set_items(
+            [
+                TodoItem(title="a", status="pending"),
+                TodoItem(title="b", status="done"),
+            ]
+        )
+        self.assertTrue(manager.has_unfinished())
+        md = manager.remaining_markdown()
+        self.assertIn("a", md)
+        self.assertNotIn("b", md)
+
     def test_agent_updates_todo_from_tool(self) -> None:
         console = Console(file=io.StringIO(), force_terminal=True)
         original_home = os.environ.get("HOME")

@@ -3,11 +3,12 @@
 CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans, researches, drafts, validates, and polishes long-form documents from the terminal.
 
 ## Features
- - Interactive CLI (`dogent`) with `/init`, `/config`, `/history`, `/clear`, `/help`, `/exit`
+- Interactive CLI (`dogent`) with `/init`, `/config`, `/history`, `/clean`, `/help`, `/learn`, `/lessons`, `/exit`
 - System prompt + per-turn user prompt templates under `dogent/prompts/`
 - Todo panel synced to `TodoWrite` tool calls/results (no seeded todos)
 - @file references load workspace files into each turn
 - Supports `.dogent/dogent.md` constraints, profiles in `~/.dogent/claude.json`, and env fallbacks
+- Project-only lessons in `.dogent/lessons.md` (auto-captured after failures/interrupts; injected into prompt context)
 - Ready for packaging via `pyproject.toml` with Rich-based UI
 
 ## Quick Start
@@ -17,14 +18,16 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
    - `/init` → scaffold `.dogent/dogent.md`
    - `/config` → create `.dogent/dogent.json` (`llm_profile` + `web_profile`; actual creds in `~/.dogent/claude.json` or env)
    - `/history` → show recent history entries and the latest todo snapshot
-   - `/clear` → reset `.dogent/history.json`, remove `.dogent/memory.md` if present, and clear in-session todos
+   - `/clean` → clean workspace state (`/clean [history|lesson|memory|all]`; defaults to `all`)
    - `/help` → display current model/API/LLM profile/web profile plus available commands and shortcuts
+   - `/learn` → save a lesson (`/learn <text>`) or toggle auto prompt (`/learn on|off`)
+   - `/lessons` → show recent lessons and where to edit `.dogent/lessons.md`
    - `/exit` → quit
    - Typing `/` shows command suggestions; typing `@` offers file completions; press Esc during a task to interrupt and save progress
 4. Reference files with `@path/to/file` in your message; Dogent injects their contents. Tool results (e.g., WebFetch/WebSearch) show clear success/failure panels with reasons.
 
 ## Configuration
-- Project config: `.dogent/dogent.json` (`llm_profile` reference only)
+- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, and `learn_auto` (toggled by `/learn on|off`))
 - Global profiles: `~/.dogent/claude.json` with named profiles (see `docs/usage.md` for JSON examples)
 - Env fallback: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 - History is stored in `.dogent/history.json` (structured JSON, managed automatically); temporary scratch lives in `.dogent/memory.md` when created on demand.
@@ -40,6 +43,7 @@ Dogent supports custom web search providers (Google CSE / Bing / Brave) via `~/.
   - `working_dir`, `preferences`
   - `history` (raw `.dogent/history.json`), `history:last`/`history_block` (recent entries)
   - `memory`
+  - `lessons` (raw `.dogent/lessons.md`)
   - `todo_block`/`todo_list`
   - `user_message`, `attachments` (rendered @file content)
   - `config:<key>` for any field in `.dogent/dogent.json` (supports dotted paths such as `config:anthropic.base_url`)

@@ -69,11 +69,15 @@ class PromptBuilder:
     ) -> str:
         config_data = config or {}
         context = self._base_context(settings, config_data)
-        return self.renderer.render(
+        rendered = self.renderer.render(
             self._system_template,
             lambda key: self._resolve_value(key, context, config_data),
             template_name="system prompt",
         )
+        lessons = context.get("lessons", "")
+        if lessons and "{lessons}" not in self._system_template:
+            rendered = rendered.rstrip() + "\n\n## Lessons\n\n" + lessons.strip() + "\n"
+        return rendered
 
     def build_user_prompt(
         self,
@@ -101,6 +105,7 @@ class PromptBuilder:
         history_full = self.history.read_raw()
         recent_history = self.history.to_prompt_block()
         memory_content = self._read_memory()
+        lessons_content = self._read_lessons()
         todo_plain = self.todo_manager.render_plain()
         return {
             "working_dir": str(self.paths.root),
@@ -109,6 +114,7 @@ class PromptBuilder:
             "history:last": recent_history,
             "history_block": recent_history,
             "memory": memory_content,
+            "lessons": lessons_content,
             "todo_block": todo_plain,
             "todo_list": todo_plain,
         }
@@ -151,6 +157,24 @@ class PromptBuilder:
             return self.paths.memory_file.read_text(encoding="utf-8", errors="replace")
         except Exception:
             return ""
+
+    def _read_lessons(self) -> str:
+        if not self.paths.lessons_file.exists():
+            return "No lessons recorded yet."
+        try:
+            text = self.paths.lessons_file.read_text(encoding="utf-8", errors="replace").strip()
+            if not text:
+                return "No lessons recorded yet."
+            max_chars = 20000
+            if len(text) <= max_chars:
+                return text
+            tail = text[-max_chars:]
+            return (
+                f"(Lessons truncated to the last {max_chars} characters. Edit .dogent/lessons.md to prune.)\n\n"
+                + tail
+            )
+        except Exception:
+            return "No lessons recorded yet."
 
     def _format_attachments(self, attachments: Iterable[FileAttachment]) -> str:
         attachments = list(attachments)

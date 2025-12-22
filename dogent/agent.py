@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from dataclasses import dataclass
 from typing import Dict, Iterable, Optional
 
 from rich.console import Console
@@ -26,6 +27,14 @@ from .todo import TodoManager
 from .web_tools import DOGENT_WEB_TOOL_DISPLAY_NAMES
 
 
+@dataclass(frozen=True)
+class RunOutcome:
+    status: str  # completed|error|interrupted
+    summary: str
+    todos_snapshot: list[dict[str, object]]
+    remaining_todos_markdown: str
+
+
 class AgentRunner:
     """Maintains a Claude Agent SDK session and streams responses to the CLI."""
 
@@ -48,6 +57,7 @@ class AgentRunner:
         self._skip_todo_render_once = False
         self._last_summary: str | None = None
         self._interrupted: bool = False
+        self.last_outcome: RunOutcome | None = None
 
     async def reset(self) -> None:
         """Close current session so it can be re-created with new settings."""
@@ -68,6 +78,7 @@ class AgentRunner:
         )
         self._last_summary = None
         self._interrupted = False
+        self.last_outcome = None
         preview = self._shorten(user_message, limit=240)
         self.console.print(
             Panel(
@@ -97,44 +108,68 @@ class AgentRunner:
             await self._stream_responses()
             await self._safe_disconnect()
         except Exception as exc:  # noqa: BLE001
-            self.console.print(
-                Panel(
-                    f"[red]Session error: {exc}[/red]\nCheck credentials/network or update the LLM profile with /config.",
-                    title="Error",
-                )
+            todos_snapshot = self.todo_manager.export_items()
+            remaining = self.todo_manager.remaining_markdown()
+            self.last_outcome = RunOutcome(
+                status="error",
+                summary=str(exc),
+                todos_snapshot=todos_snapshot,
+                remaining_todos_markdown=remaining,
             )
+            body_lines = [
+                f"Reason: {exc}",
+                "",
+                "Remaining Todos:" if remaining else "Remaining Todos: (none)",
+                remaining,
+            ]
+            self.console.print(Panel(Text("\n".join(line for line in body_lines if line).strip()), title="❌ Failed"))
             await self._safe_disconnect()
+            self.history.append(
+                summary=f"Session error: {exc}",
+                status="error",
+                prompt=None,
+                todos=todos_snapshot,  # type: ignore[arg-type]
+            )
 
     async def _stream_responses(self) -> None:
         if not self._client:
             return
-        try:
-            async for message in self._client.receive_response():
-                if self._interrupted:
-                    break
-                if isinstance(message, AssistantMessage):
-                    self._handle_assistant_message(message)
-                elif isinstance(message, ResultMessage):
-                    if not self._interrupted:
-                        self._handle_result(message)
-                    break
-        except Exception as exc:  # noqa: BLE001
-            self.console.print(
-                Panel(
-                    f"[red]Streaming error: {exc}[/red]\nVerify credentials, network, or retry.",
-                    title="Error",
-                )
-            )
+        async for message in self._client.receive_response():
+            if self._interrupted:
+                break
+            if isinstance(message, AssistantMessage):
+                self._handle_assistant_message(message)
+            elif isinstance(message, ResultMessage):
+                if not self._interrupted:
+                    self._handle_result(message)
+                break
 
     async def interrupt(self, reason: str) -> None:
         async with self._lock:
             self._interrupted = True
             await self._safe_disconnect(interrupted=True)
+            todos_snapshot = self.todo_manager.export_items()
+            remaining = self.todo_manager.remaining_markdown()
+            self.last_outcome = RunOutcome(
+                status="interrupted",
+                summary=reason,
+                todos_snapshot=todos_snapshot,
+                remaining_todos_markdown=remaining,
+            )
+            body_lines = [
+                reason,
+                "",
+                "Remaining Todos:" if remaining else "Remaining Todos: (none)",
+                remaining,
+            ]
+            self.console.print(
+                Panel(Text("\n".join(line for line in body_lines if line).strip()), title="⛔ Interrupted")
+            )
             self.history.append(
                 summary=reason,
                 status="interrupted",
                 prompt=None,
-                todos=self.todo_manager.export_items(),
+                todos=todos_snapshot,  # type: ignore[arg-type]
             )
 
     def _handle_assistant_message(self, message: AssistantMessage) -> None:
@@ -179,24 +214,56 @@ class AgentRunner:
         metrics = (
             f"Duration {message.duration_ms} ms | API {message.duration_api_ms} ms | Cost {cost}"
         )
-        content_parts = []
-        if message.result:
-            content_parts.append(message.result)
-            self._last_summary = message.result
-        content_parts.append(metrics)
-        panel_text = "\n\n".join(content_parts)
-        self.console.print(Panel(Text(panel_text), title="📝 Session Summary"))
         todos_snapshot = self.todo_manager.export_items()
+        remaining = self.todo_manager.remaining_markdown()
+        is_failed = bool(getattr(message, "is_error", False)) or bool(remaining)
+
+        result_text = message.result or ""
+        self._last_summary = result_text or None
+
+        if is_failed:
+            title = "❌ Failed"
+            status = "error"
+            body_lines = [
+                "Result/Reason:",
+                result_text or "(no result returned)",
+                "",
+                "Remaining Todos:" if remaining else "Remaining Todos: (none)",
+                remaining,
+                "",
+                metrics,
+            ]
+            history_summary = result_text or "Task failed"
+        else:
+            title = "✅ Completed"
+            status = "completed"
+            body_lines = [
+                result_text,
+                "",
+                metrics,
+            ]
+            history_summary = result_text or "Task completed"
+
+        panel_text = "\n".join(line for line in body_lines if line).strip()
+        self.console.print(Panel(Text(panel_text), title=title))
+
+        self.last_outcome = RunOutcome(
+            status=status,
+            summary=history_summary,
+            todos_snapshot=todos_snapshot,
+            remaining_todos_markdown=remaining,
+        )
         self.history.append(
-            summary=message.result or "Task completed",
-            status="completed",
+            summary=history_summary,
+            status=status,
             duration_ms=message.duration_ms,
             api_ms=message.duration_api_ms,
             cost_usd=message.total_cost_usd,
             prompt=None,
-            todos=todos_snapshot,
+            todos=todos_snapshot,  # type: ignore[arg-type]
         )
-        self.todo_manager.set_items([])
+        if status == "completed":
+            self.todo_manager.set_items([])
 
     def _display_tool_name(self, name: str) -> str:
         return DOGENT_WEB_TOOL_DISPLAY_NAMES.get(name, name)

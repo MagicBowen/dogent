@@ -120,6 +120,9 @@ Notes:
 ## Commands Inside the CLI
 - `/init` – create writing constraint template and scratch memory.
 - `/config` – generate config JSON for `llm_profile` and `web_profile`.
+- `/learn` – save a lesson (`/learn <text>`) or toggle the automatic prompt (`/learn on|off`).
+- `/lessons` – show recent lessons and where to edit `.dogent/lessons.md`.
+- `/clean` – clean workspace state (`/clean [history|lesson|memory|all]`; defaults to `all`).
 - `/exit` – leave the CLI.
 - Typing `/` shows live command suggestions; typing `@` offers file completions.
 - Press `Esc` during an in-progress task to interrupt; progress is saved to `.dogent/history.json`.
@@ -131,6 +134,11 @@ Notes:
 ## Working With Todos
 - The agent uses the `TodoWrite` tool; Dogent mirrors its outputs with emoji statuses and concise logs.
 - No default todos are created; the list always reflects the latest TodoWrite result.
+
+## Lessons (Release 0.7.0)
+- Lessons live in `.dogent/lessons.md` (project-only, user-editable) and are injected into prompt context on every new task.
+- When a run ends with `❌ Failed` or `⛔ Interrupted`, Dogent prompts on your next message: “Save a lesson… [Y/n]” (default **Y**).
+- Use `/learn off` to disable the automatic prompt (saved to `.dogent/dogent.json`; you can still use `/learn <text>` any time).
 
 ## Document Writing Expectations
 - Defaults: Chinese, Markdown, citations at the end.

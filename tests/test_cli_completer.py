@@ -14,6 +14,34 @@ class DogentCompleterTests(unittest.TestCase):
         texts = [c.text for c in comps]
         self.assertIn("/init", texts)
 
+    def test_command_args_completion_does_not_show_all_commands_on_space(self) -> None:
+        completer = DogentCompleter(Path("."), ["/learn", "/help", "/init"])
+        comps = list(completer.get_completions(Document("/learn "), None))
+        texts = [c.text for c in comps]
+        self.assertIn("on", texts)
+        self.assertIn("off", texts)
+        self.assertNotIn("/help", texts)
+
+        comps = list(completer.get_completions(Document("/help "), None))
+        self.assertEqual([], [c.text for c in comps])
+
+        # After the user starts typing free-form text for /learn, do not keep
+        # popping the fixed on/off list on every subsequent space.
+        comps = list(completer.get_completions(Document("/learn do this "), None))
+        self.assertEqual([], [c.text for c in comps])
+
+        comps = list(completer.get_completions(Document("/learn on "), None))
+        self.assertEqual([], [c.text for c in comps])
+
+    def test_clear_command_shows_target_options(self) -> None:
+        completer = DogentCompleter(Path("."), ["/clean"])
+        comps = list(completer.get_completions(Document("/clean "), None))
+        texts = [c.text for c in comps]
+        self.assertIn("history", texts)
+        self.assertIn("lesson", texts)
+        self.assertIn("memory", texts)
+        self.assertIn("all", texts)
+
     def test_file_completion(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

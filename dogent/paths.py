@@ -29,6 +29,10 @@ class DogentPaths:
         return self.dogent_dir / "history.json"
 
     @property
+    def lessons_file(self) -> Path:
+        return self.dogent_dir / "lessons.md"
+
+    @property
     def global_dir(self) -> Path:
         return Path.home() / ".dogent"
 

@@ -57,7 +57,7 @@ class AgentDisplayTests(unittest.TestCase):
             paths = DogentPaths(root)
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
             todo = TodoManager(console=console)
-            todo.set_items([TodoItem(title="old")])
+            todo.set_items([TodoItem(title="old", status="done")])
             history = HistoryManager(paths)
             builder = PromptBuilder(paths, todo, history)
             runner = AgentRunner(
@@ -70,6 +70,48 @@ class AgentDisplayTests(unittest.TestCase):
 
             runner._handle_result(DummyResult())  # type: ignore[arg-type]
             self.assertEqual(todo.items, [])
+
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_unfinished_todos_marks_run_failed_and_preserves_todos(self) -> None:
+        class DummyResult:
+            result = "ok"
+            is_error = False
+            total_cost_usd = 0.0
+            duration_ms = 1
+            duration_api_ms = 1
+
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            todo = TodoManager(console=console)
+            todo.set_items([TodoItem(title="step 1", status="pending")])
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo, history)
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=builder,
+                todo_manager=todo,
+                history=history,
+                console=console,
+            )
+
+            runner._handle_result(DummyResult())  # type: ignore[arg-type]
+            self.assertNotEqual(todo.items, [])
+            self.assertIsNotNone(runner.last_outcome)
+            assert runner.last_outcome
+            self.assertEqual(runner.last_outcome.status, "error")
+            output = console.file.getvalue()
+            self.assertIn("Failed", output)
+
+            entries = history.read_entries()
+            self.assertEqual(entries[-1]["status"], "error")
 
         if original_home is not None:
             os.environ["HOME"] = original_home

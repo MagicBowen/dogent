@@ -138,6 +138,10 @@ class TodoManager:
         }
         return mapping.get(normalized, "•")
 
+    def _is_done(self, status: str) -> bool:
+        normalized = (status or "").strip().lower().replace(" ", "_")
+        return normalized in {"done", "complete", "completed"}
+
     def _build_item(self, data: dict[str, Any]) -> TodoItem:
         title_raw = (
             data.get("title")
@@ -162,6 +166,25 @@ class TodoManager:
                 {"title": item.title, "status": item.status, "note": item.note}
             )
         return exported
+
+    def unfinished_items(self) -> List[TodoItem]:
+        return [item for item in self.items if not self._is_done(item.status)]
+
+    def has_unfinished(self) -> bool:
+        return bool(self.unfinished_items())
+
+    def remaining_markdown(self, limit: int = 10) -> str:
+        items = self.unfinished_items()
+        if not items:
+            return ""
+        lines: list[str] = []
+        for item in items[: max(1, limit)]:
+            note = f" — {item.note}" if item.note else ""
+            lines.append(f"- [{item.status}] {item.title}{note}")
+        extra = len(items) - len(lines)
+        if extra > 0:
+            lines.append(f"- …and {extra} more")
+        return "\n".join(lines)
 
     def _try_parse_json(self, text: str) -> Optional[Any]:
         try:

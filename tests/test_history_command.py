@@ -44,6 +44,18 @@ class HistoryCommandTests(unittest.IsolatedAsyncioTestCase):
         else:
             os.environ.pop("HOME", None)
 
+    async def test_history_status_icon_for_started(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(record=True, force_terminal=False, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console)
+            self.assertEqual("🟢", cli._status_icon("started"))  # type: ignore[attr-defined]
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
 
 if __name__ == "__main__":
     unittest.main()

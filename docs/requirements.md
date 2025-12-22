@@ -135,7 +135,7 @@ Ultimately, users should be able to optimize prompt templates (system prompts or
 
 - Add the `/help` command to display the usage of dogent, including the basic information and core configuration of dogent including information in first welcome panel (model, api url, commands usage...).
 
-- Add the `/clear` command to clear the history and memory if exist.
+- Add the `/clean` command to clean the history and memory if exist.
 
 ## Release 0.6
 
@@ -146,6 +146,40 @@ Ultimately, users should be able to optimize prompt templates (system prompts or
   - If user does not configure `web_profile` (missing/empty) or sets `web_profile` to `"default"`, Dogent should use the default Claude Agent SDK `WebSearch` and `WebFetch`.
   - If user configures a `web_profile` name that does not exist in `~/.dogent/web.json`, Dogent should warn the user at startup and fall back to default `WebSearch` and `WebFetch`.
 
-## Release 0.7
+## Release 0.7.0
 
-- 
+- Add a project-only “Lessons” mechanism so Dogent can learn from failures and user corrections over time and avoid repeating the same mistakes.
+- Improve `/clean` so users can selectively reset workspace state.
+
+- Storage:
+  - Persist lessons in a human-editable file: `.dogent/lessons.md`.
+  - Dogent must append new entries safely without corrupting the file; users can edit the file directly at any time.
+
+- Automatic capture with minimal user input:
+  - Dogent should mark the Summary/History status clearly when a run fails or is interrupted (so lesson capture can trigger reliably).
+  - Failure Summary UX (trigger signal):
+    - If the agent run fails and exits the agent loop while there are unfinished todos, the Summary panel must clearly indicate a failed status.
+    - Recommended: include status in the panel title (e.g., `❌ Failed` / `⛔ Interrupted` / `✅ Completed`) and include the result/reason in the panel content.
+    - When todos exist, the Summary content should also include a concise “Remaining Todos” section listing the unfinished todo items (or a count + top items).
+    - This Summary/Status signal is the primary trigger for recording Lessons (more reliable than guessing from free-form text alone).
+  - Treat the last run as a capture candidate when the agent finishes with status `error` or `interrupted`:
+    - If the user interrupts the task (Esc/Ctrl+C), record history status `interrupted`.
+    - Otherwise (agent run fails or ends prematurely), record history status `error`.
+  - Do not determine failure by parsing free-form summary text.
+  - When a capture candidate is detected, Dogent should “arm” lesson capture for the next user message.
+  - On the next user message, Dogent prompts: “Save a lesson from the last failure/interrupt? [Y/n]” and defaults to **Y** (press Enter).
+  - If the user accepts, Dogent should use the LLM to draft the lesson (problem → cause → correct approach) using the last failure Summary and the user’s correction message as context, then save it to `.dogent/lessons.md` and proceed with the user’s request (retry).
+
+- Explicit manual recording:
+  - Provide `/learn <free text>` to explicitly record a lesson with minimal user input.
+  - Dogent should use the LLM to rewrite/structure the user’s free text into a consistent lesson entry and append it to `.dogent/lessons.md`.
+  - Provide `/learn on|off` to enable/disable the automatic “Save a lesson?” prompt behavior.
+  - Provide `/lessons` to show a concise summary of recent lessons and where to edit them.
+
+- Prompt injection:
+  - For each new task, Dogent should include the full content of `.dogent/lessons.md` in the prompt context (no relevance filtering for now).
+  - If the file becomes too large, Dogent may truncate with a clear notice to the user (no semantic filtering required).
+
+- `/clean` targets:
+  - `/clean` supports cleaning target parameters: `history`, `lesson`, `memory`, or `all`.
+  - The CLI provides a dropdown completion list for these target parameters when the user types `/clean `.
