@@ -573,9 +573,14 @@ class DogentCLI:
             )
         else:
             stop_event.set()
-            esc_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await esc_task
+            try:
+                await asyncio.wait_for(esc_task, timeout=0.5)
+            except asyncio.TimeoutError:
+                esc_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await esc_task
+            except asyncio.CancelledError:
+                pass
         if agent_task.done() and not agent_task.cancelled():
             with suppress(Exception):
                 await agent_task
@@ -599,6 +604,11 @@ class DogentCLI:
                     continue
                 ch = sys.stdin.read(1)
                 if ch == "\x1b":
+                    for _ in range(8):
+                        rlist, _, _ = select.select([fd], [], [], 0)
+                        if not rlist:
+                            break
+                        sys.stdin.read(1)
                     return True
         except Exception:
             return False
@@ -621,9 +631,14 @@ class DogentCLI:
             with suppress(asyncio.CancelledError):
                 await agent_task
         if not esc_task.done():
-            esc_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await esc_task
+            try:
+                await asyncio.wait_for(esc_task, timeout=0.5)
+            except asyncio.TimeoutError:
+                esc_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await esc_task
+            except asyncio.CancelledError:
+                pass
         # Arm lesson capture after a user interrupt.
         self._arm_lesson_capture_if_needed()
 

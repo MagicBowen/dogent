@@ -39,6 +39,7 @@
 - Always keep system/user prompts in `dogent/prompts/` to ease tuning.
 - Todo list must reflect `TodoWrite` outputs only—do not seed defaults.
 - @file references resolve within the current workspace; avoid reading outside project boundaries.
+- When using prompt_toolkit, avoid raw stdin/termios reads in parallel; if an Esc listener is needed, ensure it drains escape sequences and exits cleanly before the next prompt to prevent IME/arrow-key echo issues.
 
 ## Process & Quality Requirements
 - All functions must have automated tests; extend `tests/` alongside new code.
