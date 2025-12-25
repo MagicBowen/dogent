@@ -18,6 +18,7 @@ from .paths import DogentPaths
 @dataclass(frozen=True)
 class WizardResult:
     doc_template: str | None
+    primary_language: str | None
     dogent_md: str
 
 
@@ -39,7 +40,14 @@ class InitWizard:
         if wizard_template:
             wizard_template = wizard_template.replace("{doc_template}", "general")
         system_prompt = self._load_prompt("init_wizard_system.md")
-        self._system_prompt = system_prompt.replace("{wizard_template}", wizard_template)
+        templates_overview = self.templates.describe_templates().strip()
+        if not templates_overview:
+            templates_overview = "No templates available."
+        self._system_prompt = (
+            system_prompt.replace("{wizard_template}", wizard_template)
+            .replace("{working_dir}", str(self.paths.root))
+            .replace("{templates_overview}", templates_overview)
+        )
 
     async def generate(self, user_prompt: str) -> WizardResult:
         system_prompt = self._system_prompt
@@ -64,7 +72,11 @@ class InitWizard:
             parsed = self._parse_wizard_payload(text)
             if parsed:
                 return parsed
-            return WizardResult(doc_template=None, dogent_md=text.strip())
+            return WizardResult(
+                doc_template=None,
+                primary_language=None,
+                dogent_md=text.strip(),
+            )
         finally:
             await client.disconnect()
 
@@ -81,8 +93,13 @@ class InitWizard:
             doc_template = doc_template.strip()
         else:
             doc_template = None
+        primary_language = payload.get("primary_language")
+        if not isinstance(primary_language, str) or not primary_language.strip():
+            primary_language = None
         return WizardResult(
-            doc_template=doc_template or None, dogent_md=dogent_md.strip()
+            doc_template=doc_template or None,
+            primary_language=primary_language,
+            dogent_md=dogent_md.strip(),
         )
 
     @staticmethod
@@ -103,14 +120,9 @@ class InitWizard:
                 return None
 
     def _build_user_prompt(self, user_prompt: str) -> str:
-        templates_overview = self.templates.describe_templates().strip()
-        if not templates_overview:
-            templates_overview = "No templates available."
         return (
-            "User prompt:\n"
-            f"{user_prompt.strip()}\n\n"
-            "Available document templates:\n"
-            f"{templates_overview}\n"
+            "User prompt: \n"
+            f"{user_prompt.strip()}\n"
         )
 
     def _build_options(self, system_prompt: str) -> ClaudeAgentOptions:

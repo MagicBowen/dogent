@@ -362,6 +362,10 @@ class DogentCLI:
                 content = wizard_result.dogent_md
                 if wizard_result.doc_template:
                     doc_template_key = wizard_result.doc_template
+                if wizard_result.primary_language:
+                    self.config_manager.set_primary_language(
+                        wizard_result.primary_language
+                    )
                 self._warn_if_missing_doc_template(doc_template_key)
 
         if not content.strip():
@@ -425,23 +429,6 @@ class DogentCLI:
                     border_style="yellow",
                 )
             )
-
-    def _extract_doc_template_line(self, content: str) -> str | None:
-        for line in content.splitlines():
-            stripped = line.strip()
-            cleaned = stripped.lstrip("-*").strip().replace("**", "")
-            if "selected template" in cleaned.lower() and ":" in cleaned:
-                _, value = cleaned.split(":", 1)
-                value = value.strip()
-                lowered = value.lower()
-                if lowered.startswith("[configured]"):
-                    value = value[len("[configured]") :].strip()
-                elif lowered.startswith("[default]"):
-                    value = value[len("[default]") :].strip()
-                if not value:
-                    return "general"
-                return value
-        return None
 
     async def _confirm_overwrite(self, path: Path) -> bool:
         rel = path.relative_to(self.root)

@@ -126,21 +126,5 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
         else:
             os.environ.pop("HOME", None)
 
-    async def test_extract_selected_template_line(self) -> None:
-        original_home = os.environ.get("HOME")
-        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
-            os.environ["HOME"] = tmp_home
-            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
-            cli = DogentCLI(root=Path(tmp), console=console, lesson_drafter=FakeLessonDrafter())
-            content = "**Selected Template**: [Configured] global:resume"
-            self.assertEqual(cli._extract_doc_template_line(content), "global:resume")
-            content = "**Selected Template**: [Default] general"
-            self.assertEqual(cli._extract_doc_template_line(content), "general")
-        if original_home is not None:
-            os.environ["HOME"] = original_home
-        else:
-            os.environ.pop("HOME", None)
-
-
 if __name__ == "__main__":
     unittest.main()

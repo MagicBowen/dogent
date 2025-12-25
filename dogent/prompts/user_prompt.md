@@ -2,13 +2,9 @@ User Request:
 {user_message}
 
 Todo Snapshot:
+```markdown
 {todo_block}
-
-@file Context:
-{attachments}
-
-Recent History:
-{history_block}
+```
 
 Guidance:
 - Follow the system prompt.
