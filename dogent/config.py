@@ -66,6 +66,7 @@ class ConfigManager:
                 "llm_profile": "deepseek",
                 "web_profile": "default",
                 "doc_template": "general",
+                "primary_language": "Chinese",
                 "learn_auto": True,
             }
 
@@ -93,6 +94,16 @@ class ConfigManager:
             raw_doc_template = merged.get("doc_template")
             if isinstance(raw_doc_template, str) and not raw_doc_template.strip():
                 merged["doc_template"] = "general"
+
+        raw_primary_language = merged.get("primary_language")
+        if isinstance(raw_primary_language, str):
+            if not raw_primary_language.strip():
+                raw_primary_language = None
+        elif raw_primary_language is not None:
+            raw_primary_language = None
+
+        if raw_primary_language is None:
+            merged["primary_language"] = "Chinese"
 
         self.paths.config_file.write_text(
             json.dumps(merged, indent=2, ensure_ascii=False) + "\n",
@@ -128,6 +139,21 @@ class ConfigManager:
             data = {}
         value = (doc_template or "").strip()
         data["doc_template"] = value if value else "general"
+        self.paths.config_file.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    def set_primary_language(self, primary_language: Optional[str]) -> None:
+        """Persist workspace primary language selection in .dogent/dogent.json."""
+        self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+        if not self.paths.config_file.exists():
+            self.create_config_template()
+        data = self._read_json(self.paths.config_file) or {}
+        if not isinstance(data, dict):
+            data = {}
+        value = (primary_language or "").strip()
+        data["primary_language"] = value if value else "Chinese"
         self.paths.config_file.write_text(
             json.dumps(data, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
@@ -194,7 +220,12 @@ class ConfigManager:
     def _normalize_project_config(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize config keys and apply defaults."""
         if not data:
-            return {"web_profile": "default", "learn_auto": True}
+            return {
+                "web_profile": "default",
+                "doc_template": "general",
+                "primary_language": "Chinese",
+                "learn_auto": True,
+            }
         normalized = dict(data)
         raw_web_profile = normalized.get("web_profile")
         if raw_web_profile is None:
@@ -220,6 +251,15 @@ class ConfigManager:
             normalized["doc_template"] = "general"
         elif isinstance(raw_doc_template, str) and not raw_doc_template.strip():
             normalized["doc_template"] = "general"
+        raw_primary_language = normalized.get("primary_language")
+        if isinstance(raw_primary_language, str):
+            if not raw_primary_language.strip():
+                raw_primary_language = None
+        elif raw_primary_language is not None:
+            raw_primary_language = None
+
+        if raw_primary_language is None:
+            normalized["primary_language"] = "Chinese"
         return normalized
 
     def build_options(self, system_prompt: str) -> ClaudeAgentOptions:

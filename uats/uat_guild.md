@@ -350,6 +350,6 @@ User Test Results: PASS
 1) Run `/init Write a Chinese market research brief for EV adoption in 2024.` (non-matching prompt).
 2) Confirm the wizard runs and generates a new `.dogent/dogent.md`.
 3) Verify `.dogent/dogent.json` sets `doc_template` to `general`.
-4) Open `.dogent/dogent.md` and confirm it includes a `**Selected Template**` line plus configured preferences inferred from the prompt (language, format, etc.).
+4) Open `.dogent/dogent.md` and confirm it includes configured preferences inferred from the prompt (format, length, etc.), but does not include template or primary language fields.
 
 User Test Results: PASS

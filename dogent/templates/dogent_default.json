@@ -2,5 +2,6 @@
   "llm_profile": "deepseek",
   "web_profile": "default",
   "doc_template": "general",
+  "primary_language": "Chinese",
   "learn_auto": true
 }

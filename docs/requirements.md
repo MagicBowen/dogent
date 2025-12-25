@@ -208,10 +208,11 @@ Dogent’s prompt system must support multiple professional document types via a
 ### Config and Prompt System Adjustments
 
 - Default templates must be updated:
-  - `dogent/templates/dogent_default.md` includes fields and guidance for selecting a document template and writing overrides/supplements.
+  - `dogent/templates/dogent_default.md` focuses on project context, writing preferences, and overrides/supplements.
+  - Template selection and primary language are configured in `.dogent/dogent.json` and should not be duplicated in `dogent_default.md`.
   - `dogent/templates/dogent_default.md` includes a "Document Context" section to capture the user's prompt details (name, background, audience, goals, scope).
-  - `dogent/templates/dogent_default.json` includes a default `doc_template` config key (default: `general`, means that the user has not selected any existing template).
-  - Users can manually modify the dogent.json file in the current project to adjust the document template configuration.
+  - `dogent/templates/dogent_default.json` includes default `doc_template` and `primary_language` config keys (default: `general` and `Chinese`).
+  - Users can manually modify the dogent.json file in the current project to adjust the document template configuration and primary language.
 - Prompts and default templates are loaded directly from the Python package and are no longer copied into `~/.dogent` (no compatibility migration required).
 - System prompt (`dogent/prompts/system.md`) must include a dedicated section for:
   - The document template content when a concrete template is selected
@@ -241,11 +242,11 @@ Users must be able to add incremental, project-specific customization and supple
 - `/init` accepts either:
   - A document template name (exact match), which scaffolds `.dogent/dogent.md` with that template selection and empty override/supplement sections; OR
   - A free-form prompt (non-matching input), which triggers an LLM-powered “init wizard” to generate a complete `.dogent/dogent.md`.
-- When a document template name is an exact match, do **not** run the init wizard. Instead, scaffold a minimal `dogent.md` with supplement sections that provide selectable options (e.g., language, output format).
+- When a document template name is an exact match, do **not** run the init wizard. Instead, scaffold a minimal `dogent.md` with supplement sections that provide selectable options (e.g., output format, length).
 - The init wizard must use a dedicated system prompt (under `dogent/prompts/`) and output a JSON object containing:
   - `doc_template`: the selected template name (or `general`).
   - `dogent_md`: the full Markdown content for `.dogent/dogent.md`.
-- The init wizard output must populate the `**Selected Template**` field inside `dogent_md` to indicate the selected template (or `general`).
+- The init wizard output must set `doc_template` in JSON; `dogent_md` must not include template selection or primary language fields.
 - The init wizard must follow a default dogent.md skeleton stored in an independent template file (e.g., `dogent/templates/dogent_default.md`).
 - The init wizard is necessary to generate a suitable dogent.md based on the template selected by the user or the input prompt.
 - If the user does not select any template and does not enter any Prompt after `/init`, a default dogent.md will be generated for the user, and the doc_template configuration in the generated dogent.json will be set to general.

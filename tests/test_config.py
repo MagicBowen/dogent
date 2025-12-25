@@ -38,6 +38,7 @@ class ConfigTests(unittest.TestCase):
             manager.create_config_template()
             data = json.loads(paths.config_file.read_text(encoding="utf-8"))
             self.assertEqual(data.get("doc_template"), "general")
+            self.assertEqual(data.get("primary_language"), "Chinese")
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
