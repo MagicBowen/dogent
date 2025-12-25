@@ -67,6 +67,17 @@ class AgentRunner:
             self._client = None
             self._tool_name_by_id = {}
 
+    async def refresh_system_prompt(self) -> None:
+        """Rebuild the system prompt and update any active client."""
+        settings = self.config.load_settings()
+        project_config = self.config.load_project_config()
+        system_prompt = self.prompt_builder.build_system_prompt(
+            settings=settings, config=project_config
+        )
+        async with self._lock:
+            if self._client:
+                self._client.options.system_prompt = system_prompt
+
     async def send_message(self, user_message: str, attachments: Iterable[FileAttachment]) -> None:
         settings = self.config.load_settings()
         project_config = self.config.load_project_config()

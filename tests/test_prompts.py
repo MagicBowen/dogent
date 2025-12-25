@@ -52,22 +52,16 @@ class PromptTests(unittest.TestCase):
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
-            prompts_dir = Path(tmp_home) / ".dogent" / "prompts"
-            prompts_dir.mkdir(parents=True, exist_ok=True)
-            (prompts_dir / "system.md").write_text(
-                "Profile {config:llm_profile} nested {config:custom.nested} missing {unknown}",
-                encoding="utf-8",
-            )
-            (prompts_dir / "user_prompt.md").write_text(
-                "User message: {user_message} cfg {config:custom.nested}", encoding="utf-8"
-            )
-
             root = Path(tmp)
             paths = DogentPaths(root)
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
             todo_manager = TodoManager()
             history = HistoryManager(paths)
             builder = PromptBuilder(paths, todo_manager, history, console=console)
+            builder._system_template = (
+                "Profile {config:llm_profile} nested {config:custom.nested} missing {unknown}"
+            )
+            builder._user_template = "User message: {user_message} cfg {config:custom.nested}"
 
             config_data = {"llm_profile": "demo", "custom": {"nested": "value"}}
             system_prompt = builder.build_system_prompt(config=config_data)
@@ -79,6 +73,53 @@ class PromptTests(unittest.TestCase):
             user_prompt = builder.build_user_prompt("msg", [], config=config_data)
             self.assertIn("msg", user_prompt)
             self.assertIn("value", user_prompt)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_doc_template_injected_into_system_prompt(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.doc_preferences.write_text("prefs", encoding="utf-8")
+            templates_dir = paths.doc_templates_dir
+            templates_dir.mkdir(parents=True, exist_ok=True)
+            templates_dir.joinpath("demo.md").write_text(
+                "# Demo\n\n## Introduction\nDemo template.", encoding="utf-8"
+            )
+
+            todo_manager = TodoManager()
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo_manager, history)
+            system_prompt = builder.build_system_prompt(
+                config={"doc_template": "demo"}
+            )
+
+            self.assertIn("Demo template.", system_prompt)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_default_doc_template_used_when_general(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.doc_preferences.write_text("prefs", encoding="utf-8")
+
+            todo_manager = TodoManager()
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo_manager, history)
+            system_prompt = builder.build_system_prompt(config={"doc_template": "general"})
+
+            self.assertIn("General Document Template", system_prompt)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

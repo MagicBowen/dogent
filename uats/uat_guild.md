@@ -20,8 +20,8 @@ User Test Results: Pending (retest after history.json migration)
 User Test Results: PASS
 
 ### Story 3 – Config & Profiles
-1) In the same session, run `/config`.
-2) Confirm `.dogent/dogent.json` is created with `llm_profile` and `web_profile` fields (no embedded secrets); `.gitignore` should remain unchanged.
+1) In the same session, run `/init` (confirm overwrite if prompted).
+2) Confirm `.dogent/dogent.json` is created with `llm_profile`, `web_profile`, and `doc_template` fields (no embedded secrets); `.gitignore` should remain unchanged.
 3) Create `~/.dogent/claude.json` with a profile and check merged values by re-entering the session (Dogent reconnects with new settings).
 
 User Test Results: PASS
@@ -47,7 +47,7 @@ User Test Results: PASS
 
 ### Story 7 – Interactive Session
 1) Start `dogent` in an empty temp directory (no `.dogent/`).
-2) Confirm the session starts without failure; `/config` can be run later to add settings; tool calls/results stream via Rich panels.
+2) Confirm the session starts without failure; `/init` can be run later to add settings; tool calls/results stream via Rich panels.
 
 User Test Results: PASS
 
@@ -95,7 +95,7 @@ User Test Results: PASS
 User Test Results: PASS
 
 ### Story 17 – Configurable Images Path
-1) Run `/config`; verify `.dogent/dogent.json` does not contain an `images_path` setting.
+1) Run `/init`; verify `.dogent/dogent.json` does not contain an `images_path` setting.
 2) When requesting an image download, explicitly specify a workspace-relative output directory in the request (e.g., “download to ./images”) so the model passes it to `dogent_web_fetch`.
 
 User Test Results: PASS
@@ -166,14 +166,13 @@ User Test Results: PASS
 
 ### Story 28 – Home Template Bootstrap
 1) (Optional backup) Move or rename your real `~/.dogent` if present, or set a temp home: `export HOME=$(mktemp -d)`.
-2) From repo root, run `dogent` once then exit. Expect `~/.dogent/prompts` and `~/.dogent/templates` to be created with `system.md`, `user_prompt.md`, `dogent_default.md`, `dogent_default.json`, `claude_default.json`.
-3) In a fresh workspace (e.g., `uats/sample_workspace`), run `dogent` then `/init` and `/config`. Confirm `.dogent/dogent.md` and `.dogent/dogent.json` match the templates under `~/.dogent/templates` (open both to compare).
-4) Edit `~/.dogent/templates/dogent_default.json` (e.g., change `llm_profile` to `custom-profile`), remove the workspace `.dogent/dogent.json`, rerun `/config`, and verify the regenerated file reflects the edited template.
+2) From repo root, run `dogent` once then exit. Expect only `~/.dogent/claude.json` and `~/.dogent/web.json` to be created.
+3) In a fresh workspace (e.g., `uats/sample_workspace`), run `dogent` then `/init`. Confirm `.dogent/dogent.md` and `.dogent/dogent.json` are generated from packaged templates.
 
 User Test Results: PASS
 
 ### Story 29 – Flexible Prompt Injection
-1) Edit `~/.dogent/prompts/system.md` to add markers such as `Profile={config:llm_profile}` and `HistoryLast={history:last}`; edit `~/.dogent/prompts/user_prompt.md` to include markers and `Missing={not_set}`.
+1) Edit `dogent/prompts/system.md` to add markers such as `Profile={config:llm_profile}` and `HistoryLast={history:last}`; edit `dogent/prompts/user_prompt.md` to include markers and `Missing={not_set}`.
 2) In `uats/sample_workspace`, set `.dogent/dogent.json` with `"llm_profile": "uat-profile", "custom": {"nested": "hello"}`.
 3) Create `.dogent/history.json` with a couple of JSON entries and `.dogent/memory.md` with sample text; ensure todos are empty.
 4) Run `dogent` and send a short message. Observe in the first assistant system rendering that `{config:llm_profile}` (and legacy `{config:profile}`), `{history:last}`, and `{memory}` are injected; `{not_set}` renders empty.
@@ -201,15 +200,15 @@ User Test Results: PASS
 
 ### Story 32 – Home Template Version Refresh
 1) Set a temp home: `export HOME=$(mktemp -d)` and run `dogent` once, then exit.
-2) Edit `~/.dogent/prompts/system.md` to add a marker like `OLD_PROMPT` and set `~/.dogent/version` to `0.0.0`.
-3) Run `dogent` again; expect a message that templates synced, `system.md` no longer contains `OLD_PROMPT`, `~/.dogent/version` matches `dogent -v`, and `~/.dogent/claude.json` remains unchanged.
+2) Confirm `~/.dogent/version`, `~/.dogent/prompts`, and `~/.dogent/templates` are not created.
+3) Run `dogent` again; confirm `~/.dogent/claude.json` and `~/.dogent/web.json` remain unchanged.
 
 User Test Results: PASS
 
 ### Story 33 – Profile Placeholder Warning
 1) Use `~/.dogent/claude.json` with the default `replace-me` token under the `deepseek` profile.
-2) In `uats/sample_workspace`, set `.dogent/dogent.json` `llm_profile` to `deepseek` (create via `/config` if missing).
-3) Start `dogent` or run `/config`; expect a yellow alert telling you to update placeholder credentials before running tasks.
+2) In `uats/sample_workspace`, set `.dogent/dogent.json` `llm_profile` to `deepseek` (create via `/init` if missing).
+3) Start `dogent` or run `/init`; expect a yellow alert telling you to update placeholder credentials before running tasks.
 
 User Test Results: PASS
 
@@ -237,7 +236,7 @@ User Test Results: PASS
 ### Story 37 – Web Tool Config Bootstrap
 1) Set a temp home: `export HOME=$(mktemp -d)`.
 2) Run `dogent` once, then `/exit`. Expect `~/.dogent/web.json` to be created (alongside `~/.dogent/claude.json`).
-3) In `uats/sample_workspace`, run `dogent` then `/config`. Confirm `.dogent/dogent.json` includes `web_profile` (default `default`).
+3) In `uats/sample_workspace`, run `dogent` then `/init`. Confirm `.dogent/dogent.json` includes `web_profile` (default `default`).
 4) Run `/help` and confirm it shows a “Web Profile” line.
 5) With `web_profile` empty or set to `default`, ask for web research and confirm Dogent uses native `WebSearch`/`WebFetch`.
 
@@ -275,7 +274,7 @@ User Test Results: PASS
 Pre-check (clean start recommended):
 1) From repo root: `cd uats/sample_workspace`
 2) (Optional) Remove prior lessons to start clean: `rm -f .dogent/lessons.md`
-3) Start `dogent`. If `.dogent/` is missing, run `/init` and `/config` first.
+3) Start `dogent`. If `.dogent/` is missing, run `/init` first.
 4) Run `/learn on` then `/lessons` (expect “No lessons recorded yet.” on a clean start).
 
 Interrupt → auto lesson capture:
@@ -304,7 +303,7 @@ Optional injection check:
   - Command completion no longer shows the full command list after typing a space; `/learn ` suggests `on/off`.
 
 - Fixes applied:
-  - `dogent/templates/dogent_default.json` now includes `learn_auto` defaults, and `/config` merges defaults into an existing `.dogent/dogent.json` instead of overwriting it.
+  - `dogent/templates/dogent_default.json` now includes `learn_auto` defaults, and `/init` merges defaults into an existing `.dogent/dogent.json` instead of overwriting it.
   - Lesson auto-capture now arms on any `error` / `interrupted` outcome (even if the todo list is empty), so you still get the “Save a lesson?” prompt after API errors or early interrupts.
   - The lesson drafter no longer warns about missing `remaining_todos` even if an old home template still contains that placeholder.
   - Command completion no longer re-suggests `/learn on/off` after you start typing free-form text; it only suggests args immediately after `/learn `.
@@ -334,3 +333,23 @@ User Test Results: PASS
 6) (Optional) Recreate the files, then run `/clean all` and confirm all three targets are cleaned.
 
 User Test Results: Pending
+
+## Release 0.8.0
+
+### Story 44 – Document Templates + /init Picker
+1) In `uats/sample_workspace`, ensure `.dogent/` exists (run `dogent` if needed).
+2) Create a workspace template at `.dogent/templates/local.md` (any content).
+3) Type `/init ` (with a trailing space) and confirm the dropdown lists `local` plus prefixed entries like `built-in:resume`.
+4) Run `/init built-in:resume`, confirm overwrite if prompted.
+5) Verify `.dogent/dogent.json` sets `doc_template` to `built-in:resume`.
+6) Verify `.dogent/dogent.md` uses the minimal scaffold and references the selected template.
+
+User Test Results: PASS
+
+### Story 45 – /init Wizard (Free-Form Prompt)
+1) Run `/init Write a Chinese market research brief for EV adoption in 2024.` (non-matching prompt).
+2) Confirm the wizard runs and generates a new `.dogent/dogent.md`.
+3) Verify `.dogent/dogent.json` sets `doc_template` to `general`.
+4) Open `.dogent/dogent.md` and confirm it includes a `**Selected Template**` line plus configured preferences inferred from the prompt (language, format, etc.).
+
+User Test Results: PASS

@@ -10,15 +10,15 @@ class CommandRegistryTests(unittest.TestCase):
         async def dummy_handler(cmd: str) -> bool:  # noqa: ARG001
             return True
 
-        registry.register("config", dummy_handler, "create config")
+        registry.register("init", dummy_handler, "create init")
 
-        self.assertIn("/config", registry.names())
-        command = registry.get("/config")
+        self.assertIn("/init", registry.names())
+        command = registry.get("/init")
         self.assertIsNotNone(command)
         assert command  # for mypy/pylint
         self.assertEqual(command.handler, dummy_handler)
         descriptions = registry.descriptions()
-        self.assertTrue(any("create config" in desc for desc in descriptions))
+        self.assertTrue(any("create init" in desc for desc in descriptions))
 
 
 if __name__ == "__main__":

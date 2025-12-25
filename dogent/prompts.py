@@ -8,6 +8,7 @@ from typing import Any, Callable, Iterable, List
 
 from rich.console import Console
 
+from .doc_templates import DocumentTemplateManager
 from .file_refs import FileAttachment
 from .paths import DogentPaths
 from .todo import TodoManager
@@ -60,9 +61,11 @@ class PromptBuilder:
         self.todo_manager = todo_manager
         self.history = history
         self.console = console or Console()
+        self.doc_templates = DocumentTemplateManager(self.paths)
         self.renderer = TemplateRenderer(console=self.console)
         self._system_template = self._load_template("system.md")
         self._user_template = self._load_template("user_prompt.md")
+        self._default_doc_template = self._load_default_doc_template()
 
     def build_system_prompt(
         self, settings=None, config: dict[str, Any] | None = None
@@ -107,6 +110,7 @@ class PromptBuilder:
         memory_content = self._read_memory()
         lessons_content = self._read_lessons()
         todo_plain = self.todo_manager.render_plain()
+        doc_template = self._read_doc_template(config)
         return {
             "working_dir": str(self.paths.root),
             "preferences": preferences,
@@ -117,6 +121,7 @@ class PromptBuilder:
             "lessons": lessons_content,
             "todo_block": todo_plain,
             "todo_list": todo_plain,
+            "doc_template": doc_template,
         }
 
     def _resolve_value(
@@ -176,6 +181,18 @@ class PromptBuilder:
         except Exception:
             return "No lessons recorded yet."
 
+    def _read_doc_template(self, config: dict[str, Any]) -> str:
+        key = (config or {}).get("doc_template")
+        if not key or (isinstance(key, str) and key.strip().lower() == "general"):
+            return self._default_doc_template
+        resolved = self.doc_templates.resolve(str(key) if key is not None else None)
+        if not resolved:
+            self.console.print(
+                f"[yellow]Warning: doc_template '{key}' not found. Using default template.[/yellow]"
+            )
+            return self._default_doc_template
+        return resolved.content.strip()
+
     def _format_attachments(self, attachments: Iterable[FileAttachment]) -> str:
         attachments = list(attachments)
         if not attachments:
@@ -196,8 +213,13 @@ class PromptBuilder:
         return "\n\n".join(blocks)
 
     def _load_template(self, name: str) -> str:
-        local = self.paths.global_prompts_dir / name
-        if local.exists():
-            return local.read_text(encoding="utf-8")
         base = resources.files("dogent").joinpath("prompts")
         return base.joinpath(name).read_text(encoding="utf-8")
+
+    def _load_default_doc_template(self) -> str:
+        base = resources.files("dogent").joinpath("templates").joinpath("doc_templates")
+        try:
+            text = base.joinpath("doc_template_general.md").read_text(encoding="utf-8").strip()
+            return text or "General document template not available."
+        except Exception:
+            return "General document template not available."

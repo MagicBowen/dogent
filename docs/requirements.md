@@ -12,11 +12,11 @@ Specific requirements are as follows:
 
 - After entering the interactive CLI, the interaction method should be consistent with Claude Code, supporting the following specific Commands:
     - `/init`: Create a `.dogent` directory in the current directory and generate `.dogent/dogent.md` (template containing document type, length, tone, output format, language, other preferences and requirements). The Agent must always follow these constraints when working in this environment;
-    - `/config`: Generate `.dogent/dogent.json` in the current directory, `.dogent/dogent.json` refer the anthropic config in `~/.dogent/claude.json`;
+    - `/init`: Generate `.dogent/dogent.json` in the current directory (with `llm_profile`), `.dogent/dogent.json` refers to the anthropic config in `~/.dogent/claude.json`;
     - `/exit`: Exit the CLI interaction and return to the main shell;
 
 - In the interactive CLI, the Agent needs to be able to display its todo list to users, and reflect main operations and key processes during execution in the CLI.
-- When starting in a directory without `.dogent/` or `dogent.json`, do not fail; allow the user to run `/init` and `/config` later to create them.
+- When starting in a directory without `.dogent/` or `dogent.json`, do not fail; allow the user to run `/init` later to create them.
 - The system prompt stays constant; per-turn user prompts must dynamically include current todo state and `@file` references. Do not seed default todos—todos come from the model via TodoWrite and must be kept in sync with tool results.
 - The Tasks panel must update live based on TodoWrite tool results; detect TodoWrite tool outputs in the agent stream and render the changes in CLI UI to user immediately.
 - Users can make requests to the Agent through the interactive CLI. Users can use the @ symbol to reference files in the current directory (like Claude Code, with a dropdown selection when users input @)
@@ -70,7 +70,7 @@ Finally, package and deploy the program, complete local testing, and output usag
 
 - `.dogent/memory.md` is used for temporarily recording information during a single dogent task session. Therefore, the system prompt should instruct the dogent agent to use this file as needed—create it only when required (not every time) and automatically clean it up after use.
 
-- Do not create the images directory by default at startup. This directory serves as the default path for the agent to download images when needed, and users can configure it in .dogent/dogent.json. If no configuration is set, the default path is the images directory in the current working directory. Add a configuration item for the default image download path in the config file created when the user executes the `/config` command.
+- Do not create the images directory by default at startup. This directory serves as the default path for the agent to download images when needed, and users can configure it in .dogent/dogent.json. If no configuration is set, the default path is the images directory in the current working directory. Add a configuration item for the default image download path in the config file created when the user executes the `/init` command.
 
 - When dogent is running in the interactive CLI, allow users to press the Esc key to terminate the current agent task, then input other instructions. (When dogent is interrupted, it must record the progress to `.dogent/history.json` so that previous work progress can be retrieved when resuming.)， How to interrupt claude agent sdk, please refer to the corresponding document and example codes in claude-agent-sdk folder.
 
@@ -113,13 +113,13 @@ The key design principles outlined above shall be added to **AGENTS.md** as bind
   - All content in the memory file: `{memory}`
   - Latest to-do list: `{todo_list}`
   - Parameters using user prompt: `{user_message}`, `{attachments}`
-  - Configuration items in the configuration file: such as a specific configuration item in `dogent/dogent.json` (`{config:llm_profile}`), or a custom configuration item added by the user in the configuration file: `{config:user_specified}` (legacy `{config:profile}` remains supported)
+- Configuration items in the configuration file: such as a specific configuration item in `dogent/dogent.json` (`{config:llm_profile}`), or a custom configuration item added by the user in the configuration file: `{config:user_specified}`
   - You may continue to design other required template parameters for reference in prompt templates. Finally, please structurally organize all these parameters (which users can configure for prompt templates) and their usage into the README file.
   - If a template parameter referenced in a user-modified prompt template does not exist, it defaults to an empty string. However, a warning must be printed to the user when generating the prompt template if any referenced parameter is empty;
 
 Ultimately, users should be able to optimize prompt templates (system prompts or other prompt templates) independently without modifying the code, and reference predefined template parameters in prompt templates—including configuration items configured by the user in `dogent/dogent.json`;
 
-- Modify the relevant code according to the above requirements, including the logic for generating and loading prompt templates, and the processing logic for `/init` and `/config` endpoints;
+- Modify the relevant code according to the above requirements, including the logic for generating and loading prompt templates, and the processing logic for `/init` endpoint;
 
 ## Release 0.5
 
@@ -183,3 +183,77 @@ Ultimately, users should be able to optimize prompt templates (system prompts or
 - `/clean` targets:
   - `/clean` supports cleaning target parameters: `history`, `lesson`, `memory`, or `all`.
   - The CLI provides a dropdown completion list for these target parameters when the user types `/clean `.
+
+## Release 0.8.0
+
+### Document Type Templates (Extensible)
+
+Dogent’s prompt system must support multiple professional document types via an extensible “document template” mechanism.
+
+- Document templates are identified by a **template name** (e.g., `resume`, `research-report`) that encapsulates:
+  - A brief introduction to this template, its purposes and scenarios (Used for LLM to match when selecting an appropriate template based on user prompt when initializing a dogent project by `/init` command).
+  - Writing requirements (hard constraints)
+  - Best practices (process guidance)
+  - Output template format (section skeleton the model should fill)
+- Dogent ships with a small set of built-in document templates out of the box （`resume`, `research-report`).
+- Users can extend document templates without changing Dogent code:
+  - Workspace templates: `.dogent/templates/<name>.md`
+  - Global templates: `~/.dogent/templates/<name>.md`
+  - Built-in templates: packaged under `dogent/templates/doc_templates/<name>.md`
+- Template resolution: unprefixed names resolve only in workspace; prefixed names resolve in their specified source.
+- `general` is a reserved default value that means no template is selected; it uses `dogent/templates/doc_templates/doc_template_general.md`.
+- Built-in templates remain packaged and are used only as fallback; they are not copied into `~/.dogent`.
+  - Workspace templates do not use a prefix; global templates require `global:` and built-in templates require `built-in:` in `/init` and `doc_template`.
+
+### Config and Prompt System Adjustments
+
+- Default templates must be updated:
+  - `dogent/templates/dogent_default.md` includes fields and guidance for selecting a document template and writing overrides/supplements.
+  - `dogent/templates/dogent_default.md` includes a "Document Context" section to capture the user's prompt details (name, background, audience, goals, scope).
+  - `dogent/templates/dogent_default.json` includes a default `doc_template` config key (default: `general`, means that the user has not selected any existing template).
+  - Users can manually modify the dogent.json file in the current project to adjust the document template configuration.
+- Prompts and default templates are loaded directly from the Python package and are no longer copied into `~/.dogent` (no compatibility migration required).
+- System prompt (`dogent/prompts/system.md`) must include a dedicated section for:
+  - The document template content when a concrete template is selected
+  - System prompt always relies on the doc_template configured in dogent.json (If the user has not configured it, or the configuration is "general", then it will use a default document template from an independent template file.)
+- Template content is dynamically inserted into the dedicated section of the system prompt (not hardcoded).
+- Provide a default document template file (e.g., `dogent/templates/doc_templates/doc_template_general.md`) to use when `doc_template` is `general` or missing.
+
+### Project Incremental Customization (Overrides/Supplements)
+
+Users must be able to add incremental, project-specific customization and supplementary requirements without forking templates.
+
+- `.dogent/dogent.md` is the canonical place to write:
+  - Template overrides (higher-priority constraints)
+  - Template supplements (additive requirements/checklists)
+  - Other writting requirements
+- Prompts must clearly state precedence for writing behavior:
+  - Safety/tooling/system rules (system prompt) > user request (current specific requirements) > `.dogent/dogent.md` (project constraints)  > document template (`doc_template` config).
+
+### `/init` Template Picker + LLM Wizard
+
+`/init` must support selecting and generating project writing configuration.
+
+- Merge the functionality of the `/config` command into the init command and remove the `/config` command.
+- When the user types `/init ` (space), a dropdown completion list of available document templates must appear.
+  - As the user types, the list filters.
+  - The list should display workspace templates without a prefix, and global/built-in templates with prefixes (e.g., `resume`, `global:resume`, `built-in:resume`).
+- `/init` accepts either:
+  - A document template name (exact match), which scaffolds `.dogent/dogent.md` with that template selection and empty override/supplement sections; OR
+  - A free-form prompt (non-matching input), which triggers an LLM-powered “init wizard” to generate a complete `.dogent/dogent.md`.
+- When a document template name is an exact match, do **not** run the init wizard. Instead, scaffold a minimal `dogent.md` with supplement sections that provide selectable options (e.g., language, output format).
+- The init wizard must use a dedicated system prompt (under `dogent/prompts/`) and output a JSON object containing:
+  - `doc_template`: the selected template name (or `general`).
+  - `dogent_md`: the full Markdown content for `.dogent/dogent.md`.
+- The init wizard output must populate the `**Selected Template**` field inside `dogent_md` to indicate the selected template (or `general`).
+- The init wizard must follow a default dogent.md skeleton stored in an independent template file (e.g., `dogent/templates/dogent_default.md`).
+- The init wizard is necessary to generate a suitable dogent.md based on the template selected by the user or the input prompt.
+- If the user does not select any template and does not enter any Prompt after `/init`, a default dogent.md will be generated for the user, and the doc_template configuration in the generated dogent.json will be set to general.
+- If the user re-executes `/init` to select a template, modify the configuration in `.dogent/dogent.json` accordingly
+- The `doc_template` in `.dogent/dogent.json` is the single source of truth for template selection; `.dogent/dogent.md` is user-authored requirements and does not override `doc_template`.
+- Safety: `/init` must not silently overwrite an existing `.dogent/dogent.md`; it should ask for confirmation before overwriting.
+  - When re-running `/init`, always update `.dogent/dogent.json`, and ask whether to overwrite `.dogent/dogent.md`.
+
+### Optimization of prompt templates
+
+- The system prompt should not contain specific requirements for writing particular articles, but it should include common requirements that are irrelevant to specific article types. For example, available tools, general writing requirements, and requirements for long article writing (such as plan, outline confirm, splitting, writing step by step, indexing, identifying and associating dependent articles as context, maintaining a consistent tone and style throughout the article, recording key information and cross-file coherent content in memory.md, unified polishing, verification of factual information, etc.). Based on the new design, you need to reconstruct the system prompt, ensuring it has a reasonable structure, professional content, and meets the usage scenarios and needs of Dogent.

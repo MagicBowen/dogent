@@ -10,7 +10,7 @@ import tty
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable, Tuple
+from typing import Any, Callable, Iterable, Tuple
 
 from rich import box
 from rich.align import Align
@@ -22,8 +22,10 @@ from rich.table import Table
 from .agent import AgentRunner
 from .commands import CommandRegistry
 from .config import ConfigManager
+from .doc_templates import DocumentTemplateManager
 from .file_refs import FileAttachment, FileReferenceResolver
 from .history import HistoryManager
+from .init_wizard import InitWizard
 from .lesson_drafter import ClaudeLessonDrafter, LessonDrafter
 from .lessons import LessonIncident, LessonsManager
 from .paths import DogentPaths
@@ -45,9 +47,16 @@ except ImportError:  # pragma: no cover - optional dependency
 class DogentCompleter(Completer):
     """Suggests slash commands and @file paths while typing."""
 
-    def __init__(self, root: Path, commands: list[str]) -> None:
+    def __init__(
+        self,
+        root: Path,
+        commands: list[str],
+        *,
+        template_provider: Callable[[], Iterable[str]] | None = None,
+    ) -> None:
         self.root = root
         self.commands = commands
+        self.template_provider = template_provider
 
     def get_completions(self, document: Document, complete_event):  # type: ignore[override]
         text = document.text_before_cursor
@@ -89,9 +98,18 @@ class DogentCompleter(Completer):
             options = ["on", "off"]
         elif command == "/clean":
             options = ["history", "lesson", "memory", "all"]
+        elif command == "/init" and self.template_provider:
+            options = list(self.template_provider())
         if not options:
             return []
-        matches = [opt for opt in options if opt.startswith(arg_prefix)]
+        if command == "/init":
+            matches = []
+            for opt in options:
+                name = opt.split(":", 1)[1] if ":" in opt else opt
+                if opt.startswith(arg_prefix) or name.startswith(arg_prefix):
+                    matches.append(opt)
+        else:
+            matches = [opt for opt in options if opt.startswith(arg_prefix)]
         return [Completion(opt, start_position=-len(arg_prefix)) for opt in matches]
 
     def _match_files(self, text: str) -> Iterable[Completion]:
@@ -147,6 +165,13 @@ class DogentCLI:
         self.paths = DogentPaths(self.root)
         self.todo_manager = TodoManager(console=self.console)
         self.config_manager = ConfigManager(self.paths, console=self.console)
+        self.doc_templates = DocumentTemplateManager(self.paths)
+        self.init_wizard = InitWizard(
+            config=self.config_manager,
+            paths=self.paths,
+            templates=self.doc_templates,
+            console=self.console,
+        )
         self.file_resolver = FileReferenceResolver(self.root)
         self.history_manager = HistoryManager(self.paths)
         project_cfg = self.config_manager.load_project_config()
@@ -189,7 +214,11 @@ class DogentCLI:
                 event.current_buffer.insert_text("\n")
 
             self.session = PromptSession(
-                completer=DogentCompleter(self.root, self.registry.names()),
+                completer=DogentCompleter(
+                    self.root,
+                    self.registry.names(),
+                    template_provider=self.doc_templates.list_display_names,
+                ),
                 complete_while_typing=True,
                 key_bindings=bindings,
             )
@@ -199,12 +228,7 @@ class DogentCLI:
         self.registry.register(
             "/init",
             self._cmd_init,
-            "Create .dogent scaffolding (dogent.md) without overwriting existing files.",
-        )
-        self.registry.register(
-            "/config",
-            self._cmd_config,
-            "Create .dogent/dogent.json (llm_profile and web_profile) and reload settings.",
+            "Initialize .dogent (dogent.md + dogent.json) with optional doc template.",
         )
         self.registry.register(
             "/learn",
@@ -273,33 +297,159 @@ class DogentCLI:
             )
         )
 
-    async def _cmd_init(self, _: str) -> bool:
-        created = self.config_manager.create_init_files()
-        if created:
-            rel_paths = "\n".join(str(path.relative_to(self.root)) for path in created)
-            message = f"Created:\n{rel_paths}"
-            style = "green"
+    async def _cmd_init(self, command: str) -> bool:
+        return await self._run_init(command_text=command)
+
+    async def _run_init(self, command_text: str) -> bool:
+        parts = command_text.split(maxsplit=1)
+        arg = parts[1].strip() if len(parts) > 1 else ""
+        doc_template_key = "general"
+        content = ""
+        mode_label = "default"
+
+        if not arg or arg.lower() == "general":
+            content = self.config_manager.render_template(
+                "dogent_default.md", {"doc_template": doc_template_key}
+            )
         else:
-            message = "No files created (templates already exist)."
-            style = "yellow"
+            if arg.lower().startswith("workspace:"):
+                self.console.print(
+                    Panel(
+                        "Workspace templates do not use the 'workspace:' prefix. Use the template name directly.",
+                        title="Init",
+                        border_style="yellow",
+                    )
+                )
+                return True
+            resolved = self.doc_templates.resolve(arg)
+            if resolved:
+                if resolved.source == "workspace":
+                    doc_template_key = resolved.name
+                else:
+                    doc_template_key = f"{resolved.source}:{resolved.name}"
+                content = self.config_manager.render_template(
+                    "dogent_default.md", {"doc_template": doc_template_key}
+                )
+                mode_label = "template"
+            else:
+                known_global = self.doc_templates.names_for_source("global")
+                known_builtin = self.doc_templates.names_for_source("built-in")
+                if arg in known_global or arg in known_builtin:
+                    hint = []
+                    if arg in known_global:
+                        hint.append(f"global:{arg}")
+                    if arg in known_builtin:
+                        hint.append(f"built-in:{arg}")
+                    hint_text = " or ".join(hint)
+                    self.console.print(
+                        Panel(
+                            f"Template '{arg}' is not a workspace template. Use {hint_text}.",
+                            title="Init",
+                            border_style="yellow",
+                        )
+                    )
+                    return True
+                doc_template_key = "general"
+                mode_label = "wizard"
+                self.console.print(
+                    Panel(
+                        "Running init wizard to draft dogent.md...",
+                        title="Init Wizard",
+                        border_style="cyan",
+                    )
+                )
+                wizard_result = await self.init_wizard.generate(arg)
+                content = wizard_result.dogent_md
+                if wizard_result.doc_template:
+                    doc_template_key = wizard_result.doc_template
+                self._warn_if_missing_doc_template(doc_template_key)
+
+        if not content.strip():
+            self.console.print(
+                Panel(
+                    "Failed to generate dogent.md content. Please try again.",
+                    title="Init",
+                    border_style="red",
+                )
+            )
+            return True
+
+        self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+        config_existed = self.paths.config_file.exists()
+        self.config_manager.create_config_template()
+        self.config_manager.set_doc_template(doc_template_key)
+        await self.agent.refresh_system_prompt()
+
+        doc_path = self.paths.doc_preferences
+        wrote_doc = False
+        overwritten = False
+        if doc_path.exists():
+            if await self._confirm_overwrite(doc_path):
+                doc_path.write_text(content.rstrip() + "\n", encoding="utf-8")
+                wrote_doc = True
+                overwritten = True
+        else:
+            doc_path.write_text(content.rstrip() + "\n", encoding="utf-8")
+            wrote_doc = True
+
+        summary_lines = []
+        if wrote_doc:
+            action = "Overwrote" if overwritten else "Created"
+            summary_lines.append(f"{action}: {doc_path.relative_to(self.root)}")
+        else:
+            summary_lines.append(f"Skipped: {doc_path.relative_to(self.root)} (kept existing)")
+
+        if config_existed:
+            summary_lines.append(
+                f"Updated: {self.paths.config_file.relative_to(self.root)} (doc_template={doc_template_key})"
+            )
+        else:
+            summary_lines.append(
+                f"Created: {self.paths.config_file.relative_to(self.root)} (doc_template={doc_template_key})"
+            )
+        summary_lines.append(f"Mode: {mode_label}")
+
         self.console.print(
-            Panel(message, title="Init", border_style=style)
+            Panel("\n".join(summary_lines), title="Init", border_style="green")
         )
         return True
 
-    async def _cmd_config(self, _: str) -> bool:
-        self.config_manager.create_config_template()
-        await self.agent.reset()
-        settings = self.config_manager.load_settings()
-        body = (
-            "Wrote .dogent/dogent.json with llm_profile and web_profile references.\n"
-            f"LLM Profile: {settings.profile or '<not set>'}\n"
-            f"Web Profile: {settings.web_profile or 'default (native)'}"
-        )
-        self.console.print(
-            Panel(body, title="Config", border_style="green")
-        )
-        return True
+    def _warn_if_missing_doc_template(self, doc_template_key: str) -> None:
+        if not doc_template_key or doc_template_key.strip().lower() == "general":
+            return
+        if not self.doc_templates.resolve(doc_template_key):
+            self.console.print(
+                Panel(
+                    f"doc_template '{doc_template_key}' was not found. Using default template in prompts.",
+                    title="Init",
+                    border_style="yellow",
+                )
+            )
+
+    def _extract_doc_template_line(self, content: str) -> str | None:
+        for line in content.splitlines():
+            stripped = line.strip()
+            cleaned = stripped.lstrip("-*").strip().replace("**", "")
+            if "selected template" in cleaned.lower() and ":" in cleaned:
+                _, value = cleaned.split(":", 1)
+                value = value.strip()
+                lowered = value.lower()
+                if lowered.startswith("[configured]"):
+                    value = value[len("[configured]") :].strip()
+                elif lowered.startswith("[default]"):
+                    value = value[len("[default]") :].strip()
+                if not value:
+                    return "general"
+                return value
+        return None
+
+    async def _confirm_overwrite(self, path: Path) -> bool:
+        rel = path.relative_to(self.root)
+        prompt = f"{rel} exists. Overwrite? [y/N] "
+        response = (await self._read_input(prompt=prompt)).strip().lower()
+        if not response:
+            return False
+        return response in {"y", "yes"}
 
     async def _cmd_learn(self, command: str) -> bool:
         parts = command.split(maxsplit=1)

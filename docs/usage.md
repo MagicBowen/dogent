@@ -8,11 +8,10 @@
 ## First Run
 1. Navigate to your project directory.
 2. Run `dogent` (or `dogent -h` for help) to enter the interactive shell; an ASCII banner and model/API info are shown.
-3. Use `/init` to generate `.dogent/dogent.md`.
-4. Use `/config` to scaffold `.dogent/dogent.json` (`llm_profile` and `web_profile`); edit `llm_profile` or `web_profile` (or supply env vars for credentials).
+3. Use `/init` to generate `.dogent/dogent.md` and `.dogent/dogent.json` (template picker or wizard).
 
 ## Credentials & Profiles
-- Local config: `.dogent/dogent.json` (`llm_profile` reference only).
+- Local config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `doc_template`).
 - Global profiles: `~/.dogent/claude.json`, e.g.:
   ```json
   {
@@ -30,6 +29,15 @@
   ```
 
 - Environment fallback if no profile/config is provided.
+
+## Document Templates (Release 0.8.0)
+
+- Workspace templates: `.dogent/templates/<name>.md` (use `<name>` in `doc_template`)
+- Global templates: `~/.dogent/templates/<name>.md` (use `global:<name>` in `doc_template`)
+- Built-in templates: `dogent/templates/doc_templates/<name>.md` (use `built-in:<name>` in `doc_template`)
+- General template: `dogent/templates/doc_templates/doc_template_general.md` (use `general` when no template is selected)
+- Unprefixed names resolve only in the workspace.
+When `doc_template=general`, Dogent uses `dogent/templates/doc_templates/doc_template_general.md` as the default template content in prompts.
 
 ## Web Search Setup (Release 0.6)
 
@@ -119,7 +127,7 @@ Notes:
 
 ## Commands Inside the CLI
 - `/init` – create writing constraint template and scratch memory.
-- `/config` – generate config JSON for `llm_profile` and `web_profile`.
+- `/init` – generate `.dogent/dogent.md` and `.dogent/dogent.json` (template picker or wizard).
 - `/learn` – save a lesson (`/learn <text>`) or toggle the automatic prompt (`/learn on|off`).
 - `/lessons` – show recent lessons and where to edit `.dogent/lessons.md`.
 - `/clean` – clean workspace state (`/clean [history|lesson|memory|all]`; defaults to `all`).
