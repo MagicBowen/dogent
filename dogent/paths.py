@@ -21,6 +21,10 @@ class DogentPaths:
         return self.dogent_dir / "dogent.json"
 
     @property
+    def doc_templates_dir(self) -> Path:
+        return self.dogent_dir / "templates"
+
+    @property
     def memory_file(self) -> Path:
         return self.dogent_dir / "memory.md"
 
@@ -45,16 +49,8 @@ class DogentPaths:
         return self.global_dir / "web.json"
 
     @property
-    def global_prompts_dir(self) -> Path:
-        return self.global_dir / "prompts"
-
-    @property
     def global_templates_dir(self) -> Path:
         return self.global_dir / "templates"
-
-    @property
-    def global_version_file(self) -> Path:
-        return self.global_dir / "version"
 
     @property
     def images_dir(self) -> Path:

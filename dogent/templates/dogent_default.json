@@ -1,5 +1,6 @@
 {
   "llm_profile": "deepseek",
   "web_profile": "default",
+  "doc_template": "general",
   "learn_auto": true
 }

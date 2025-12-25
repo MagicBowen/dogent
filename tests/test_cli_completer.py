@@ -9,7 +9,7 @@ from dogent.cli import DogentCompleter
 
 class DogentCompleterTests(unittest.TestCase):
     def test_command_completion(self) -> None:
-        completer = DogentCompleter(Path("."), ["/init", "/config"])
+        completer = DogentCompleter(Path("."), ["/init", "/help"])
         comps = list(completer.get_completions(Document("/i"), None))
         texts = [c.text for c in comps]
         self.assertIn("/init", texts)
@@ -41,6 +41,15 @@ class DogentCompleterTests(unittest.TestCase):
         self.assertIn("lesson", texts)
         self.assertIn("memory", texts)
         self.assertIn("all", texts)
+
+    def test_init_template_completion(self) -> None:
+        templates = ["built-in:resume", "global:research-report"]
+        completer = DogentCompleter(
+            Path("."), ["/init"], template_provider=lambda: templates
+        )
+        comps = list(completer.get_completions(Document("/init re"), None))
+        texts = [c.text for c in comps]
+        self.assertIn("built-in:resume", texts)
 
     def test_file_completion(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

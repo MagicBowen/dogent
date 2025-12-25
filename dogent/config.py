@@ -12,7 +12,6 @@ from importlib import resources
 
 from claude_agent_sdk import ClaudeAgentOptions
 
-from . import __version__
 from .paths import DogentPaths
 from .web_tools import DOGENT_WEB_ALLOWED_TOOLS, create_dogent_web_mcp_server
 
@@ -63,7 +62,12 @@ class ConfigManager:
             except json.JSONDecodeError:
                 defaults = {}
         if not defaults:
-            defaults = {"llm_profile": "deepseek", "web_profile": "default", "learn_auto": True}
+            defaults = {
+                "llm_profile": "deepseek",
+                "web_profile": "default",
+                "doc_template": "general",
+                "learn_auto": True,
+            }
 
         current = self._read_json(self.paths.config_file)
         if not current:
@@ -82,6 +86,13 @@ class ConfigManager:
 
         if "learn_auto" not in merged or merged.get("learn_auto") is None:
             merged["learn_auto"] = True
+
+        if "doc_template" not in merged or merged.get("doc_template") is None:
+            merged["doc_template"] = "general"
+        else:
+            raw_doc_template = merged.get("doc_template")
+            if isinstance(raw_doc_template, str) and not raw_doc_template.strip():
+                merged["doc_template"] = "general"
 
         self.paths.config_file.write_text(
             json.dumps(merged, indent=2, ensure_ascii=False) + "\n",
@@ -107,10 +118,37 @@ class ConfigManager:
             encoding="utf-8",
         )
 
+    def set_doc_template(self, doc_template: Optional[str]) -> None:
+        """Persist workspace doc_template selection in .dogent/dogent.json."""
+        self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+        if not self.paths.config_file.exists():
+            self.create_config_template()
+        data = self._read_json(self.paths.config_file) or {}
+        if not isinstance(data, dict):
+            data = {}
+        value = (doc_template or "").strip()
+        data["doc_template"] = value if value else "general"
+        self.paths.config_file.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    def render_template(self, name: str, context: Optional[Dict[str, str]] = None) -> str:
+        """Render a workspace template with simple {key} replacements."""
+        text = self._read_home_template(name)
+        if not text:
+            return ""
+        if not context:
+            return text
+        rendered = text
+        for key, value in context.items():
+            rendered = rendered.replace("{" + key + "}", value)
+        return rendered
+
     def load_settings(self) -> DogentSettings:
         """Merge project config, profile, and environment variables."""
         project_cfg = self.load_project_config()
-        profile_name = project_cfg.get("llm_profile") or project_cfg.get("profile")
+        profile_name = project_cfg.get("llm_profile")
         profile_cfg = self._load_profile(profile_name)
         self._warn_if_placeholder_profile(profile_name, profile_cfg)
         raw_web_profile = project_cfg.get("web_profile")
@@ -154,27 +192,10 @@ class ConfigManager:
         return self._normalize_project_config(data)
 
     def _normalize_project_config(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Normalize config keys while staying backward compatible."""
+        """Normalize config keys and apply defaults."""
         if not data:
             return {"web_profile": "default", "learn_auto": True}
         normalized = dict(data)
-        new_val = normalized.get("llm_profile")
-        old_val = normalized.get("profile")
-
-        if new_val and old_val and str(new_val).strip() != str(old_val).strip():
-            self.console.print(
-                "[yellow]Warning: both 'llm_profile' and legacy 'profile' are set in .dogent/dogent.json; "
-                "using 'llm_profile'.[/yellow]"
-            )
-        if not new_val and old_val:
-            normalized["llm_profile"] = old_val
-            self.console.print(
-                "[yellow]Warning: .dogent/dogent.json uses legacy key 'profile'. Please rename it to "
-                "'llm_profile' for clarity.[/yellow]"
-            )
-        if new_val and "profile" not in normalized:
-            normalized["profile"] = new_val
-
         raw_web_profile = normalized.get("web_profile")
         if raw_web_profile is None:
             normalized["web_profile"] = "default"
@@ -194,6 +215,11 @@ class ConfigManager:
             }
         else:
             normalized["learn_auto"] = bool(raw_learn_auto)
+        raw_doc_template = normalized.get("doc_template")
+        if raw_doc_template is None:
+            normalized["doc_template"] = "general"
+        elif isinstance(raw_doc_template, str) and not raw_doc_template.strip():
+            normalized["doc_template"] = "general"
         return normalized
 
     def build_options(self, system_prompt: str) -> ClaudeAgentOptions:
@@ -363,32 +389,6 @@ class ConfigManager:
         home_dir = self.paths.global_dir
         if not home_dir.exists():
             home_dir.mkdir(parents=True, exist_ok=True)
-        current_version = self._current_version()
-        stored_version = self._read_home_version()
-        first_bootstrap = stored_version is None
-        needs_refresh = stored_version is not None and stored_version != current_version
-        self._copy_package_dir(
-            "dogent",
-            self.paths.global_prompts_dir,
-            subdir="prompts",
-            overwrite=needs_refresh,
-        )
-        self._copy_package_dir(
-            "dogent",
-            self.paths.global_templates_dir,
-            subdir="templates",
-            overwrite=needs_refresh,
-        )
-        if needs_refresh:
-            msg = (
-                f"Updated ~/.dogent templates from version {stored_version} to {current_version}."
-                if stored_version
-                else f"Synced ~/.dogent templates for dogent {current_version}."
-            )
-            self.console.print(f"[cyan]{msg}[/cyan]")
-        elif first_bootstrap:
-            self.console.print(f"[cyan]Synced ~/.dogent templates for dogent {current_version}.[/cyan]")
-        self._write_home_version(current_version)
         if not self.paths.global_profile_file.exists():
             default = self._default_profile_template()
             try:
@@ -427,7 +427,9 @@ class ConfigManager:
 
     def _doc_template(self) -> str:
         template = self._read_home_template("dogent_default.md")
-        return template or "# Dogent Writing Constraints\n"
+        if template:
+            return template.replace("{doc_template}", "general")
+        return "# Dogent Writing Constraints\n"
 
     def _default_profile_template(self) -> str:
         template = self._read_home_template("claude_default.json")
@@ -443,65 +445,11 @@ class ConfigManager:
         return json.dumps({"profiles": {"default": {"provider": "google_cse"}}}, indent=2)
 
     def _read_home_template(self, name: str) -> str:
-        home_template = self.paths.global_templates_dir / name
-        if home_template.exists():
-            try:
-                return home_template.read_text(encoding="utf-8")
-            except Exception:
-                return ""
         try:
             data = resources.files("dogent").joinpath("templates").joinpath(name)
             return data.read_text(encoding="utf-8")
         except Exception:
             return ""
-
-    def _copy_package_dir(
-        self,
-        package: str,
-        destination: Path,
-        subdir: str,
-        *,
-        overwrite: bool = False,
-    ) -> None:
-        destination.mkdir(parents=True, exist_ok=True)
-        try:
-            source_root = resources.files(package).joinpath(subdir)
-            for entry in source_root.iterdir():
-                if entry.is_dir():
-                    continue
-                target = destination / entry.name
-                if target.exists() and not overwrite:
-                    continue
-                content = entry.read_text(encoding="utf-8")
-                target.write_text(content, encoding="utf-8")
-        except Exception:
-            self.console.print(
-                f"[yellow]Warning: could not copy default templates from {package}[/yellow]"
-            )
-
-    def _read_home_version(self) -> Optional[str]:
-        path = self.paths.global_version_file
-        if not path.exists():
-            return None
-        try:
-            text = path.read_text(encoding="utf-8").strip()
-            return text or None
-        except Exception:
-            return None
-
-    def _write_home_version(self, version: str) -> None:
-        try:
-            self.paths.global_version_file.write_text(version, encoding="utf-8")
-        except Exception:
-            self.console.print(
-                f"[yellow]Warning: failed to record Dogent version at {self.paths.global_version_file}.[/yellow]"
-            )
-
-    def _current_version(self) -> str:
-        try:
-            return __version__
-        except Exception:
-            return "0.0.0"
 
     def _warn_if_placeholder_profile(
         self, profile_name: Optional[str], profile_cfg: Dict[str, Any]

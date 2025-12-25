@@ -75,9 +75,6 @@ class ClaudeLessonDrafter:
         ).strip()
 
     def _load_template(self, name: str) -> str:
-        local = self.paths.global_prompts_dir / name
-        if local.exists():
-            return local.read_text(encoding="utf-8")
         base = resources.files("dogent").joinpath("prompts")
         return base.joinpath(name).read_text(encoding="utf-8")
 

@@ -8,7 +8,6 @@ from pathlib import Path
 from rich.console import Console
 
 from dogent.config import ConfigManager
-from dogent import __version__
 from dogent.paths import DogentPaths
 
 
@@ -30,34 +29,15 @@ class ConfigTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
-    def test_home_templates_updated_on_version_change(self) -> None:
+    def test_doc_template_default_in_config(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
-            home_dir = Path(tmp_home) / ".dogent"
-            prompts_dir = home_dir / "prompts"
-            templates_dir = home_dir / "templates"
-            prompts_dir.mkdir(parents=True, exist_ok=True)
-            templates_dir.mkdir(parents=True, exist_ok=True)
-            system_prompt = prompts_dir / "system.md"
-            system_prompt.write_text("old prompt", encoding="utf-8")
-            default_cfg = templates_dir / "dogent_default.json"
-            default_cfg.write_text('{"llm_profile": "old"}', encoding="utf-8")
-            version_file = home_dir / "version"
-            version_file.write_text("0.0.0", encoding="utf-8")
-            profile_file = home_dir / "claude.json"
-            profile_file.write_text(
-                json.dumps({"profiles": {"deepseek": {"ANTHROPIC_AUTH_TOKEN": "keep"}}}),
-                encoding="utf-8",
-            )
-
             paths = DogentPaths(Path(tmp))
-            ConfigManager(paths)
-
-            self.assertNotEqual(system_prompt.read_text(encoding="utf-8"), "old prompt")
-            self.assertNotIn('"old"', default_cfg.read_text(encoding="utf-8"))
-            self.assertEqual(version_file.read_text(encoding="utf-8"), __version__)
-            self.assertIn("keep", profile_file.read_text(encoding="utf-8"))
+            manager = ConfigManager(paths)
+            manager.create_config_template()
+            data = json.loads(paths.config_file.read_text(encoding="utf-8"))
+            self.assertEqual(data.get("doc_template"), "general")
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -215,18 +195,18 @@ class ConfigTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
-    def test_home_bootstrap_copies_prompts_and_templates(self) -> None:
+    def test_home_bootstrap_creates_only_profile_and_web(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
             paths = DogentPaths(Path(tmp))
             ConfigManager(paths)
 
-            self.assertTrue(paths.global_prompts_dir.joinpath("system.md").exists())
-            self.assertTrue(paths.global_prompts_dir.joinpath("user_prompt.md").exists())
-            self.assertTrue(paths.global_templates_dir.joinpath("dogent_default.json").exists())
-            self.assertTrue(paths.global_templates_dir.joinpath("web_default.json").exists())
-            self.assertTrue(paths.global_web_file.exists())
+            home_dir = Path(tmp_home) / ".dogent"
+            self.assertTrue((home_dir / "claude.json").exists())
+            self.assertTrue((home_dir / "web.json").exists())
+            self.assertFalse((home_dir / "prompts").exists())
+            self.assertFalse((home_dir / "templates").exists())
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -312,7 +292,7 @@ class ConfigTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
-    def test_config_template_respects_home_template(self) -> None:
+    def test_config_template_ignores_home_templates(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
@@ -327,44 +307,8 @@ class ConfigTests(unittest.TestCase):
             manager = ConfigManager(paths)
             manager.create_config_template()
             content = paths.config_file.read_text(encoding="utf-8")
-            self.assertIn('"custom"', content)
-        if original_home is not None:
-            os.environ["HOME"] = original_home
-        else:
-            os.environ.pop("HOME", None)
-
-    def test_legacy_profile_key_is_supported(self) -> None:
-        original_home = os.environ.get("HOME")
-        buf = StringIO()
-        console = Console(file=buf, force_terminal=False, color_system=None)
-        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
-            os.environ["HOME"] = tmp_home
-            home_dir = Path(tmp_home) / ".dogent"
-            home_dir.mkdir(parents=True, exist_ok=True)
-            (home_dir / "claude.json").write_text(
-                json.dumps(
-                    {
-                        "profiles": {
-                            "deepseek": {
-                                "ANTHROPIC_BASE_URL": "https://profile.example",
-                                "ANTHROPIC_AUTH_TOKEN": "token",
-                            }
-                        }
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            root = Path(tmp)
-            paths = DogentPaths(root)
-            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
-            paths.config_file.write_text(json.dumps({"profile": "deepseek"}), encoding="utf-8")
-
-            manager = ConfigManager(paths, console=console)
-            settings = manager.load_settings()
-            self.assertEqual(settings.profile, "deepseek")
-            self.assertEqual(settings.base_url, "https://profile.example")
-            self.assertIn("legacy key 'profile'", buf.getvalue())
+            self.assertNotIn('"custom"', content)
+            self.assertIn('"llm_profile"', content)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

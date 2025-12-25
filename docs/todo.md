@@ -19,7 +19,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Verification: `tests/test_config.py::test_init_files_created`.
 
 ### Story 3: Config & Profiles
-- User Value: Configure credentials via `/config`, profiles, env fallback.
+- User Value: Configure credentials via `/init` (dogent.json), profiles, env fallback.
 - Acceptance: `.dogent/dogent.json` references `llm_profile`; the selected profile overrides env; env used when missing.
 - Dev Status: Done
 - Acceptance Status: Accepted
@@ -48,7 +48,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
 ### Story 7: Interactive Session
 - User Value: Streaming chat with Claude Agent SDK.
-- Acceptance: Starts session even without `.dogent/`; `/config` reconnects; streams tool use/results with Rich panels.
+- Acceptance: Starts session even without `.dogent/`; `/init` can be run later to add settings; streams tool use/results with Rich panels.
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: Manual chat smoke.
@@ -120,7 +120,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
 ### Story 17: Configurable Images Path
 - User Value: Control where images download.
-- Acceptance: `/config` adds default image path config; no `images/` dir created by default; defaults to `./images` if unset.
+- Acceptance: `/init` adds default image path config; no `images/` dir created by default; defaults to `./images` if unset.
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: Config content check; no auto-created dir on init; path resolution test.
@@ -201,11 +201,11 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 ## Release 0.4
 
 ### Story 28: Home Template Bootstrap
-- User Value: Users can tweak prompts and default configs under `~/.dogent` without changing code.
-- Acceptance: On first start, copy packaged `dogent/prompts` and `dogent/templates` into `~/.dogent`; `/init` and `/config` generate files from those copies; editing home templates changes generated workspace files.
+- User Value: Home bootstrap creates credential config files without copying prompts/templates.
+- Acceptance: On first start, only `~/.dogent/claude.json` and `~/.dogent/web.json` are created; prompts/templates remain packaged.
 - Dev Status: Done
 - Acceptance Status: Accepted
-- Verification: `tests/test_config.py::test_home_bootstrap_copies_prompts_and_templates`, `tests/test_config.py::test_config_template_respects_home_template`, UAT Release 0.4.
+- Verification: `tests/test_config.py::test_home_bootstrap_creates_only_profile_and_web`, `tests/test_config.py::test_config_template_ignores_home_templates`, UAT Release 0.8.0.
 
 ### Story 29: Flexible Prompt Injection
 - User Value: Prompt templates can reference workspace state and config keys safely even after user edits.
@@ -337,5 +337,27 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
   - `/clean all` clears history and removes memory + lessons.
   - Each run prints a confirmation panel listing which targets were cleared.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: PASS
 - Verification: Add unit tests for selective clearing and completion options; add UAT steps under Release 0.7.0.
+
+## Release 0.8.0
+
+### Story 44: Document Templates + Init Picker
+- User Value: Select a document template and scaffold project writing constraints quickly.
+- Acceptance:
+  - Workspace templates live in `.dogent/templates` and are unprefixed; global/built-in templates require prefixes.
+  - `/init ` shows local names without prefix plus prefixed global/built-in templates.
+  - `/init <template>` scaffolds a minimal `.dogent/dogent.md` and sets `doc_template` in `.dogent/dogent.json`.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: `tests/test_doc_templates.py`, UAT Release 0.8.0.
+
+### Story 45: Init Wizard
+- User Value: Generate `.dogent/dogent.md` from a free-form project prompt without editing templates.
+- Acceptance:
+  - `/init <free-form prompt>` runs the wizard and writes `.dogent/dogent.md`.
+  - `doc_template` is set to `general` when no template is selected.
+  - The wizard uses a dedicated system prompt and outputs JSON with `doc_template` and `dogent_md`.
+- Dev Status: Done
+- Acceptance Status: PASS
+- Verification: `dogent/prompts/init_wizard_system.md`, UAT Release 0.8.0.

@@ -24,4 +24,9 @@ packages = ["dogent"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-dogent = ["prompts/*.md", "templates/*.md", "templates/*.json"]
+dogent = [
+  "prompts/*.md",
+  "templates/*.md",
+  "templates/*.json",
+  "templates/doc_templates/*.md",
+]

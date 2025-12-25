@@ -3,7 +3,7 @@
 CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans, researches, drafts, validates, and polishes long-form documents from the terminal.
 
 ## Features
-- Interactive CLI (`dogent`) with `/init`, `/config`, `/history`, `/clean`, `/help`, `/learn`, `/lessons`, `/exit`
+- Interactive CLI (`dogent`) with `/init`, `/history`, `/clean`, `/help`, `/learn`, `/lessons`, `/exit`
 - System prompt + per-turn user prompt templates under `dogent/prompts/`
 - Todo panel synced to `TodoWrite` tool calls/results (no seeded todos)
 - @file references load workspace files into each turn
@@ -15,8 +15,7 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 1. Install: `pip install .` (Python 3.10+)
 2. Run: `dogent` (or `dogent -h/-v`) in your project directory — ASCII banner shows model/API.
 3. Commands:
-   - `/init` → scaffold `.dogent/dogent.md`
-   - `/config` → create `.dogent/dogent.json` (`llm_profile` + `web_profile`; actual creds in `~/.dogent/claude.json` or env)
+   - `/init` → create/update `.dogent/dogent.md` and `.dogent/dogent.json` (template picker or wizard)
    - `/history` → show recent history entries and the latest todo snapshot
    - `/clean` → clean workspace state (`/clean [history|lesson|memory|all]`; defaults to `all`)
    - `/help` → display current model/API/LLM profile/web profile plus available commands and shortcuts
@@ -27,7 +26,7 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 4. Reference files with `@path/to/file` in your message; Dogent injects their contents. Tool results (e.g., WebFetch/WebSearch) show clear success/failure panels with reasons.
 
 ## Configuration
-- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, and `learn_auto` (toggled by `/learn on|off`))
+- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `doc_template`, `learn_auto`)
 - Global profiles: `~/.dogent/claude.json` with named profiles (see `docs/usage.md` for JSON examples)
 - Env fallback: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 - History is stored in `.dogent/history.json` (structured JSON, managed automatically); temporary scratch lives in `.dogent/memory.md` when created on demand.
@@ -37,10 +36,16 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 Dogent supports custom web search providers (Google CSE / Bing / Brave) via `~/.dogent/web.json` and `.dogent/dogent.json` `web_profile`. See `docs/usage.md` for setup steps and examples.
 
 ## Templates & Parameters
-- On first run, Dogent copies default prompts/config templates into `~/.dogent/prompts` and `~/.dogent/templates`. Edit these to tune prompts (`system.md`, `user_prompt.md`) or defaults (`dogent_default.md`, `dogent_default.json`, `claude_default.json`).
-- `/init` and `/config` generate workspace files from the templates under `~/.dogent/templates`; prompt rendering also reads from `~/.dogent/prompts`.
+- Prompt and default config templates are shipped inside the package.
+- Document templates live in `.dogent/templates` (workspace), `~/.dogent/templates` (global), and `dogent/templates/doc_templates` (built-in fallback).
+  - Workspace templates use the plain name (e.g., `resume`).
+  - Global templates require the `global:` prefix (e.g., `global:resume`).
+  - Built-in templates require the `built-in:` prefix (e.g., `built-in:resume`).
+  - `general` means no template is selected and uses the built-in `doc_template_general.md`.
+  - Unprefixed names resolve only in the workspace (except `general`).
 - Template placeholders you can use (unknown or empty values render as empty strings and emit a warning):
   - `working_dir`, `preferences`
+  - `doc_template` (resolved content from the configured document template)
   - `history` (raw `.dogent/history.json`), `history:last`/`history_block` (recent entries)
   - `memory`
   - `lessons` (raw `.dogent/lessons.md`)
@@ -52,6 +57,8 @@ Dogent supports custom web search providers (Google CSE / Bing / Brave) via `~/.
 - Defaults to Chinese + Markdown, with citations collected at the end
 - For image downloads, pass a workspace-relative `output_dir` to `dogent_web_fetch` (e.g., `./images`) and reference the returned Markdown snippet
 - Uses `.dogent/memory.md` for scratch notes only when needed; `.dogent/history.json` records progress for continuity
+
+Default doc template: when `doc_template=general`, Dogent injects `dogent/templates/doc_templates/doc_template_general.md` into the system prompt.
 
 ## Development Notes
 - All prompt text lives in `dogent/prompts/` for manual tuning

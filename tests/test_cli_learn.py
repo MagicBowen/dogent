@@ -106,7 +106,7 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
         else:
             os.environ.pop("HOME", None)
 
-    async def test_config_does_not_overwrite_learn_auto_setting(self) -> None:
+    async def test_init_does_not_overwrite_learn_auto_setting(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
@@ -115,12 +115,27 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
             cli = DogentCLI(root=root, console=console, lesson_drafter=FakeLessonDrafter())
 
             await cli._handle_command("/learn off")
-            await cli._handle_command("/config")
+            await cli._handle_command("/init")
             cfg = cli.paths.config_file.read_text(encoding="utf-8").lower()
             self.assertIn('"learn_auto": false', cfg)
             self.assertIn('"web_profile"', cfg)
             self.assertIn('"llm_profile"', cfg)
 
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_extract_selected_template_line(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console, lesson_drafter=FakeLessonDrafter())
+            content = "**Selected Template**: [Configured] global:resume"
+            self.assertEqual(cli._extract_doc_template_line(content), "global:resume")
+            content = "**Selected Template**: [Default] general"
+            self.assertEqual(cli._extract_doc_template_line(content), "general")
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
