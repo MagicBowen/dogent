@@ -13,6 +13,7 @@ from .config import ConfigManager
 from .lessons import LessonIncident
 from .paths import DogentPaths
 from .prompts import TemplateRenderer
+from .wait_indicator import LLMWaitIndicator
 
 
 class LessonDrafter(Protocol):
@@ -103,6 +104,8 @@ class ClaudeLessonDrafter:
         options = self._build_options(system_prompt)
         client = ClaudeSDKClient(options=options)
         await client.connect()
+        indicator = LLMWaitIndicator(self.console, label="Waiting for lesson draft")
+        await indicator.start()
         try:
             await client.query(user_prompt)
             parts: list[str] = []
@@ -120,4 +123,5 @@ class ClaudeLessonDrafter:
                 text = (last_result or "").strip()
             return text
         finally:
+            await indicator.stop()
             await client.disconnect()

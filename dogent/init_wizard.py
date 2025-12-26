@@ -13,6 +13,7 @@ from claude_agent_sdk.types import ClaudeAgentOptions
 from .config import ConfigManager
 from .doc_templates import DocumentTemplateManager
 from .paths import DogentPaths
+from .wait_indicator import LLMWaitIndicator
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,8 @@ class InitWizard:
         options = self._build_options(system_prompt)
         client = ClaudeSDKClient(options=options)
         await client.connect()
+        indicator = LLMWaitIndicator(self.console, label="Waiting for init wizard")
+        await indicator.start()
         try:
             await client.query(self._build_user_prompt(user_prompt))
             parts: list[str] = []
@@ -78,6 +81,7 @@ class InitWizard:
                 dogent_md=text.strip(),
             )
         finally:
+            await indicator.stop()
             await client.disconnect()
 
     @staticmethod

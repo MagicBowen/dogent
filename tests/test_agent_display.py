@@ -3,11 +3,12 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
-from claude_agent_sdk import ToolResultBlock
+from claude_agent_sdk import TextBlock, ToolResultBlock
 from rich.console import Console
 
-from dogent.agent import AgentRunner
+from dogent.agent import AgentRunner, NEEDS_CLARIFICATION_SENTINEL
 from dogent.config import ConfigManager
 from dogent.history import HistoryManager
 from dogent.paths import DogentPaths
@@ -112,6 +113,52 @@ class AgentDisplayTests(unittest.TestCase):
 
             entries = history.read_entries()
             self.assertEqual(entries[-1]["status"], "error")
+
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_needs_clarification_status_when_sentinel_present(self) -> None:
+        class DummyResult:
+            result = "Awaiting input"
+            is_error = False
+            total_cost_usd = 0.0
+            duration_ms = 1
+            duration_api_ms = 1
+
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            todo = TodoManager(console=console)
+            todo.set_items([TodoItem(title="step 1", status="pending")])
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo, history)
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=builder,
+                todo_manager=todo,
+                history=history,
+                console=console,
+            )
+
+            question = f"Need a title?\n{NEEDS_CLARIFICATION_SENTINEL}"
+            runner._handle_assistant_message(SimpleNamespace(content=[TextBlock(question)]))
+            runner._handle_result(DummyResult())  # type: ignore[arg-type]
+
+            self.assertIsNotNone(runner.last_outcome)
+            assert runner.last_outcome
+            self.assertEqual(runner.last_outcome.status, "needs_clarification")
+            self.assertNotEqual(todo.items, [])
+            output = console.file.getvalue()
+            self.assertIn("Needs clarification", output)
+            self.assertNotIn(NEEDS_CLARIFICATION_SENTINEL, output)
+
+            entries = history.read_entries()
+            self.assertEqual(entries[-1]["status"], "needs_clarification")
 
         if original_home is not None:
             os.environ["HOME"] = original_home

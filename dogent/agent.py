@@ -24,12 +24,15 @@ from .file_refs import FileAttachment
 from .prompts import PromptBuilder
 from .history import HistoryManager
 from .todo import TodoManager
+from .wait_indicator import LLMWaitIndicator
 from .web_tools import DOGENT_WEB_TOOL_DISPLAY_NAMES
+
+NEEDS_CLARIFICATION_SENTINEL = "[[DOGENT_STATUS:NEEDS_CLARIFICATION]]"
 
 
 @dataclass(frozen=True)
 class RunOutcome:
-    status: str  # completed|error|interrupted
+    status: str  # completed|error|interrupted|needs_clarification
     summary: str
     todos_snapshot: list[dict[str, object]]
     remaining_todos_markdown: str
@@ -56,8 +59,11 @@ class AgentRunner:
         self._lock = asyncio.Lock()
         self._skip_todo_render_once = False
         self._last_summary: str | None = None
+        self._clarification_text: str = ""
+        self._needs_clarification = False
         self._interrupted: bool = False
         self.last_outcome: RunOutcome | None = None
+        self._wait_indicator: LLMWaitIndicator | None = None
 
     async def reset(self) -> None:
         """Close current session so it can be re-created with new settings."""
@@ -88,6 +94,8 @@ class AgentRunner:
             user_message, list(attachments), settings=settings, config=project_config
         )
         self._last_summary = None
+        self._clarification_text = ""
+        self._needs_clarification = False
         self._interrupted = False
         self.last_outcome = None
         preview = self._shorten(user_message, limit=240)
@@ -106,6 +114,7 @@ class AgentRunner:
         )
 
         try:
+            await self._start_wait_indicator()
             async with self._lock:
                 if self._client is None:
                     options = self.config.build_options(system_prompt)
@@ -119,6 +128,7 @@ class AgentRunner:
             await self._stream_responses()
             await self._safe_disconnect()
         except Exception as exc:  # noqa: BLE001
+            await self._stop_wait_indicator()
             todos_snapshot = self.todo_manager.export_items()
             remaining = self.todo_manager.remaining_markdown()
             self.last_outcome = RunOutcome(
@@ -133,7 +143,13 @@ class AgentRunner:
                 "Remaining Todos:" if remaining else "Remaining Todos: (none)",
                 remaining,
             ]
-            self.console.print(Panel(Text("\n".join(line for line in body_lines if line).strip()), title="❌ Failed"))
+            self.console.print(
+                Panel(
+                    Text("\n".join(line for line in body_lines if line).strip()),
+                    title="❌ Failed",
+                    border_style="red",
+                )
+            )
             await self._safe_disconnect()
             self.history.append(
                 summary=f"Session error: {exc}",
@@ -141,19 +157,25 @@ class AgentRunner:
                 prompt=None,
                 todos=todos_snapshot,  # type: ignore[arg-type]
             )
+        finally:
+            await self._stop_wait_indicator()
 
     async def _stream_responses(self) -> None:
         if not self._client:
             return
+        await self._start_wait_indicator()
         async for message in self._client.receive_response():
             if self._interrupted:
                 break
+            await self._stop_wait_indicator()
             if isinstance(message, AssistantMessage):
                 self._handle_assistant_message(message)
             elif isinstance(message, ResultMessage):
                 if not self._interrupted:
                     self._handle_result(message)
                 break
+            if not self._interrupted:
+                await self._start_wait_indicator()
 
     async def interrupt(self, reason: str) -> None:
         async with self._lock:
@@ -174,7 +196,11 @@ class AgentRunner:
                 remaining,
             ]
             self.console.print(
-                Panel(Text("\n".join(line for line in body_lines if line).strip()), title="⛔ Interrupted")
+                Panel(
+                    Text("\n".join(line for line in body_lines if line).strip()),
+                    title="⛔ Interrupted",
+                    border_style="yellow",
+                )
             )
             self.history.append(
                 summary=reason,
@@ -184,10 +210,16 @@ class AgentRunner:
             )
 
     def _handle_assistant_message(self, message: AssistantMessage) -> None:
+        reply_parts: list[str] = []
+        clarification_found = False
         for block in message.content:
             if isinstance(block, TextBlock):
-                self.console.print(Panel(block.text, title="💬 Reply"))
-                self.console.print()
+                cleaned, found = self._strip_clarification_sentinel(block.text)
+                clarification_found = clarification_found or found
+                if cleaned:
+                    reply_parts.append(cleaned)
+                    self.console.print(Panel(cleaned, title="💬 Reply"))
+                    self.console.print()
             elif isinstance(block, ThinkingBlock):
                 thinking_text = getattr(block, "thinking", "") or ""
                 self.console.print(Panel(thinking_text, title="🤔 Thinking"))
@@ -219,6 +251,10 @@ class AgentRunner:
                     self._log_tool_result(tool_name, block)
                 self.console.print()
         self._render_todos(show_empty=False)
+        if clarification_found:
+            self._needs_clarification = True
+            if reply_parts:
+                self._clarification_text = "\n\n".join(reply_parts)
 
     def _handle_result(self, message: ResultMessage) -> None:
         cost = f"${message.total_cost_usd:.4f}" if message.total_cost_usd is not None else "n/a"
@@ -227,12 +263,38 @@ class AgentRunner:
         )
         todos_snapshot = self.todo_manager.export_items()
         remaining = self.todo_manager.remaining_markdown()
-        is_failed = bool(getattr(message, "is_error", False)) or bool(remaining)
+        is_error = bool(getattr(message, "is_error", False))
 
         result_text = message.result or ""
         self._last_summary = result_text or None
 
-        if is_failed:
+        if is_error:
+            title = "❌ Failed"
+            status = "error"
+            body_lines = [
+                "Result/Reason:",
+                result_text or "(no result returned)",
+                "",
+                "Remaining Todos:" if remaining else "Remaining Todos: (none)",
+                remaining,
+                "",
+                metrics,
+            ]
+            history_summary = result_text or "Task failed"
+        elif self._needs_clarification:
+            title = "❓ Needs clarification"
+            status = "needs_clarification"
+            summary = self._clarification_text or result_text or "Clarification required."
+            body_lines = [
+                summary,
+                "",
+                "Remaining Todos:" if remaining else "Remaining Todos: (none)",
+                remaining,
+                "",
+                metrics,
+            ]
+            history_summary = summary
+        elif remaining:
             title = "❌ Failed"
             status = "error"
             body_lines = [
@@ -256,7 +318,15 @@ class AgentRunner:
             history_summary = result_text or "Task completed"
 
         panel_text = "\n".join(line for line in body_lines if line).strip()
-        self.console.print(Panel(Text(panel_text), title=title))
+        if status == "error":
+            border_style = "red"
+        elif status == "needs_clarification":
+            border_style = "yellow"
+        elif status == "completed":
+            border_style = "green"
+        else:
+            border_style = None
+        self.console.print(Panel(Text(panel_text), title=title, border_style=border_style))
 
         self.last_outcome = RunOutcome(
             status=status,
@@ -361,3 +431,30 @@ class AgentRunner:
         with suppress(Exception):
             await self._client.disconnect()
         self._client = None
+
+    async def _start_wait_indicator(self) -> None:
+        if self._wait_indicator is not None:
+            return
+        self._wait_indicator = LLMWaitIndicator(self.console)
+        await self._wait_indicator.start()
+
+    async def _stop_wait_indicator(self) -> None:
+        if self._wait_indicator is None:
+            return
+        await self._wait_indicator.stop()
+        self._wait_indicator = None
+
+    def _strip_clarification_sentinel(self, text: str) -> tuple[str, bool]:
+        if NEEDS_CLARIFICATION_SENTINEL not in text:
+            return text, False
+        lines: list[str] = []
+        found = False
+        for line in text.splitlines():
+            if NEEDS_CLARIFICATION_SENTINEL in line:
+                found = True
+                cleaned = line.replace(NEEDS_CLARIFICATION_SENTINEL, "").strip()
+                if cleaned:
+                    lines.append(cleaned)
+            else:
+                lines.append(line)
+        return "\n".join(lines).strip(), found

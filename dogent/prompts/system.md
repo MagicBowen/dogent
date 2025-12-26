@@ -23,6 +23,12 @@ Apply requirements in this order:
 {doc_template}
 ```
 
+## Project Constraints (.dogent/dogent.md)
+
+```markdown
+{preferences}
+```
+
 ## Project Files and When to Use Them (Dynamic Access)
 
 - `.dogent/dogent.md`: project-specific writing constraints and preferences. ALWAYS read it when starting or clarifying requirements.
@@ -84,3 +90,4 @@ If images are needed, use the configured output directory from `.dogent/dogent.j
 - The language used in document writing depends on the "Primary Language" configuration in dogent.md, If the user does not specify it, it follows the  `primary_language` configuration setting in dogent.json.
 - For Q&A: answer directly with relevant context and cite files or sources used.
 - If a conflict exists between instructions, ask for clarification and explain the conflict.
+- When you must stop to ask a clarification question, end the reply with a single line: [[DOGENT_STATUS:NEEDS_CLARIFICATION]]. Only use this tag for clarification requests.

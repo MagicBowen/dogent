@@ -3,7 +3,7 @@
 CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans, researches, drafts, validates, and polishes long-form documents from the terminal.
 
 ## Features
-- Interactive CLI (`dogent`) with `/init`, `/history`, `/clean`, `/help`, `/learn`, `/lessons`, `/exit`
+- Interactive CLI (`dogent`) with `/init`, `/show`, `/clean`, `/help`, `/learn`, `/exit` (plus `!` for shell commands)
 - System prompt + per-turn user prompt templates under `dogent/prompts/`
 - Todo panel synced to `TodoWrite` tool calls/results (no seeded todos)
 - @file references load workspace files into each turn
@@ -16,13 +16,13 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 2. Run: `dogent` (or `dogent -h/-v`) in your project directory — ASCII banner shows model/API.
 3. Commands:
    - `/init` → create/update `.dogent/dogent.md` and `.dogent/dogent.json` (template picker or wizard)
-   - `/history` → show recent history entries and the latest todo snapshot
+   - `/show history` → show recent history entries and the latest todo snapshot
    - `/clean` → clean workspace state (`/clean [history|lesson|memory|all]`; defaults to `all`)
    - `/help` → display current model/API/LLM profile/web profile plus available commands and shortcuts
    - `/learn` → save a lesson (`/learn <text>`) or toggle auto prompt (`/learn on|off`)
-   - `/lessons` → show recent lessons and where to edit `.dogent/lessons.md`
+   - `/show lessons` → show recent lessons and where to edit `.dogent/lessons.md`
    - `/exit` → quit
-   - Typing `/` shows command suggestions; typing `@` offers file completions; press Esc during a task to interrupt and save progress
+   - Typing `/` shows command suggestions; typing `@` offers file completions; `!<command>` runs a shell command; press Esc during a task to interrupt and save progress
 4. Reference files with `@path/to/file` in your message; Dogent injects their contents. Tool results (e.g., WebFetch/WebSearch) show clear success/failure panels with reasons.
 
 ## Configuration

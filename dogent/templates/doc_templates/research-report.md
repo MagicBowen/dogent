@@ -25,7 +25,7 @@ Produce a credible, reproducible research report that is grounded in high-qualit
 **Geography:**  
 **Time Window:** (e.g., “2019–present” or “as of YYYY-MM-DD”)  
 **Deliverable Format:** (report / memo / comparison table / annotated bibliography)  
-**Constraints:** (time, number of sources, must-use domains, etc.)  
+**Constraints:** (number of sources, must-use domains, etc.)  
 
 **Definition of “Done” / Success Criteria:**  
 Specify measurable criteria (e.g., “≥10 high-quality sources; every key claim cited; at least 2 independent sources for top 5 claims; explicit limitations section; reproducible query log”).  
@@ -37,7 +37,7 @@ Specify measurable criteria (e.g., “≥10 high-quality sources; every key clai
 
 ### Step 1 — Clarify & Decompose
 1. Restate the question in your own words.
-2. List unknowns and ambiguous terms; ask clarifying questions *if needed*.
+2. List unknowns and ambiguous terms; Ask the user to answer and clarify the question *if needed*.
 3. Break the task into sub-questions that can be answered independently.
 4. Define key terms (one-line definitions).
 
