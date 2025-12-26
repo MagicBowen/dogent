@@ -1,6 +1,9 @@
 User Request:
 {user_message}
 
+Attachments:
+{attachments}
+
 Todo Snapshot:
 ```markdown
 {todo_block}

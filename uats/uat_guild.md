@@ -193,7 +193,7 @@ User Test Results: PASS
 
 ### Story 31 – History Command
 1) In `uats/sample_workspace`, ensure `.dogent/history.json` has at least one entry (run a quick task if needed).
-2) Start `dogent` and run `/history`.
+2) Start `dogent` and run `/show history`.
 3) Expect a structured history table (latest entries first) and a todo snapshot reflecting the last recorded todos; if history is empty, a friendly notice is shown.
 
 User Test Results: PASS
@@ -275,7 +275,7 @@ Pre-check (clean start recommended):
 1) From repo root: `cd uats/sample_workspace`
 2) (Optional) Remove prior lessons to start clean: `rm -f .dogent/lessons.md`
 3) Start `dogent`. If `.dogent/` is missing, run `/init` first.
-4) Run `/learn on` then `/lessons` (expect “No lessons recorded yet.” on a clean start).
+4) Run `/learn on` then `/show lessons` (expect “No lessons recorded yet.” on a clean start).
 
 Interrupt → auto lesson capture:
 5) Send a prompt that forces todos and a long run, e.g.: “Use TodoWrite to create 3–5 steps for X, start executing step 1 slowly, and keep going until I interrupt.”
@@ -284,7 +284,7 @@ Interrupt → auto lesson capture:
 8) At the next `dogent>` prompt, type ONE message that includes your correction + a retry request, then press Enter.
 9) Expect: “Save a lesson from the last failure/interrupt? [Y/n]” — press Enter for **Y**.
 10) Expect a `📝 Learn` panel saying it saved to `.dogent/lessons.md`.
-11) Run `/lessons` and confirm it shows recent titles; open `.dogent/lessons.md` and confirm a new `## ...` entry exists.
+11) Run `/show lessons` and confirm it shows recent titles; open `.dogent/lessons.md` and confirm a new `## ...` entry exists.
 
 Manual save + toggle:
 12) Run `/learn off`, repeat steps 5–7, then send any message; confirm you are NOT prompted to save a lesson automatically.
@@ -299,7 +299,7 @@ Optional injection check:
   - Lessons now always include the user’s correction prompt verbatim under `### Correct Approach`.
   - Lesson drafting prompt was tightened for conciseness and clearer titles; removed `{remaining_todos}` from the lesson draft template.
   - `/learn on|off` is persisted to `.dogent/dogent.json` (default on when absent).
-  - `/history` “started” status uses 🟢.
+  - `/show history` “started” status uses 🟢.
   - Command completion no longer shows the full command list after typing a space; `/learn ` suggests `on/off`.
 
 - Fixes applied:
@@ -320,7 +320,7 @@ Goal: verify that when a run ends with unfinished todos (and you did not interru
 2) Send a prompt that leaves at least one todo unfinished at the end, e.g.:
    “Use TodoWrite to create 3 todos. Mark only the first as completed, leave the others pending, then stop and output a final result.”
 3) Expect Summary panel title `❌ Failed` and content including “Result/Reason” and “Remaining Todos”.
-4) Run `/history` and confirm the latest entry status is `error` (not `completed`); optionally verify in `.dogent/history.json`.
+4) Run `/show history` and confirm the latest entry status is `error` (not `completed`); optionally verify in `.dogent/history.json`.
 
 User Test Results: PASS
 
@@ -351,5 +351,38 @@ User Test Results: PASS
 2) Confirm the wizard runs and generates a new `.dogent/dogent.md`.
 3) Verify `.dogent/dogent.json` sets `doc_template` to `general`.
 4) Open `.dogent/dogent.md` and confirm it includes configured preferences inferred from the prompt (format, length, etc.), but does not include template or primary language fields.
+
+User Test Results: PASS
+
+## Release 0.9.0
+
+### Story 46 – Needs Clarification Status
+1) Start `dogent` in `uats/sample_workspace`.
+2) Send a request that lacks key details, e.g., “Write a report but ask me which industry and audience before you proceed.”
+3) Expect the assistant to ask a question and the Summary panel title to show `❓ Needs clarification`.
+4) Confirm the sentinel line is not visible in the reply, and `.dogent/history.json` records `needs_clarification`.
+5) Reply with the missing details and confirm you are NOT prompted to “Save a lesson?” (no auto lesson capture).
+
+User Test Results: PASS
+
+### Story 47 – LLM Wait Indicator
+1) Run `/init Write a short project summary` to trigger the init wizard.
+2) Confirm a spinner/timer appears while the wizard runs and stops when results display.
+3) Run `/learn Use pathlib consistently` and confirm a wait indicator appears while the lesson draft is generated.
+4) Send a long prompt and confirm the wait indicator appears until the first response arrives.
+
+User Test Results: PASS
+
+### Story 48 – Unified /show Command
+1) Type `/` and confirm `/show` is listed while `/history` and `/lessons` are not.
+2) Run `/show history` and verify the history table + todo snapshot appear.
+3) Run `/show lessons` and verify recent lesson titles (or a “No lessons recorded yet.” notice).
+
+User Test Results: PASS
+
+### Story 49 – Shell Command Shortcut
+1) Run `!pwd` or `!ls` from the Dogent prompt.
+2) Confirm output and exit code are shown in a “Shell Result” panel.
+3) Enter a normal message that includes `!` not at the start and confirm it is treated as a normal LLM prompt.
 
 User Test Results: PASS

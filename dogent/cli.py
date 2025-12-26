@@ -98,6 +98,8 @@ class DogentCompleter(Completer):
             options = ["on", "off"]
         elif command == "/clean":
             options = ["history", "lesson", "memory", "all"]
+        elif command == "/show":
+            options = ["history", "lessons"]
         elif command == "/init" and self.template_provider:
             options = list(self.template_provider())
         if not options:
@@ -236,14 +238,9 @@ class DogentCLI:
             "Save a lesson: /learn <text> or toggle auto prompt with /learn on|off.",
         )
         self.registry.register(
-            "/lessons",
-            self._cmd_lessons,
-            "Show recent lessons and where to edit .dogent/lessons.md.",
-        )
-        self.registry.register(
-            "/history",
-            self._cmd_history,
-            "Show recent history entries and the latest todo snapshot.",
+            "/show",
+            self._cmd_show,
+            "Show info panels: /show history or /show lessons.",
         )
         self.registry.register(
             "/clean",
@@ -469,7 +466,7 @@ class DogentCLI:
                             "Usage:",
                             "- /learn on|off",
                             "- /learn <free text>",
-                            "- /lessons",
+                            "- /show lessons",
                         ]
                     ),
                     title="📝 Learn",
@@ -499,7 +496,40 @@ class DogentCLI:
         )
         return True
 
-    async def _cmd_lessons(self, _: str) -> bool:
+    async def _cmd_show(self, command: str) -> bool:
+        parts = command.split(maxsplit=1)
+        arg = parts[1].strip().lower() if len(parts) > 1 else ""
+        if not arg:
+            self.console.print(
+                Panel(
+                    "Usage:\n- /show history\n- /show lessons",
+                    title="🔎 Show",
+                    border_style="yellow",
+                )
+            )
+            return True
+        if arg == "history":
+            self._show_history()
+            return True
+        if arg == "lessons":
+            self._show_lessons()
+            return True
+        self.console.print(
+            Panel(
+                "\n".join(
+                    [
+                        f"Unknown show target: {arg}",
+                        "Valid targets: history, lessons",
+                        "Example: /show history",
+                    ]
+                ),
+                title="🔎 Show",
+                border_style="red",
+            )
+        )
+        return True
+
+    def _show_lessons(self) -> None:
         titles = self.lessons_manager.list_recent_titles(limit=5)
         rel = self.paths.lessons_file.relative_to(self.root)
         if not titles:
@@ -516,7 +546,7 @@ class DogentCLI:
                     border_style="yellow",
                 )
             )
-            return True
+            return
         body = "\n".join([f"- {t}" for t in titles])
         self.console.print(
             Panel(
@@ -525,9 +555,8 @@ class DogentCLI:
                 border_style="cyan",
             )
         )
-        return True
 
-    async def _cmd_history(self, _: str) -> bool:
+    def _show_history(self) -> None:
         entries = self.history_manager.read_entries()
         if not entries:
             self.console.print(
@@ -537,7 +566,7 @@ class DogentCLI:
                     border_style="yellow",
                 )
             )
-            return True
+            return
 
         table = Table(
             show_header=True,
@@ -567,7 +596,6 @@ class DogentCLI:
         )
         self.console.print(Panel(table, title="📜 History", border_style="cyan"))
         self.console.print(todo_panel)
-        return True
 
     async def _cmd_clean(self, command: str) -> bool:
         return await self._cmd_clean_target(command)
@@ -648,6 +676,7 @@ class DogentCLI:
                 "- Esc: interrupt current task",
                 "- Alt/Option+Enter: insert newline",
                 "- Ctrl+C: exit gracefully",
+                "- !<command>: run a shell command in the workspace",
             ]
         )
         self.console.print(Panel(body, title="💡 Help", border_style="cyan"))
@@ -663,6 +692,9 @@ class DogentCLI:
                 await self._graceful_exit()
                 break
             if not raw:
+                continue
+            if raw.startswith("!"):
+                await self._run_shell_command(raw)
                 continue
             text = raw.strip()
             if text.startswith("/"):
@@ -794,6 +826,38 @@ class DogentCLI:
             return True
         return await cmd.handler(command)
 
+    async def _run_shell_command(self, raw: str) -> None:
+        command = raw[1:].strip()
+        if not command:
+            self.console.print(
+                Panel("No shell command provided.", title="ᯓ➤ Shell", border_style="yellow")
+            )
+            return
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                cwd=str(self.root),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+        except Exception as exc:  # noqa: BLE001
+            self.console.print(Panel(str(exc), title="ᯓ➤ Shell", border_style="red"))
+            return
+
+        body_lines = [f"$ {command}"]
+        stdout_text = (stdout or b"").decode(errors="replace").rstrip()
+        stderr_text = (stderr or b"").decode(errors="replace").rstrip()
+        if stdout_text:
+            body_lines.extend(["", "STDOUT:", stdout_text])
+        if stderr_text:
+            body_lines.extend(["", "STDERR:", stderr_text])
+        body_lines.extend(["", f"Exit code: {proc.returncode}"])
+        style = "green" if proc.returncode == 0 else "red"
+        self.console.print(
+            Panel("\n".join(body_lines), title="ᯓ➤ Shell Result", border_style=style)
+        )
+
     async def _read_input(self, prompt: str = "dogent> ") -> str:
         loop = asyncio.get_event_loop()
         if self.session:
@@ -863,6 +927,8 @@ class DogentCLI:
             "interrupted": "⛔",
             "completed": "✅",
             "error": "❌",
+            "needs_clarification": "❓",
+            "needs clarification": "❓",
         }
         return mapping.get(normalized, "•")
 

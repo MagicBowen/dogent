@@ -223,9 +223,9 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
 ## Release 0.5
 
-### Story 31: History Command
+### Story 31: History Display
 - User Value: Quickly review recent sessions and todo outcomes without leaving the CLI.
-- Acceptance: `/history` shows recent history entries in a structured view plus the latest todo snapshot; handles empty history gracefully with friendly messaging.
+- Acceptance: `/show history` shows recent history entries in a structured view plus the latest todo snapshot; handles empty history gracefully with friendly messaging.
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: `tests/test_history_command.py::test_history_command_shows_recent_entries_and_todos`.
@@ -309,7 +309,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
   - If accepted, Dogent uses the LLM to draft a structured lesson using the last failure Summary and the user’s correction message as context, appends it to `.dogent/lessons.md`, then proceeds with the user’s request (retry).
   - `/learn <free text>` appends a new lesson (LLM rewrites into a consistent format).
   - `/learn on|off` toggles the automatic “Save a lesson?” prompt.
-  - `/lessons` displays a short list of recent lessons and points to `.dogent/lessons.md` for editing.
+  - `/show lessons` displays a short list of recent lessons and points to `.dogent/lessons.md` for editing.
   - The full `.dogent/lessons.md` content is injected into prompt context on each new task (no relevance filtering for now; truncation with notice is allowed if needed).
 - Dev Status: Done
 - Acceptance Status: Accepted
@@ -349,7 +349,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
   - `/init ` shows local names without prefix plus prefixed global/built-in templates.
   - `/init <template>` scaffolds a minimal `.dogent/dogent.md` and sets `doc_template` in `.dogent/dogent.json`.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: PASS
 - Verification: `tests/test_doc_templates.py`, UAT Release 0.8.0.
 
 ### Story 45: Init Wizard
@@ -361,3 +361,46 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: PASS
 - Verification: `dogent/prompts/init_wizard_system.md`, UAT Release 0.8.0.
+
+## Release 0.9.0
+
+### Story 46: Clarification Status (Needs Clarification)
+- User Value: Distinguish clarification questions from failures so users know to answer instead of retrying.
+- Acceptance:
+  - System prompt instructs the model to append `[[DOGENT_STATUS:NEEDS_CLARIFICATION]]` when it must ask a blocking question.
+  - The CLI detects the sentinel, strips it from display, and records `needs_clarification` in `.dogent/history.json`.
+  - Summary panel title shows `❓ Needs clarification` with the question and remaining todos if any.
+  - Runs marked `needs_clarification` do not arm lesson capture.
+- Dev Status: Done
+- Acceptance Status: PASS
+- Verification: `tests/test_agent_display.py::test_needs_clarification_status_when_sentinel_present`, UAT Release 0.9.0.
+
+### Story 47: LLM Wait Indicator
+- User Value: Avoid the impression that the CLI is stuck during long LLM operations.
+- Acceptance:
+  - A spinner/timer appears during all LLM waits (chat requests, `/init` wizard, `/learn` drafting).
+  - The indicator stops once a response starts streaming or completes.
+- Dev Status: Done
+- Acceptance Status: PASS
+- Verification: `tests/test_wait_indicator.py`, UAT Release 0.9.0.
+
+### Story 48: Unified Show Command
+- User Value: Fewer commands for display-only info.
+- Acceptance:
+  - `/history` and `/lessons` are removed from the registry.
+  - `/show history` displays the history table and todo snapshot.
+  - `/show lessons` displays recent lesson titles and the lessons file path.
+  - CLI completion lists `history` and `lessons` after `/show `.
+- Dev Status: Done
+- Acceptance Status: PASS
+- Verification: `tests/test_history_command.py`, `tests/test_cli_completer.py`, UAT Release 0.9.0.
+
+### Story 49: Shell Command Shortcut
+- User Value: Run quick shell checks without leaving the CLI.
+- Acceptance:
+  - Input starting with `!` runs as a shell command in the current workspace.
+  - Output (stdout/stderr and exit code) is shown in a dedicated panel.
+  - `!` is only treated as a shell prefix when it is the first character of the input line.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: UAT Release 0.9.0.

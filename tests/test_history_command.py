@@ -33,7 +33,7 @@ class HistoryCommandTests(unittest.IsolatedAsyncioTestCase):
             ]
             cli.history_manager._write_entries(entries)  # type: ignore[attr-defined]
 
-            await cli._cmd_history("/history")
+            await cli._cmd_show("/show history")
 
             output = console.export_text()
             self.assertIn("Latest summary", output)
@@ -51,6 +51,7 @@ class HistoryCommandTests(unittest.IsolatedAsyncioTestCase):
             console = Console(record=True, force_terminal=False, color_system=None)
             cli = DogentCLI(root=Path(tmp), console=console)
             self.assertEqual("🟢", cli._status_icon("started"))  # type: ignore[attr-defined]
+            self.assertEqual("❓", cli._status_icon("needs_clarification"))  # type: ignore[attr-defined]
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
