@@ -5,3 +5,13 @@
 - 测试 dogent 加载正常的 claude 的 commands 和 skill 等配置？
 - 解决上下文溢出问题
 
+---
+
+- 增加处理 pdf 和 doc 以及 excel 还有 csv 的能力（maybe pandoc inline?）
+- 增加使用 mdbook 等 skill ？
+
+
+---
+
+重构目录，标准化开发
+
