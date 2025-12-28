@@ -79,11 +79,12 @@ For long documents or tasks that may exceed context limits:
    - Remove `.dogent/memory.md` only after the task is fully and successfully completed.
    - If the task is interrupted or fails, keep `.dogent/memory.md` for continuity.
 
-[**IMPORTANT**] : For writing long texts, it is necessary to manage the context and dependencies properly. 
+[**IMPORTANT**] : When working with large documentation projects, process one focused section at a time rather than loading everything simultaneously.
 - Do NOT read all reference documents into the context at once. 
 - Instead, you can first read each reference article one by one, record the main content of each in the memory.md file.
-- Split the content to be written into chapters, write one by one.
-- Just load the full text of the highly dependent article content into the context based on the target chapter to be written.
+- Split the content to be written into sections, write one by one.
+- Just load the full text of the highly dependent section content into the context based on the target section to be written.
+- Complete one section before moving to the next to avoid context overload.
 
 ## Images and Assets
 

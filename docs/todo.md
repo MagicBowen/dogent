@@ -402,5 +402,34 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
   - Output (stdout/stderr and exit code) is shown in a dedicated panel.
   - `!` is only treated as a shell prefix when it is the first character of the input line.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: PASS
 - Verification: UAT Release 0.9.0.
+
+## Release 0.9.1
+
+### Story 50: Multiline History Navigation
+- User Value: Cursor moves between lines before jumping to history.
+- Acceptance:
+  - When the input has multiple lines, Up/Down moves the cursor within the input.
+  - Up only moves to history when pressed at the first line; Down only moves to history at the last line.
+- Dev Status: Done
+- Acceptance Status: PASS
+- Verification: Add unit test coverage for cursor movement decision; UAT Release 0.9.1.
+
+### Story 51: Template Intro Fallback
+- User Value: Template summaries still render when no Introduction section exists.
+- Acceptance:
+  - Template summaries use the `## Introduction` section when present.
+  - When missing, summaries fall back to the first 5 lines of the document.
+- Dev Status: Done
+- Acceptance Status: PASS
+- Verification: Add unit test coverage for intro fallback; UAT Release 0.9.1.
+
+### Story 52: Alt+Backspace Clear
+- User Value: Quickly delete text before the cursor.
+- Acceptance:
+  - Pressing Alt+Backspace deletes input before the cursor.
+  - When the input has multiple lines, only the current line content before the cursor is deleted.
+- Dev Status: Done
+- Acceptance Status: PASS
+- Verification: Add unit test coverage for clear count; UAT Release 0.9.1.
