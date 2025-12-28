@@ -180,4 +180,7 @@ class DocumentTemplateManager:
                 continue
             if capture and stripped:
                 captured.append(stripped)
-        return " ".join(captured).strip()
+        if captured:
+            return " ".join(captured).strip()
+        fallback = [line.strip() for line in lines[:5] if line.strip()]
+        return " ".join(fallback).strip()

@@ -386,3 +386,39 @@ User Test Results: PASS
 3) Enter a normal message that includes `!` not at the start and confirm it is treated as a normal LLM prompt.
 
 User Test Results: PASS
+
+## Release 0.9.1
+
+### Story 50 – Multiline History Navigation
+1) Start `dogent` in `uats/sample_workspace` and send a short prompt (e.g., “ping”) to create a history entry.
+2) At the next prompt, enter `line 1`, press Alt/Option+Enter, enter `line 2`, press Alt/Option+Enter, then enter `line 3`.
+3) Press Up twice; the cursor should move from line 3 to line 2, then to line 1 without leaving the input.
+4) Press Up once more; the previous history entry should appear.
+5) Press Down to return to the multi-line input, then press Down twice to move from line 1 to line 2, then line 3; pressing Down once more from the last line should move to the next history entry.
+
+User Test Results: PASS
+
+### Story 51 – Template Intro Fallback
+1) In `uats/sample_workspace`, create `.dogent/templates/no-intro.md` with six lines and no `## Introduction` section.
+2) From repo root, run:
+   ```bash
+   python - <<'PY'
+   from pathlib import Path
+   from dogent.doc_templates import DocumentTemplateManager
+   from dogent.paths import DogentPaths
+
+   paths = DogentPaths(Path("uats/sample_workspace"))
+   print(DocumentTemplateManager(paths).describe_templates())
+   PY
+   ```
+3) Confirm the `no-intro` summary uses the first five lines from the template.
+
+User Test Results: PASS
+
+### Story 52 – Alt+Backspace Clear
+1) Start `dogent` in `uats/sample_workspace`.
+2) Type a multi-line input (use Alt/Option+Enter) and place the cursor somewhere in the middle of a line.
+3) Press Alt+Backspace; confirm only the current line content before the cursor is deleted.
+4) Type a short sentence and press Alt+Backspace; confirm all text before the cursor is deleted.
+
+User Test Results: PASS

@@ -8,6 +8,42 @@ from dogent.paths import DogentPaths
 
 
 class DocTemplateTests(unittest.TestCase):
+    def test_extract_intro_prefers_introduction_section(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = DogentPaths(Path(tmp))
+            manager = DocumentTemplateManager(paths)
+            content = "\n".join(
+                [
+                    "# Title",
+                    "",
+                    "## Introduction",
+                    "First line.",
+                    "Second line.",
+                    "",
+                    "## Details",
+                    "Other content.",
+                ]
+            )
+            intro = manager._extract_intro(content)
+            self.assertEqual(intro, "First line. Second line.")
+
+    def test_extract_intro_falls_back_to_first_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = DogentPaths(Path(tmp))
+            manager = DocumentTemplateManager(paths)
+            content = "\n".join(
+                [
+                    "Line 1",
+                    "Line 2",
+                    "Line 3",
+                    "Line 4",
+                    "Line 5",
+                    "Line 6",
+                ]
+            )
+            intro = manager._extract_intro(content)
+            self.assertEqual(intro, "Line 1 Line 2 Line 3 Line 4 Line 5")
+
     def test_resolve_precedence_and_prefixes(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:

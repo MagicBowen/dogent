@@ -151,6 +151,56 @@ class DogentCompleter(Completer):
         return results
 
 
+def _should_move_within_multiline(document: Document, direction: str) -> bool:
+    if not document or document.line_count <= 1:
+        return False
+    if direction == "up":
+        return document.cursor_position_row > 0
+    if direction == "down":
+        return document.cursor_position_row < document.line_count - 1
+    return False
+
+
+def _cursor_target_from_render_info(
+    document: Document, render_info: object, direction: str
+) -> int | None:
+    mapping = getattr(render_info, "visible_line_to_row_col", None)
+    cursor = getattr(render_info, "cursor_position", None)
+    rowcol_to_yx = getattr(render_info, "_rowcol_to_yx", None)
+    x_offset = getattr(render_info, "_x_offset", 0)
+    if not mapping or cursor is None or not rowcol_to_yx:
+        return None
+    if direction == "up":
+        target_y = cursor.y - 1
+    elif direction == "down":
+        target_y = cursor.y + 1
+    else:
+        return None
+    rowcol = mapping.get(target_y)
+    if not rowcol:
+        return None
+    row, start_col = rowcol
+    lines = document.lines
+    if row < 0 or row >= len(lines):
+        return None
+    start_yx = rowcol_to_yx.get((row, start_col))
+    if not start_yx:
+        return None
+    _, start_x = start_yx
+    start_x -= x_offset
+    offset_x = cursor.x - start_x
+    if offset_x < 0:
+        offset_x = 0
+    target_col = min(start_col + offset_x, len(lines[row]))
+    return document.translate_row_col_to_index(row, target_col)
+
+
+def _clear_count_for_alt_backspace(document: Document) -> int:
+    if document.line_count > 1:
+        return len(document.current_line_before_cursor)
+    return document.cursor_position
+
+
 class DogentCLI:
     """Interactive CLI interface for Dogent."""
 
@@ -214,6 +264,56 @@ class DogentCLI:
             def _(event):  # type: ignore
                 """Insert newline with Alt/Option+Enter."""
                 event.current_buffer.insert_text("\n")
+
+            @bindings.add("escape", "backspace", eager=True)
+            def _(event):  # type: ignore
+                buf = event.current_buffer
+                count = _clear_count_for_alt_backspace(buf.document)
+                if count > 0:
+                    buf.delete_before_cursor(count)
+                buf.selection_state = None
+
+            @bindings.add("up", eager=True)
+            def _(event):  # type: ignore
+                buf = event.current_buffer
+                if buf.complete_state and buf.complete_state.completions:
+                    buf.complete_previous()
+                    return
+                window = getattr(event.app.layout, "current_window", None)
+                info = getattr(window, "render_info", None)
+                target = (
+                    _cursor_target_from_render_info(buf.document, info, "up")
+                    if info
+                    else None
+                )
+                if target is not None:
+                    buf.cursor_position = target
+                    return
+                if _should_move_within_multiline(buf.document, "up"):
+                    buf.cursor_up(count=1)
+                    return
+                buf.history_backward()
+
+            @bindings.add("down", eager=True)
+            def _(event):  # type: ignore
+                buf = event.current_buffer
+                if buf.complete_state and buf.complete_state.completions:
+                    buf.complete_next()
+                    return
+                window = getattr(event.app.layout, "current_window", None)
+                info = getattr(window, "render_info", None)
+                target = (
+                    _cursor_target_from_render_info(buf.document, info, "down")
+                    if info
+                    else None
+                )
+                if target is not None:
+                    buf.cursor_position = target
+                    return
+                if _should_move_within_multiline(buf.document, "down"):
+                    buf.cursor_down(count=1)
+                    return
+                buf.history_forward()
 
             self.session = PromptSession(
                 completer=DogentCompleter(
