@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import textwrap
 from importlib import resources
 from typing import Any, Callable, Iterable, List
 
@@ -196,21 +195,12 @@ class PromptBuilder:
     def _format_attachments(self, attachments: Iterable[FileAttachment]) -> str:
         attachments = list(attachments)
         if not attachments:
-            return "No @file context."
-        blocks = []
+            return "No @file references."
+        lines = []
         for attachment in attachments:
-            notice = " (truncated)" if attachment.truncated else ""
-            blocks.append(
-                textwrap.dedent(
-                    f"""\
-                    @file {attachment.path}{notice}
-                    ```
-                    {attachment.content}
-                    ```
-                    """
-                ).strip()
-            )
-        return "\n\n".join(blocks)
+            suffix = f"#{attachment.sheet}" if attachment.sheet else ""
+            lines.append(f"@file {attachment.path}{suffix}")
+        return "\n".join(lines)
 
     def _load_template(self, name: str) -> str:
         base = resources.files("dogent").joinpath("prompts")

@@ -91,7 +91,7 @@ Example:
 <!-- Options: English | Chinese | 中文 | 日本語 | Other -->
     
 **Output Format**: [Default] Markdown
-<!-- Options: Markdown | HTML | Plain Text | reStructuredText | AsciiDoc -->
+<!-- Options: Markdown | pdf | docx | HTML | Plain Text | reStructuredText | AsciiDoc -->
 
 **Default Length**: [Default] No restriction
 <!-- Options: Brief | Short | Medium | Long | Extended | No restriction -->

@@ -25,7 +25,10 @@ from .prompts import PromptBuilder
 from .history import HistoryManager
 from .todo import TodoManager
 from .wait_indicator import LLMWaitIndicator
+from .document_tools import DOGENT_DOC_TOOL_DISPLAY_NAMES
 from .web_tools import DOGENT_WEB_TOOL_DISPLAY_NAMES
+
+DOGENT_TOOL_DISPLAY_NAMES = {**DOGENT_WEB_TOOL_DISPLAY_NAMES, **DOGENT_DOC_TOOL_DISPLAY_NAMES}
 
 NEEDS_CLARIFICATION_SENTINEL = "[[DOGENT_STATUS:NEEDS_CLARIFICATION]]"
 
@@ -84,14 +87,21 @@ class AgentRunner:
             if self._client:
                 self._client.options.system_prompt = system_prompt
 
-    async def send_message(self, user_message: str, attachments: Iterable[FileAttachment]) -> None:
+    async def send_message(
+        self,
+        user_message: str,
+        attachments: Iterable[FileAttachment],
+    ) -> None:
         settings = self.config.load_settings()
         project_config = self.config.load_project_config()
         system_prompt = self.prompt_builder.build_system_prompt(
             settings=settings, config=project_config
         )
         user_prompt = self.prompt_builder.build_user_prompt(
-            user_message, list(attachments), settings=settings, config=project_config
+            user_message,
+            list(attachments),
+            settings=settings,
+            config=project_config,
         )
         self._last_summary = None
         self._clarification_text = ""
@@ -347,7 +357,7 @@ class AgentRunner:
             self.todo_manager.set_items([])
 
     def _display_tool_name(self, name: str) -> str:
-        return DOGENT_WEB_TOOL_DISPLAY_NAMES.get(name, name)
+        return DOGENT_TOOL_DISPLAY_NAMES.get(name, name)
 
     def _log_tool_use(self, block: ToolUseBlock, summary: str | None = None) -> None:
         title = f"⚙️  {self._display_tool_name(block.name)}"
@@ -421,6 +431,7 @@ class AgentRunner:
             status_counts[item.status] = status_counts.get(item.status, 0) + 1
         counts = ", ".join(f"{k}:{v}" for k, v in status_counts.items())
         return f"Todo update ({len(items)} items; {counts})"
+
 
     async def _safe_disconnect(self, interrupted: bool = False) -> None:
         if not self._client:

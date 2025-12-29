@@ -221,11 +221,15 @@ class ConfigTests(unittest.TestCase):
             manager = ConfigManager(paths)
             options = manager.build_options("sys")
 
-            self.assertIsNone(options.mcp_servers)
+            self.assertIsNotNone(options.mcp_servers)
+            self.assertIn("dogent", options.mcp_servers)
             self.assertIn("WebSearch", options.allowed_tools)
             self.assertIn("WebFetch", options.allowed_tools)
             self.assertNotIn("mcp__dogent__web_search", options.allowed_tools)
             self.assertNotIn("mcp__dogent__web_fetch", options.allowed_tools)
+            self.assertIn("mcp__dogent__read_document", options.allowed_tools)
+            self.assertIn("mcp__dogent__export_document", options.allowed_tools)
+            self.assertIn("mcp__dogent__convert_document", options.allowed_tools)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -285,9 +289,12 @@ class ConfigTests(unittest.TestCase):
 
             out = buf.getvalue()
             self.assertIn("Web profile 'does-not-exist' not found", out)
-            self.assertIsNone(options.mcp_servers)
+            self.assertIsNotNone(options.mcp_servers)
             self.assertIn("WebSearch", options.allowed_tools)
             self.assertIn("WebFetch", options.allowed_tools)
+            self.assertIn("mcp__dogent__read_document", options.allowed_tools)
+            self.assertIn("mcp__dogent__export_document", options.allowed_tools)
+            self.assertIn("mcp__dogent__convert_document", options.allowed_tools)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
