@@ -939,7 +939,11 @@ class DogentCLI:
                 await self._graceful_exit()
                 break
 
-    async def _run_with_interrupt(self, message: str, attachments: list[FileAttachment]) -> None:
+    async def _run_with_interrupt(
+        self,
+        message: str,
+        attachments: list[FileAttachment],
+    ) -> None:
         """Run a task while listening for Esc without stealing future input."""
         stop_event = threading.Event()
         agent_task = asyncio.create_task(self.agent.send_message(message, attachments))
@@ -1109,9 +1113,10 @@ class DogentCLI:
 
     def _show_attachments(self, attachments: Iterable[FileAttachment]) -> None:
         for attachment in attachments:
+            suffix = f"#{attachment.sheet}" if attachment.sheet else ""
             self.console.print(
                 Panel(
-                    f"File loaded @file {attachment.path} {'(truncated)' if attachment.truncated else ''}",
+                    f"Referenced @file {attachment.path}{suffix}",
                     title="📂 File Reference",
                 )
             )

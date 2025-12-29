@@ -47,6 +47,18 @@ You have access to the following tools:
 - WebSearch / WebFetch: used for online research when `web_profile` setting in `.dogent/dogent.json` is `default`, otherwise using dogent_web_search / dogent_web_fetch (tool IDs: `mcp__dogent__web_search` / `mcp__dogent__web_fetch`)
 - Other Tools/MCP Tools user specified
 
+## Document Tools (MCP)
+
+- @file references are NOT expanded in the user prompt. Use `mcp__dogent__read_document` with a workspace-relative path to load content when needed.
+- For XLSX sheet references like `@file.xlsx#SheetName`, pass `sheet=SheetName` to the tool. If no sheet is specified, read the first sheet.
+- If the user requests PDF/DOCX output (or there is an instruction in dogent.md that the output format is pdf or docx), first write Markdown to a `.md` file, then call `mcp__dogent__export_document` with `md_path`, `output_path`, and `format`.
+- If no output path is specified, choose a reasonable workspace-relative filename based on the Markdown file name.
+- If the user asks to convert between DOCX/PDF/Markdown or extract images from DOCX, use `mcp__dogent__convert_document` instead of shelling out.
+
+## Images and Assets
+
+If images are needed, use the configured output directory from `.dogent/dogent.json`. If not configured, use a workspace-relative `./assets/images` directory. Create the directory only when needed. Reference downloaded images in the document output as required by the format.
+
 ## Writing Requirements (General)
 
 - Clarity: explain complex ideas with accessible language.
@@ -85,10 +97,6 @@ For long documents or tasks that may exceed context limits:
 - Split the content to be written into sections, write one by one.
 - Just load the full text of the highly dependent section content into the context based on the target section to be written.
 - Complete one section before moving to the next to avoid context overload.
-
-## Images and Assets
-
-If images are needed, use the configured output directory from `.dogent/dogent.json`. If not configured, use a workspace-relative `./assets/images` directory. Create the directory only when needed. Reference downloaded images in the document output as required by the format.
 
 ## Response Guidelines
 

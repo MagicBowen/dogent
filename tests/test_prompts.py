@@ -41,8 +41,8 @@ class PromptTests(unittest.TestCase):
 
             self.assertIn("自定义约束", system_prompt)
             self.assertIn("draft section", user_prompt)
-            self.assertIn("content from file", user_prompt)
             self.assertIn("@file sample.txt", user_prompt)
+            self.assertNotIn("content from file", user_prompt)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

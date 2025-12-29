@@ -10,10 +10,12 @@ from rich.console import Console
 
 from importlib import resources
 
-from claude_agent_sdk import ClaudeAgentOptions
+from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server
 
+from . import __version__
+from .document_tools import DOGENT_DOC_ALLOWED_TOOLS, create_dogent_doc_tools
 from .paths import DogentPaths
-from .web_tools import DOGENT_WEB_ALLOWED_TOOLS, create_dogent_web_mcp_server
+from .web_tools import DOGENT_WEB_ALLOWED_TOOLS, create_dogent_web_tools
 
 
 @dataclass
@@ -287,16 +289,23 @@ class ConfigManager:
             "NotebookEdit",
         ]
         allowed_tools = [t for t in allowed_tools if t]
-        mcp_servers = None
+        allowed_tools.extend(DOGENT_DOC_ALLOWED_TOOLS)
+        doc_tools = create_dogent_doc_tools(self.paths.root)
+        tools = list(doc_tools)
         if use_custom_web:
             allowed_tools.extend(DOGENT_WEB_ALLOWED_TOOLS)
-            mcp_servers = {
-                "dogent": create_dogent_web_mcp_server(
+            tools.extend(
+                create_dogent_web_tools(
                     root=self.paths.root,
                     web_profile_name=settings.web_profile,
                     web_profile_cfg=self._load_web_profile(settings.web_profile),
                 )
-            }
+            )
+        mcp_servers = {
+            "dogent": create_sdk_mcp_server(
+                name="dogent", version=__version__, tools=tools
+            )
+        }
 
         add_dirs = []
         if self.paths.claude_dir.exists():
