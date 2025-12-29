@@ -86,6 +86,32 @@ class MultilineNavigationTests(unittest.TestCase):
         target = _cursor_target_from_render_info(doc, info, "down")
         self.assertEqual(target, 6)
 
+    def test_render_info_moves_within_wrapped_cjk_line_up(self) -> None:
+        self._skip_if_missing()
+        text = "\u4e2d\u6587\u4e2d\u6587"
+        doc = Document(text, cursor_position=3)
+        info = RenderInfoStub(
+            cursor_x=2,
+            cursor_y=1,
+            visible_line_to_row_col={0: (0, 0), 1: (0, 4)},
+            rowcol_to_yx={(0, 0): (0, 0), (0, 2): (1, 0)},
+        )
+        target = _cursor_target_from_render_info(doc, info, "up")
+        self.assertEqual(target, 1)
+
+    def test_render_info_moves_within_wrapped_cjk_line_down(self) -> None:
+        self._skip_if_missing()
+        text = "\u4e2d\u6587\u4e2d\u6587"
+        doc = Document(text, cursor_position=1)
+        info = RenderInfoStub(
+            cursor_x=2,
+            cursor_y=0,
+            visible_line_to_row_col={0: (0, 0), 1: (0, 4)},
+            rowcol_to_yx={(0, 0): (0, 0), (0, 2): (1, 0)},
+        )
+        target = _cursor_target_from_render_info(doc, info, "down")
+        self.assertEqual(target, 3)
+
     def test_render_info_returns_none_at_edge(self) -> None:
         self._skip_if_missing()
         doc = Document("abc", cursor_position=0)

@@ -422,3 +422,21 @@ User Test Results: PASS
 4) Type a short sentence and press Alt+Backspace; confirm all text before the cursor is deleted.
 
 User Test Results: PASS
+
+## Release 0.9.2
+
+### Story 53 – /archive Command
+1) Start `dogent` in `uats/sample_workspace` and send a short prompt (e.g., “ping”) to create history.
+2) Ensure `.dogent/lessons.md` has at least one `##` entry (add one manually if needed).
+3) Run `/archive history`; confirm `.dogent/archives/history_YYYYMMDD_HHMMSS.json` is created and `.dogent/history.json` resets to `[]`.
+4) Run `/archive lessons`; confirm `.dogent/archives/lessons_YYYYMMDD_HHMMSS.md` is created and `.dogent/lessons.md` resets to `# Lessons` header.
+5) Run `/archive all` when one target is empty or missing; confirm the CLI skips that target and reports it.
+
+User Test Results: PASS
+
+### Story 54 – Wrapped CJK Cursor Movement
+1) Start `dogent` in `uats/sample_workspace`.
+2) Type a long Chinese sentence without line breaks (e.g., “这是一个很长的中文句子用于测试终端自动换行时的光标移动表现”) until it wraps to multiple lines.
+3) Press Up/Down to move within the wrapped lines; confirm the cursor moves line-by-line without getting stuck or jumping to history until reaching the start/end.
+
+User Test Results: PASS

@@ -37,7 +37,7 @@ Apply requirements in this order:
 - `.dogent/lessons.md`: user-approved lessons from past failures. Consult at the start of each task to avoid repeating mistakes.
 - `.dogent/memory.md`: temporary working memory. Create only when needed for complex or long tasks; remove only after successful completion.
 - `.dogent/templates/`: workspace document templates. Load only if the user selects one from the workspace.
-- Todo list: maintained via the TodoWrite tool. Use TodoWrite to create/update tasks; do not invent default todos outside tool updates.
+- `.dogent/archives/`: archived history and lessons files. Read only if the user requests restoration of old records.
 
 ## Tooling and Research
 

@@ -37,6 +37,10 @@ class DogentPaths:
         return self.dogent_dir / "lessons.md"
 
     @property
+    def archives_dir(self) -> Path:
+        return self.dogent_dir / "archives"
+
+    @property
     def global_dir(self) -> Path:
         return Path.home() / ".dogent"
 

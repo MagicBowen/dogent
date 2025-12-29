@@ -37,11 +37,13 @@ try:
     from prompt_toolkit.completion import Completer, Completion
     from prompt_toolkit.document import Document
     from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.utils import get_cwidth
 except ImportError:  # pragma: no cover - optional dependency
     PromptSession = None  # type: ignore
     Completer = object  # type: ignore
     Completion = object  # type: ignore
     Document = object  # type: ignore
+    get_cwidth = None  # type: ignore
 
 
 class DogentCompleter(Completer):
@@ -100,6 +102,8 @@ class DogentCompleter(Completer):
             options = ["history", "lesson", "memory", "all"]
         elif command == "/show":
             options = ["history", "lessons"]
+        elif command == "/archive":
+            options = ["history", "lessons", "all"]
         elif command == "/init" and self.template_provider:
             options = list(self.template_provider())
         if not options:
@@ -183,6 +187,7 @@ def _cursor_target_from_render_info(
     lines = document.lines
     if row < 0 or row >= len(lines):
         return None
+    start_col = _display_offset_to_col(lines[row], 0, start_col)
     start_yx = rowcol_to_yx.get((row, start_col))
     if not start_yx:
         return None
@@ -191,8 +196,31 @@ def _cursor_target_from_render_info(
     offset_x = cursor.x - start_x
     if offset_x < 0:
         offset_x = 0
-    target_col = min(start_col + offset_x, len(lines[row]))
+    target_col = _display_offset_to_col(lines[row], start_col, offset_x)
     return document.translate_row_col_to_index(row, target_col)
+
+
+def _cell_width(char: str) -> int:
+    if get_cwidth is None:
+        return 1
+    width = get_cwidth(char)
+    return width if width > 0 else 0
+
+
+def _display_offset_to_col(line: str, start_col: int, offset_x: int) -> int:
+    if offset_x <= 0:
+        return start_col
+    width = 0
+    col = start_col
+    while col < len(line):
+        char_width = _cell_width(line[col])
+        if width + char_width > offset_x:
+            return col
+        width += char_width
+        col += 1
+        if width == offset_x:
+            return col
+    return len(line)
 
 
 def _clear_count_for_alt_backspace(document: Document) -> int:
@@ -346,6 +374,11 @@ class DogentCLI:
             "/clean",
             self._cmd_clean,
             "Clean workspace state: /clean [history|lesson|memory|all].",
+        )
+        self.registry.register(
+            "/archive",
+            self._cmd_archive,
+            "Archive workspace records: /archive [history|lessons|all].",
         )
         self.registry.register(
             "/help",
@@ -753,6 +786,97 @@ class DogentCLI:
             style = "yellow"
         self.console.print(Panel(body, title="🧹 Clean", border_style=style))
         return True
+
+    async def _cmd_archive(self, command: str) -> bool:
+        parts = command.split(maxsplit=1)
+        target = parts[1].strip().lower() if len(parts) > 1 else ""
+        if not target:
+            target = "all"
+        if target == "lesson":
+            target = "lessons"
+
+        valid = {"history", "lessons", "all"}
+        if target not in valid:
+            self.console.print(
+                Panel(
+                    "\n".join(
+                        [
+                            f"Unknown archive target: {target}",
+                            "Valid targets: history, lessons, all",
+                            "Example: /archive history",
+                        ]
+                    ),
+                    title="📦 Archive",
+                    border_style="red",
+                )
+            )
+            return True
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        archived: list[str] = []
+        skipped: list[str] = []
+        if target in {"history", "all"}:
+            archived_path, reason = self._archive_history(timestamp)
+            if archived_path:
+                archived.append(str(archived_path.relative_to(self.root)))
+            elif reason:
+                skipped.append(f"history ({reason})")
+        if target in {"lessons", "all"}:
+            archived_path, reason = self._archive_lessons(timestamp)
+            if archived_path:
+                archived.append(str(archived_path.relative_to(self.root)))
+            elif reason:
+                skipped.append(f"lessons ({reason})")
+
+        if archived:
+            lines = ["Archived:", *archived]
+            if skipped:
+                lines.extend(["", "Skipped:", *skipped])
+            body = "\n".join(lines)
+            style = "green"
+        else:
+            lines = ["Nothing to archive for the selected target."]
+            if skipped:
+                lines.extend(["", "Skipped:", *skipped])
+            body = "\n".join(lines)
+            style = "yellow"
+        self.console.print(Panel(body, title="📦 Archive", border_style=style))
+        return True
+
+    def _archive_history(self, timestamp: str) -> tuple[Path | None, str | None]:
+        entries = self.history_manager.read_entries()
+        if not entries:
+            return None, "empty"
+        if not self.paths.history_file.exists():
+            return None, "missing"
+        content = self.paths.history_file.read_text(encoding="utf-8", errors="replace")
+        archive_dir = self.paths.archives_dir
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archive_path = archive_dir / f"history_{timestamp}.json"
+        archive_path.write_text(content, encoding="utf-8")
+        self.history_manager.clear()
+        return archive_path, None
+
+    def _archive_lessons(self, timestamp: str) -> tuple[Path | None, str | None]:
+        if not self.paths.lessons_file.exists():
+            return None, "missing"
+        content = self.paths.lessons_file.read_text(encoding="utf-8", errors="replace")
+        if not self._lessons_has_entries(content):
+            return None, "empty"
+        archive_dir = self.paths.archives_dir
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archive_path = archive_dir / f"lessons_{timestamp}.md"
+        archive_path.write_text(content, encoding="utf-8")
+        self.paths.lessons_file.write_text("# Lessons\n\n", encoding="utf-8")
+        return archive_path, None
+
+    def _lessons_has_entries(self, content: str) -> bool:
+        if not content.strip():
+            return False
+        for line in content.splitlines():
+            if line.startswith("## "):
+                return True
+        return False
 
     async def _cmd_exit(self, _: str) -> bool:
         await self._graceful_exit()
