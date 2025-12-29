@@ -1,8 +1,8 @@
-# Dogent User Stories
+# User Stories Backlog
 
 Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
-## Release 1
+## Release 0.1
 
 ### Story 1: Package & Entrypoint
 - User Value: Installable CLI command `dogent` exists.
