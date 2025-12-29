@@ -42,3 +42,19 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Pending
 - Verification: Unit tests with mocks + manual export in `sample/`.
+
+## Release 0.9.6
+
+### Story 0: Vision profile configuration
+- User Value: User can configure a vision model profile and select it per workspace.
+- Acceptance: `~/.dogent/vision.json` is created on first run with a `glm-4.6v` stub; `.dogent/dogent.json` includes `vision_profile` and respects user overrides.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: Unit tests + manual config check.
+
+### Story 1: Auto vision analysis for @image/@video
+- User Value: Images/videos referenced via `@` are analyzed automatically and injected as JSON context for the writing LLM.
+- Acceptance: Every referenced image/video is analyzed via the configured vision profile; the user prompt attachments include JSON summaries; failures (missing profile/placeholder/unsupported provider) stop the request with a clear, user-friendly error.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: Unit tests with mocked vision responses + manual prompt with media files.

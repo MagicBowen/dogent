@@ -53,6 +53,10 @@ class DogentPaths:
         return self.global_dir / "web.json"
 
     @property
+    def global_vision_file(self) -> Path:
+        return self.global_dir / "vision.json"
+
+    @property
     def global_templates_dir(self) -> Path:
         return self.global_dir / "templates"
 

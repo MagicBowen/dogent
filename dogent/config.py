@@ -226,6 +226,7 @@ class ConfigManager:
                 "web_profile": "default",
                 "doc_template": "general",
                 "primary_language": "Chinese",
+                "vision_profile": "glm-4.6v",
                 "learn_auto": True,
             }
         normalized = dict(data)
@@ -262,6 +263,14 @@ class ConfigManager:
 
         if raw_primary_language is None:
             normalized["primary_language"] = "Chinese"
+        raw_vision_profile = normalized.get("vision_profile")
+        if raw_vision_profile is None:
+            normalized["vision_profile"] = "glm-4.6v"
+        elif isinstance(raw_vision_profile, str):
+            cleaned = raw_vision_profile.strip()
+            normalized["vision_profile"] = cleaned or "glm-4.6v"
+        else:
+            normalized["vision_profile"] = "glm-4.6v"
         return normalized
 
     def build_options(self, system_prompt: str) -> ClaudeAgentOptions:
@@ -460,6 +469,17 @@ class ConfigManager:
                 self.console.print(
                     f"[yellow]Cannot write {self.paths.global_web_file}. Please create it manually with your search API credentials.[/yellow]"
                 )
+        if not self.paths.global_vision_file.exists():
+            default = self._default_vision_template()
+            try:
+                self.paths.global_vision_file.write_text(default, encoding="utf-8")
+                self.console.print(
+                    f"[cyan]Created default vision config at {self.paths.global_vision_file}. Edit it with your vision API credentials.[/cyan]"
+                )
+            except PermissionError:
+                self.console.print(
+                    f"[yellow]Cannot write {self.paths.global_vision_file}. Please create it manually with your vision API credentials.[/yellow]"
+                )
 
     def _to_bool(self, value: Optional[str]) -> bool:
         if value is None:
@@ -492,6 +512,12 @@ class ConfigManager:
         if template:
             return template
         return json.dumps({"profiles": {"default": {"provider": "google_cse"}}}, indent=2)
+
+    def _default_vision_template(self) -> str:
+        template = self._read_home_template("vision_default.json")
+        if template:
+            return template
+        return json.dumps({"profiles": {"glm-4.6v": {"provider": "glm-4.6v"}}}, indent=2)
 
     def _read_home_template(self, name: str) -> str:
         try:
