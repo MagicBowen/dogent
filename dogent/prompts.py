@@ -195,12 +195,21 @@ class PromptBuilder:
     def _format_attachments(self, attachments: Iterable[FileAttachment]) -> str:
         attachments = list(attachments)
         if not attachments:
-            return "No @file references."
-        lines = []
+            return "[]"
+        payloads: list[dict[str, object]] = []
         for attachment in attachments:
-            suffix = f"#{attachment.sheet}" if attachment.sheet else ""
-            lines.append(f"@file {attachment.path}{suffix}")
-        return "\n".join(lines)
+            item: dict[str, object] = {"path": str(attachment.path)}
+            if attachment.sheet:
+                item["sheet"] = attachment.sheet
+            if attachment.kind:
+                item["type"] = attachment.kind
+            else:
+                suffix = attachment.path.suffix.lstrip(".").lower()
+                item["type"] = suffix or "file"
+            if attachment.vision:
+                item["vision"] = attachment.vision
+            payloads.append(item)
+        return json.dumps(payloads, ensure_ascii=False)
 
     def _load_template(self, name: str) -> str:
         base = resources.files("dogent").joinpath("prompts")

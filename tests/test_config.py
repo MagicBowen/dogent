@@ -39,6 +39,7 @@ class ConfigTests(unittest.TestCase):
             data = json.loads(paths.config_file.read_text(encoding="utf-8"))
             self.assertEqual(data.get("doc_template"), "general")
             self.assertEqual(data.get("primary_language"), "Chinese")
+            self.assertEqual(data.get("vision_profile"), "glm-4.6v")
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -206,6 +207,7 @@ class ConfigTests(unittest.TestCase):
             home_dir = Path(tmp_home) / ".dogent"
             self.assertTrue((home_dir / "claude.json").exists())
             self.assertTrue((home_dir / "web.json").exists())
+            self.assertTrue((home_dir / "vision.json").exists())
             self.assertFalse((home_dir / "prompts").exists())
             self.assertFalse((home_dir / "templates").exists())
         if original_home is not None:

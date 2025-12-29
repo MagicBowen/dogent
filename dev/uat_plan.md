@@ -22,6 +22,27 @@ User Test Results Status: Pending | Accepted | Rejected
 
 User Test Results: PASS
 
+## Release 0.9.6
+
+### Story 0 - Vision profile configuration
+1) If `~/.dogent/vision.json` exists, move it aside.
+2) Run `dogent` from any workspace.
+3) Expect: `~/.dogent/vision.json` is created with a `glm-4.6v` profile stub.
+4) In `sample/.dogent/dogent.json`, confirm `vision_profile` exists and can be set to `glm-4.6v`.
+
+User Test Results: Pending
+
+### Story 1 - Auto vision analysis for @image/@video
+1) In `sample/`, add an image file (e.g. `photo.png`) and a short video file (e.g. `clip.mp4`).
+2) Update `~/.dogent/vision.json` with a valid GLM-4.6V API key and ensure `sample/.dogent/dogent.json` sets `vision_profile` to `glm-4.6v`.
+3) Run `dogent` from `sample/` and prompt: `Summarize @photo.png and @clip.mp4 in a few sentences.`
+4) Expect: response includes details that clearly reference the image/video content.
+5) Set `vision_profile` to a missing profile name or set `api_key` to `replace-me`.
+6) Prompt again with `@photo.png`.
+7) Expect: request fails fast with a clear, user-friendly message indicating the vision profile/config is invalid.
+
+User Test Results: Pending
+
 ### Story 1 - Read PDF/DOCX/XLSX @file attachments
 1) In `sample/`, place a text-based PDF (`text.pdf`), a DOCX (`sample.docx`), and an XLSX (`sample.xlsx`) with two sheets (Sheet1, Sheet2).
 2) Run `dogent` from `sample/`.
