@@ -433,3 +433,24 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: PASS
 - Verification: Add unit test coverage for clear count; UAT Release 0.9.1.
+
+## Release 0.9.2
+
+### Story 53: Archive Command
+- User Value: Archive history/lessons for a clean slate while keeping backups.
+- Acceptance:
+  - `/archive [history|lessons|all]` writes timestamped files under `.dogent/archives`.
+  - Missing or empty targets are skipped with a notice.
+  - History resets to `[]`; lessons reset to `# Lessons` header after archiving.
+- Dev Status: Done
+- Acceptance Status: PASS
+- Verification: `tests/test_archive_command.py`, `tests/test_cli_completer.py`, UAT Release 0.9.2.
+
+### Story 54: Wrapped CJK Cursor Movement
+- User Value: Up/Down navigation works on line-wrapped Chinese input.
+- Acceptance:
+  - Up/Down moves within wrapped lines even with CJK wide characters.
+  - Cursor position stays consistent (no stuck or scrambled positions).
+- Dev Status: Done
+- Acceptance Status: PASS
+- Verification: `tests/test_cli_input.py`, UAT Release 0.9.2.

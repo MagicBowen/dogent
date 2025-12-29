@@ -49,6 +49,14 @@ class DogentCompleterTests(unittest.TestCase):
         self.assertIn("history", texts)
         self.assertIn("lessons", texts)
 
+    def test_archive_command_shows_targets(self) -> None:
+        completer = DogentCompleter(Path("."), ["/archive"])
+        comps = list(completer.get_completions(Document("/archive "), None))
+        texts = [c.text for c in comps]
+        self.assertIn("history", texts)
+        self.assertIn("lessons", texts)
+        self.assertIn("all", texts)
+
     def test_init_template_completion(self) -> None:
         templates = ["built-in:resume", "global:research-report"]
         completer = DogentCompleter(

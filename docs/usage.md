@@ -131,6 +131,7 @@ Notes:
 - `/show history` – show recent history entries and the latest todo snapshot.
 - `/show lessons` – show recent lessons and where to edit `.dogent/lessons.md`.
 - `/clean` – clean workspace state (`/clean [history|lesson|memory|all]`; defaults to `all`).
+- `/archive` – archive history/lessons to `.dogent/archives` (`/archive [history|lessons|all]`; defaults to `all`).
 - `/exit` – leave the CLI.
 - Typing `/` shows live command suggestions; typing `@` offers file completions; `!<command>` runs a shell command.
 - Press `Esc` during an in-progress task to interrupt; progress is saved to `.dogent/history.json`.
