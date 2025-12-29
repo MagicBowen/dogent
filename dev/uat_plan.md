@@ -1,0 +1,16 @@
+# User Acceptance Testing (UAT)
+
+Example：
+
+```
+### Story 1 – Package & Entrypoint
+1) Install editable: `pip install -e .`
+2) Run `dogent -h` for help and `dogent -v` for version.
+3) Run `dogent` (any directory). Expect the Dogent prompt and help message.
+
+User Test Results: Pending
+```
+
+User Test Results Status: Pending | Accepted | Rejected
+
+## Release 1.0.0

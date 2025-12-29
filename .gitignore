@@ -11,3 +11,4 @@ images/
 .claude-local/
 claude-agent-sdk-python/
 uats/sample_workspace/
+claude-agent-sdk/skills/*

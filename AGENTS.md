@@ -2,9 +2,11 @@
 
 ## Project Structure & Modules
 - `dogent/`: Core CLI/agent code. Key modules: `cli.py` (interactive loop + command registry), `agent.py` (Claude SDK streaming/interrupts), `config.py` (profiles/env merge), `prompts/` (system/user prompt templates), `todo.py` (TodoWrite sync), `file_refs.py` (@file resolution). Role-specific prompts/templates live under `prompts/` and `templates/` so the core stays reusable.
-- `docs/`: Requirements, stories, usage, todo tracking.
+- `docs/`: usage.
+- `dev/`: requirements, user stories tracking, user acceptance test plans...
 - `tests/`: `unittest` suites covering config, prompts, todo syncing.
 - `uats/`: user acceptance tests folder for user testing dogent manually.
+- `claude-agent-sdk`: claude agent sdk usage examples and skills for reference.
 - `pyproject.toml`: Packaging and entrypoint (`dogent`).
 
 ## Build, Test, and Development Commands
@@ -16,7 +18,6 @@
 ## Coding Style & Naming
 - Language: Python 3.10+; 4-space indentation; keep code ASCII unless file already uses Unicode.
 - Module naming: snake_case; classes in PascalCase; functions/vars in snake_case.
-- Prompts live in `dogent/prompts/*.md`; keep them declarative, and versionable.
 - Minimal inline comments; prefer clear function names and small functions.
 - Keep CLI-facing strings (panels, errors, banners) in English; let LLM outputs stay in the user’s language.
 
@@ -36,14 +37,14 @@
 - Claude Agent SDK usage must follow the docs and samples under `claude-agent-sdk/`; do not guess behaviors.
 
 ## Agent-Specific Notes
-- Always keep system/user prompts in `dogent/prompts/` to ease tuning.
 - Todo list must reflect `TodoWrite` outputs only—do not seed defaults.
 - @file references resolve within the current workspace; avoid reading outside project boundaries.
 - When using prompt_toolkit, avoid raw stdin/termios reads in parallel; if an Esc listener is needed, ensure it drains escape sequences and exits cleanly before the next prompt to prevent IME/arrow-key echo issues.
 
 ## Process & Quality Requirements
 - All functions must have automated tests; extend `tests/` alongside new code.
-- Keep `docs/todo.md` updated with development and acceptance status; work stories sequentially and fix per user acceptance feedback.
-- After finishing each story, append/update `uats/uat_guild.md` with step-by-step install/run instructions using a sample directory to guide user acceptance.
-- `.dogent/dogent.json` should reference a profile only; real credentials belong in `~/.dogent/claude.json` (or env vars).
-- Release 0.3 principles: use a command registry (no hardcoded command lists), externalize templates, keep system/user prompts clean (no hardcoded paths), separate core CLI/agent logic from role-specific configs/templates for extensibility, support multi-line input (Alt/Option+Enter), handle Esc interrupts and Ctrl+C gracefully, keep sections/titles emoji-labeled for clarity, and keep CLI UI language in English while preserving the model’s response language.
+- After receiving the user's update to dev/requirements.md requesting the implementation of specified release requirements, first analyze and conduct preliminary design of the requirements. 
+- The design results can be archived by release in `dev/sprint_design.md`. If there are contradictions or unclear points, it is necessary to clarify with the user before continuing to revise the design. 
+- Once the design is confirmed to be problem-free, split the requirements into user stories with end-to-end value that can be independently accepted, sort them according to dependency order, and record them by release in `dev/sprint_plan.md`. 
+- After finishing each story, design user acceptance test cases for each user story (guiding users to conduct manual step-by-step testing and acceptance in the sample directory, as well as updating acceptance results and identified issues in uat_plan.md), and write them into `dev/uat_plan.md` by release.
+- Keep `dev/sprint_plan.md` updated with development and acceptance status; work stories sequentially and fix per user acceptance feedback.
