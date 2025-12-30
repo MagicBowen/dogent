@@ -201,7 +201,7 @@ Dogent’s prompt system must support multiple professional document types via a
   - Global templates: `~/.dogent/templates/<name>.md`
   - Built-in templates: packaged under `dogent/templates/doc_templates/<name>.md`
 - Template resolution: unprefixed names resolve only in workspace; prefixed names resolve in their specified source.
-- `general` is a reserved default value that means no template is selected; it uses `dogent/templates/doc_templates/doc_template_general.md`.
+- `general` is a reserved default value that means no template is selected; it uses `dogent/templates/doc_templates/doc_general.md`.
 - Built-in templates remain packaged and are used only as fallback; they are not copied into `~/.dogent`.
   - Workspace templates do not use a prefix; global templates require `global:` and built-in templates require `built-in:` in `/init` and `doc_template`.
 
@@ -218,7 +218,7 @@ Dogent’s prompt system must support multiple professional document types via a
   - The document template content when a concrete template is selected
   - System prompt always relies on the doc_template configured in dogent.json (If the user has not configured it, or the configuration is "general", then it will use a default document template from an independent template file.)
 - Template content is dynamically inserted into the dedicated section of the system prompt (not hardcoded).
-- Provide a default document template file (e.g., `dogent/templates/doc_templates/doc_template_general.md`) to use when `doc_template` is `general` or missing.
+- Provide a default document template file (e.g., `dogent/templates/doc_templates/doc_general.md`) to use when `doc_template` is `general` or missing.
 
 ### Project Incremental Customization (Overrides/Supplements)
 

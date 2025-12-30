@@ -216,7 +216,7 @@ class PromptBuilder:
     def _load_default_doc_template(self) -> str:
         base = resources.files("dogent").joinpath("templates").joinpath("doc_templates")
         try:
-            text = base.joinpath("doc_template_general.md").read_text(encoding="utf-8").strip()
+            text = base.joinpath("doc_general.md").read_text(encoding="utf-8").strip()
             return text or "General document template not available."
         except Exception:
             return "General document template not available."

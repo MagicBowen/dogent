@@ -1,0 +1,57 @@
+{
+  "$schema": "./dogent.schema.json",
+  "version": "0.0.0",
+  "workspace_defaults": {
+    "web_profile": "default",
+    "vision_profile": null,
+    "doc_template": "general",
+    "primary_language": "Chinese",
+    "learn_auto": true
+  },
+  "llm_profiles": {
+    "deepseek": {
+      "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me",
+      "ANTHROPIC_MODEL": "deepseek-reasoner",
+      "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-chat",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    },
+    "glm4.7": {
+      "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me",
+      "ANTHROPIC_MODEL": "glm-4.7",
+      "ANTHROPIC_SMALL_FAST_MODEL": "glm-4.7",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    }
+  },
+  "web_profiles": {
+    "google": {
+      "provider": "google_cse",
+      "api_key": "replace-me",
+      "cse_id": "replace-me",
+      "timeout_s": 20
+    },
+    "bing": {
+      "provider": "bing",
+      "api_key": "replace-me",
+      "endpoint": "https://api.bing.microsoft.com/v7.0",
+      "timeout_s": 20
+    },
+    "brave": {
+      "provider": "brave",
+      "api_key": "replace-me",
+      "endpoint": "https://api.search.brave.com/res/v1",
+      "timeout_s": 20
+    }
+  },
+  "vision_profiles": {
+    "glm-4.6v": {
+      "provider": "glm-4.6v",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "api_key": "replace-me",
+      "model": "glm-4.6v"
+    }
+  }
+}

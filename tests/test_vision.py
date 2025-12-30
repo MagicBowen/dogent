@@ -39,8 +39,8 @@ class VisionManagerTests(unittest.IsolatedAsyncioTestCase):
             paths = DogentPaths(Path(tmp))
             vision_dir = paths.global_dir
             vision_dir.mkdir(parents=True, exist_ok=True)
-            paths.global_vision_file.write_text(
-                '{"profiles":{"glm-4.6v":{"provider":"glm-4.6v","api_key":"replace-me"}}}',
+            paths.global_config_file.write_text(
+                '{"vision_profiles":{"glm-4.6v":{"provider":"glm-4.6v","api_key":"replace-me"}}}',
                 encoding="utf-8",
             )
             manager = VisionManager(paths)
@@ -60,8 +60,8 @@ class VisionManagerTests(unittest.IsolatedAsyncioTestCase):
             paths = DogentPaths(Path(tmp))
             vision_dir = paths.global_dir
             vision_dir.mkdir(parents=True, exist_ok=True)
-            paths.global_vision_file.write_text(
-                '{"profiles":{"glm-4.6v":{"provider":"glm-4.6v","api_key":"k","model":"glm-4.6v"}}}',
+            paths.global_config_file.write_text(
+                '{"vision_profiles":{"glm-4.6v":{"provider":"glm-4.6v","api_key":"k","model":"glm-4.6v"}}}',
                 encoding="utf-8",
             )
             manager = VisionManager(paths)
@@ -94,6 +94,15 @@ class VisionToolTests(unittest.IsolatedAsyncioTestCase):
             os.environ["HOME"] = tmp_home
             paths = DogentPaths(Path(tmp))
             config = ConfigManager(paths)
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.config_file.write_text(
+                json.dumps({"vision_profile": "glm-4.6v"}),
+                encoding="utf-8",
+            )
+            paths.global_config_file.write_text(
+                '{"vision_profiles":{"glm-4.6v":{"provider":"glm-4.6v","api_key":"replace-me"}}}',
+                encoding="utf-8",
+            )
             media = paths.root / "photo.png"
             media.write_bytes(b"fake")
             tool = create_dogent_vision_tools(paths.root, config)[0]

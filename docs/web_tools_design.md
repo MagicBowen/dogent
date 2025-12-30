@@ -11,16 +11,16 @@ This document describes the design for Dogent’s custom web tools that replace 
 
 ## Configuration
 
-### Home config: `~/.dogent/web.json`
+### Home config: `~/.dogent/dogent.json`
 
 - Created automatically on first run (never overwritten on upgrade).
-- Stores named provider profiles (similar to `~/.dogent/claude.json`).
+- Stores named provider profiles under `web_profiles`.
 
 Example shape:
 
 ```json
 {
-  "profiles": {
+  "web_profiles": {
     "google": {
       "provider": "google_cse",
       "api_key": "replace-me",
@@ -41,7 +41,7 @@ Example shape:
 
 - Selects a provider profile via `web_profile`.
 - If unset/empty or set to `default`, Dogent falls back to the native `WebSearch`/`WebFetch` tools.
-- If set to a name not found in `~/.dogent/web.json`, Dogent warns at startup and falls back to native tools.
+- If set to a name not found in `~/.dogent/dogent.json`, Dogent warns at startup and falls back to native tools.
 
 ```json
 {

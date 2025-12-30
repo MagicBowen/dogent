@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dogent Global Config",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "workspace_defaults": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "llm_profile": {
+          "type": "string"
+        },
+        "web_profile": {
+          "type": "string"
+        },
+        "vision_profile": {
+          "type": ["string", "null"]
+        },
+        "doc_template": {
+          "type": "string"
+        },
+        "primary_language": {
+          "type": "string"
+        },
+        "learn_auto": {
+          "type": "boolean"
+        },
+        "anthropic": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "version": {
+      "type": "string"
+    },
+    "llm_profiles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "ANTHROPIC_BASE_URL": {
+            "type": "string"
+          },
+          "ANTHROPIC_AUTH_TOKEN": {
+            "type": "string"
+          },
+          "ANTHROPIC_MODEL": {
+            "type": "string"
+          },
+          "ANTHROPIC_SMALL_FAST_MODEL": {
+            "type": "string"
+          },
+          "API_TIMEOUT_MS": {
+            "type": "number"
+          },
+          "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "web_profiles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "api_key": {
+            "type": "string"
+          },
+          "cse_id": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "timeout_s": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "vision_profiles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "api_key": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

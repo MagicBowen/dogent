@@ -45,16 +45,12 @@ class DogentPaths:
         return Path.home() / ".dogent"
 
     @property
-    def global_profile_file(self) -> Path:
-        return self.global_dir / "claude.json"
+    def global_config_file(self) -> Path:
+        return self.global_dir / "dogent.json"
 
     @property
-    def global_web_file(self) -> Path:
-        return self.global_dir / "web.json"
-
-    @property
-    def global_vision_file(self) -> Path:
-        return self.global_dir / "vision.json"
+    def global_schema_file(self) -> Path:
+        return self.global_dir / "dogent.schema.json"
 
     @property
     def global_templates_dir(self) -> Path:

@@ -149,7 +149,7 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
             cfg = cli.paths.config_file.read_text(encoding="utf-8").lower()
             self.assertIn('"learn_auto": false', cfg)
             self.assertIn('"web_profile"', cfg)
-            self.assertIn('"llm_profile"', cfg)
+            self.assertNotIn('"llm_profile"', cfg)
 
         if original_home is not None:
             os.environ["HOME"] = original_home

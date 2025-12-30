@@ -55,7 +55,7 @@ class VisionManager:
             return await asyncio.to_thread(client.analyze, path, media_type)
         raise VisionAnalysisError(
             f"Unsupported vision provider '{profile.provider}'. "
-            "Update vision_profile in .dogent/dogent.json or ~/.dogent/vision.json."
+            "Update vision_profile in .dogent/dogent.json or ~/.dogent/dogent.json."
         )
 
     def _load_profile(self, profile_name: str | None) -> VisionProfile:
@@ -63,22 +63,18 @@ class VisionManager:
             raise VisionAnalysisError(
                 "vision_profile is not configured. Set vision_profile in .dogent/dogent.json."
             )
-        data = self._read_json(self.paths.global_vision_file)
+        data = self._read_json(self.paths.global_config_file)
         if not data:
             raise VisionAnalysisError(
-                f"No vision profiles found at {self.paths.global_vision_file}."
+                f"No vision profiles found at {self.paths.global_config_file} (vision_profiles)."
             )
-        profiles = data.get("profiles") if isinstance(data, dict) else None
-        if isinstance(profiles, dict):
-            source = profiles
-        elif isinstance(data, dict):
-            source = data
-        else:
+        source = data.get("vision_profiles") if isinstance(data, dict) else {}
+        if not isinstance(source, dict):
             source = {}
         cfg = source.get(profile_name, {})
         if not isinstance(cfg, dict) or not cfg:
             raise VisionAnalysisError(
-                f"Vision profile '{profile_name}' not found in {self.paths.global_vision_file}."
+                f"Vision profile '{profile_name}' not found in {self.paths.global_config_file} (vision_profiles)."
             )
         provider = str(cfg.get("provider") or profile_name)
         base_url = str(cfg.get("base_url") or DEFAULT_GLM_BASE_URL)
@@ -86,7 +82,7 @@ class VisionManager:
         api_key = str(cfg.get("api_key") or cfg.get("auth_token") or cfg.get("token") or "")
         if not api_key or "replace" in api_key.lower():
             raise VisionAnalysisError(
-                f"Vision profile '{profile_name}' in {self.paths.global_vision_file} "
+                f"Vision profile '{profile_name}' in {self.paths.global_config_file} (vision_profiles) "
                 "has placeholder credentials. Please update api_key."
             )
         options = {

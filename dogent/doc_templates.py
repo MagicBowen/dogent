@@ -10,7 +10,7 @@ from .paths import DogentPaths
 
 _SOURCES = ("workspace", "global", "built-in")
 _GENERAL_TEMPLATE_KEY = "general"
-_GENERAL_TEMPLATE_FILE = "doc_template_general"
+_GENERAL_TEMPLATE_FILE = "doc_general"
 
 
 @dataclass(frozen=True)
