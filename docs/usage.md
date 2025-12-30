@@ -11,7 +11,7 @@
 3. Use `/init` to generate `.dogent/dogent.md` and `.dogent/dogent.json` (template picker or wizard).
 
 ## Credentials & Profiles
-- Local config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `doc_template`).
+- Local config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `vision_profile`, `doc_template`).
 - Global profiles: `~/.dogent/claude.json`, e.g.:
   ```json
   {
@@ -125,6 +125,33 @@ Notes:
 - Dogent sends the token using the `X-Subscription-Token` request header.
 - Web and image searches return structured results; image downloads return a Markdown snippet using the path you provided.
 
+## Vision Setup (Release 0.9.6)
+
+Dogent can analyze images and videos on demand via `mcp__dogent__analyze_media`.
+
+`~/.dogent/vision.json` is created on first run. Edit the `api_key` and select the profile in `.dogent/dogent.json`:
+
+```json
+{
+  "vision_profile": "glm-4.6v"
+}
+```
+
+Example `~/.dogent/vision.json`:
+
+```json
+{
+  "profiles": {
+    "glm-4.6v": {
+      "provider": "glm-4.6v",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "api_key": "replace-me",
+      "model": "glm-4.6v"
+    }
+  }
+}
+```
+
 ## Commands Inside the CLI
 - `/init` – generate `.dogent/dogent.md` and `.dogent/dogent.json` (template picker or wizard).
 - `/learn` – save a lesson (`/learn <text>`) or toggle the automatic prompt (`/learn on|off`).
@@ -137,8 +164,8 @@ Notes:
 - Press `Esc` during an in-progress task to interrupt; progress is saved to `.dogent/history.json`.
 
 ## Referencing Files
-- Inline `@` references pull file contents into the prompt, e.g. `Review @docs/plan.md`.
-- CLI prints which files were loaded; contents are injected into the user prompt; completions appear as soon as you type `@`.
+- Inline `@` references attach file metadata to the prompt (path/name/type), e.g. `Review @docs/plan.md`.
+- The agent calls `mcp__dogent__read_document` for text/doc files or `mcp__dogent__analyze_media` for images/videos when it needs content.
 
 ## Working With Todos
 - The agent uses the `TodoWrite` tool; Dogent mirrors its outputs with emoji statuses and concise logs.

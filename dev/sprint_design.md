@@ -62,16 +62,17 @@
 ## Release 0.9.6
 
 ### Goals
-- Automatically analyze every `@image`/`@video` reference with a vision model and inject a JSON summary into the user prompt.
+- Keep user prompts lean by only listing core file info for attachments (path/name/type).
+- Expose vision analysis via an MCP tool so the agent can call it on demand.
 - Support multiple vision providers via profiles, configurable in workspace config, with only GLM-4.6V implemented initially.
 - Fail fast on vision analysis errors with a user-friendly message.
 - No local caching for media analysis.
 
 ### Decisions
 - Add `vision_profile` to `.dogent/dogent.json` and a new global config file `~/.dogent/vision.json`.
-- Default `vision_profile` to `glm-4.6v` in the template; if the profile is missing or has placeholder credentials, fail with a clear configuration error when media is referenced.
+- Default `vision_profile` to `glm-4.6v` in the template; if the profile is missing or has placeholder credentials, the vision tool returns a clear configuration error.
 - Implement a provider registry with a `VisionClient` interface; only `glm-4.6v` is wired initially.
-- Vision summaries are inserted into the user prompt as JSON (no markdown) alongside the attachment list.
+- Attachments in the user prompt include only JSON file metadata; media content is accessed via the vision MCP tool.
 
 ### Architecture
 - Add `dogent/vision.py`:
@@ -79,14 +80,15 @@
   - `VisionClient` protocol: `analyze_image(path) -> dict`, `analyze_video(path) -> dict`.
   - `GLM4VClient` implementation using the BigModel chat completions API.
   - `VisionManager` loads profiles, validates placeholders, and dispatches to providers.
+- Add `dogent/vision_tools.py`:
+  - MCP tool `mcp__dogent__analyze_media` (inputs: `path`, optional `media_type`).
+  - Tool resolves `vision_profile` from workspace config and calls `VisionManager`.
 - Extend `DogentPaths` to include `global_vision_file` (`~/.dogent/vision.json`).
 - Extend `ConfigManager` to:
   - Create `vision.json` template on first run with a `glm-4.6v` profile stub.
-  - Load the selected `vision_profile` from workspace config and validate it.
-- Extend attachment handling:
-  - Detect media file extensions (image: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.bmp`; video: `.mp4`, `.mov`, `.mkv`, `.webm`).
-  - Before building the user prompt, analyze each media attachment and attach a parsed JSON summary.
-  - Non-media attachments are passed through unchanged.
+  - Normalize `vision_profile` in project config.
+- Attachment handling:
+  - Attachments only list metadata (path/name/type); no media content in the user prompt.
 
 ### Vision Request/Response Contract
 - For GLM-4.6V, use `POST https://open.bigmodel.cn/api/paas/v4/chat/completions`.
@@ -99,22 +101,22 @@
 - Parse JSON strictly; if parsing fails or the API returns an error, fail the user request with guidance.
 
 ### Prompt Injection
-- Update the user prompt attachments section to emit JSON, e.g.:
+- Update the user prompt attachments section to emit JSON metadata only, e.g.:
   ```
   [
-    {"path": "assets/photo.png", "type": "image", "vision": {"summary": "..."}},
-    {"path": "clips/demo.mp4", "type": "video", "vision": {"summary": "..."}}
+    {"path": "assets/photo.png", "name": "photo.png", "type": "png"},
+    {"path": "clips/demo.mp4", "name": "demo.mp4", "type": "mp4"}
   ]
   ```
-- If no attachments exist, keep the existing "No @file references." sentinel.
+- If no attachments exist, emit an empty array.
 
 ### Failure Behavior
-- If a media file is referenced and vision analysis fails:
-  - Abort the request before sending to the writing LLM.
-  - Render a clear error panel with next steps (configure `vision_profile`, check file size/format).
+- If a media file needs analysis and the MCP tool fails:
+  - The tool returns an error payload describing how to fix `vision_profile` or credentials.
+  - System prompt instructs the agent to stop and ask the user to fix config.
 - No retries or caching in 0.9.6.
 
 ### Tests
-- Config tests for `vision_profile` resolution and placeholder warnings.
-- Unit tests for attachment JSON formatting with vision summaries.
-- Vision manager tests with mocked providers to cover success and error paths.
+- Config tests for `vision_profile` defaults and tool registration.
+- Unit tests for attachment JSON formatting (no media content).
+- Vision manager tests with mocked responses and a tool handler test.

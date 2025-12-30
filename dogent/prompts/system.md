@@ -49,11 +49,16 @@ You have access to the following tools:
 
 ## Document Tools (MCP)
 
-- @file references are NOT expanded in the user prompt. Use `mcp__dogent__read_document` with a workspace-relative path to load content when needed.
+- @file references are NOT expanded in the user prompt. Attachments only list core file info (path/name/type). Use `mcp__dogent__read_document` with a workspace-relative path to load content when needed.
 - For XLSX sheet references like `@file.xlsx#SheetName`, pass `sheet=SheetName` to the tool. If no sheet is specified, read the first sheet.
 - If the user requests PDF/DOCX output (or there is an instruction in dogent.md that the output format is pdf or docx), first write Markdown to a `.md` file, then call `mcp__dogent__export_document` with `md_path`, `output_path`, and `format`.
 - If no output path is specified, choose a reasonable workspace-relative filename based on the Markdown file name.
 - If the user asks to convert between DOCX/PDF/Markdown or extract images from DOCX, use `mcp__dogent__convert_document` instead of shelling out.
+
+## Vision Tools (MCP)
+
+- For image/video understanding, call `mcp__dogent__analyze_media` with a workspace-relative path.
+- If analysis fails (missing profile, placeholder credentials, unsupported provider), stop and ask the user to fix `vision_profile` in `.dogent/dogent.json` or update `~/.dogent/vision.json`.
 
 ## Images and Assets
 

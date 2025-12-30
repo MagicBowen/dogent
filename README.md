@@ -6,7 +6,7 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 - Interactive CLI (`dogent`) with `/init`, `/show`, `/clean`, `/archive`, `/help`, `/learn`, `/exit` (plus `!` for shell commands)
 - System prompt + per-turn user prompt templates under `dogent/prompts/`
 - Todo panel synced to `TodoWrite` tool calls/results (no seeded todos)
-- @file references load workspace files into each turn
+- @file references list core file metadata; the agent calls MCP tools to read content or analyze media on demand
 - Supports `.dogent/dogent.md` constraints, profiles in `~/.dogent/claude.json`, and env fallbacks
 - Project-only lessons in `.dogent/lessons.md` (auto-captured after failures/interrupts; injected into prompt context)
 - Ready for packaging via `pyproject.toml` with Rich-based UI
@@ -24,17 +24,45 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
    - `/show lessons` → show recent lessons and where to edit `.dogent/lessons.md`
    - `/exit` → quit
    - Typing `/` shows command suggestions; typing `@` offers file completions; `!<command>` runs a shell command; press Esc during a task to interrupt and save progress
-4. Reference files with `@path/to/file` in your message; Dogent injects their contents. Tool results (e.g., WebFetch/WebSearch) show clear success/failure panels with reasons.
+4. Reference files with `@path/to/file` in your message; Dogent injects file metadata and uses MCP tools on demand to read/understand content. Tool results (e.g., WebFetch/WebSearch) show clear success/failure panels with reasons.
 
 ## Configuration
-- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `doc_template`, `learn_auto`)
+- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `vision_profile`, `doc_template`, `learn_auto`)
 - Global profiles: `~/.dogent/claude.json` with named profiles (see `docs/usage.md` for JSON examples)
+- Vision profiles: `~/.dogent/vision.json` with named vision providers (GLM-4.6V supported initially)
 - Env fallback: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 - History is stored in `.dogent/history.json` (structured JSON, managed automatically); temporary scratch lives in `.dogent/memory.md` when created on demand.
 
 ## Web Search Setup (Release 0.6)
 
 Dogent supports custom web search providers (Google CSE / Bing / Brave) via `~/.dogent/web.json` and `.dogent/dogent.json` `web_profile`. See `docs/usage.md` for setup steps and examples.
+
+## Vision Setup (Release 0.9.6)
+
+Dogent can analyze images and videos via `mcp__dogent__analyze_media` when the agent needs it.
+
+`~/.dogent/vision.json` is created on first run. Edit the `api_key` and select the profile in `.dogent/dogent.json`:
+
+```json
+{
+  "vision_profile": "glm-4.6v"
+}
+```
+
+Example `~/.dogent/vision.json`:
+
+```json
+{
+  "profiles": {
+    "glm-4.6v": {
+      "provider": "glm-4.6v",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+      "api_key": "replace-me",
+      "model": "glm-4.6v"
+    }
+  }
+}
+```
 
 ## Templates & Parameters
 - Prompt and default config templates are shipped inside the package.
@@ -51,7 +79,7 @@ Dogent supports custom web search providers (Google CSE / Bing / Brave) via `~/.
   - `memory`
   - `lessons` (raw `.dogent/lessons.md`)
   - `todo_block`/`todo_list`
-  - `user_message`, `attachments` (rendered @file content)
+  - `user_message`, `attachments` (JSON metadata for @file references)
   - `config:<key>` for any field in `.dogent/dogent.json` (supports dotted paths such as `config:anthropic.base_url`)
 
 ## Writing Expectations

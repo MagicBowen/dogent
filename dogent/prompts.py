@@ -198,16 +198,14 @@ class PromptBuilder:
             return "[]"
         payloads: list[dict[str, object]] = []
         for attachment in attachments:
-            item: dict[str, object] = {"path": str(attachment.path)}
+            item: dict[str, object] = {
+                "path": str(attachment.path),
+                "name": attachment.path.name,
+            }
             if attachment.sheet:
                 item["sheet"] = attachment.sheet
-            if attachment.kind:
-                item["type"] = attachment.kind
-            else:
-                suffix = attachment.path.suffix.lstrip(".").lower()
-                item["type"] = suffix or "file"
-            if attachment.vision:
-                item["vision"] = attachment.vision
+            suffix = attachment.path.suffix.lstrip(".").lower()
+            item["type"] = suffix or "file"
             payloads.append(item)
         return json.dumps(payloads, ensure_ascii=False)
 
