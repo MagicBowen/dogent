@@ -53,9 +53,11 @@ def create_dogent_vision_tools(root: Path, config: "ConfigManager") -> list[SdkM
 
         project_cfg = config.load_project_config()
         profile_name = project_cfg.get("vision_profile")
+        if not isinstance(profile_name, str):
+            profile_name = None
 
         try:
-            result = await vision_manager.analyze(path, media_type, str(profile_name))
+            result = await vision_manager.analyze(path, media_type, profile_name)
         except VisionAnalysisError as exc:
             return _error(str(exc))
         except Exception as exc:  # noqa: BLE001

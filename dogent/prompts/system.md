@@ -38,6 +38,7 @@ Apply requirements in this order:
 - `.dogent/memory.md`: temporary working memory. Create only when needed for complex or long tasks; remove only after successful completion.
 - `.dogent/templates/`: workspace document templates. Load only if the user selects one from the workspace.
 - `.dogent/archives/`: archived history and lessons files. Read only if the user requests restoration of old records.
+- If the user uses `@@<template>` in the prompt, treat that template as authoritative for this request and ignore conflicting `doc_template` settings in `.dogent/dogent.json` or requirements in `dogent.md`.
 
 ## Tooling and Research
 
@@ -57,8 +58,9 @@ You have access to the following tools:
 
 ## Vision Tools (MCP)
 
-- For image/video understanding, call `mcp__dogent__analyze_media` with a workspace-relative path.
-- If analysis fails (missing profile, placeholder credentials, unsupported provider), stop and ask the user to fix `vision_profile` in `.dogent/dogent.json` or update `~/.dogent/vision.json`.
+- For image/video understanding, call `mcp__dogent__analyze_media` with a workspace-relative path when vision tools are available (`vision_profile` is set).
+- If `vision_profile` is missing or `null`, explain that vision is disabled and ask the user to configure it in `.dogent/dogent.json` or `~/.dogent/dogent.json`.
+- If analysis fails (missing profile, placeholder credentials, unsupported provider), stop and ask the user to fix `vision_profile` in `.dogent/dogent.json` or update `~/.dogent/dogent.json`.
 
 ## Images and Assets
 

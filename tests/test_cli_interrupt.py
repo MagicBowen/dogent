@@ -17,7 +17,9 @@ class DummyAgent:
         self.interrupted = False
         self.reason: str | None = None
 
-    async def send_message(self, message: str, attachments) -> None:  # noqa: ARG002
+    async def send_message(  # noqa: ARG002
+        self, message: str, attachments, *, config_override=None
+    ) -> None:
         await asyncio.sleep(1)
 
     async def interrupt(self, reason: str) -> None:

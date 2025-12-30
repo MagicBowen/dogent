@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Dict, Iterable, Optional
+from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
 
 from rich.console import Console
 from rich.panel import Panel
@@ -106,17 +106,22 @@ class AgentRunner:
         self,
         user_message: str,
         attachments: Iterable[FileAttachment],
+        *,
+        config_override: Dict[str, Any] | None = None,
     ) -> None:
         settings = self.config.load_settings()
         project_config = self.config.load_project_config()
+        prompt_config = dict(project_config)
+        if config_override:
+            prompt_config.update(config_override)
         system_prompt = self.prompt_builder.build_system_prompt(
-            settings=settings, config=project_config
+            settings=settings, config=prompt_config
         )
         user_prompt = self.prompt_builder.build_user_prompt(
             user_message,
             list(attachments),
             settings=settings,
-            config=project_config,
+            config=prompt_config,
         )
         self._last_summary = None
         self._clarification_text = ""

@@ -9,6 +9,7 @@ from rich.console import Console
 
 from claude_agent_sdk import HookMatcher
 
+from dogent import __version__
 from dogent.config import ConfigManager
 from dogent.paths import DogentPaths
 
@@ -41,7 +42,7 @@ class ConfigTests(unittest.TestCase):
             data = json.loads(paths.config_file.read_text(encoding="utf-8"))
             self.assertEqual(data.get("doc_template"), "general")
             self.assertEqual(data.get("primary_language"), "Chinese")
-            self.assertEqual(data.get("vision_profile"), "glm-4.6v")
+            self.assertIsNone(data.get("vision_profile"))
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -55,8 +56,10 @@ class ConfigTests(unittest.TestCase):
             os.environ["HOME"] = tmp_home
             home_dir = Path(tmp_home) / ".dogent"
             home_dir.mkdir(parents=True, exist_ok=True)
-            (home_dir / "claude.json").write_text(
-                json.dumps({"profiles": {"deepseek": {"ANTHROPIC_AUTH_TOKEN": "replace-me"}}}),
+            (home_dir / "dogent.json").write_text(
+                json.dumps(
+                    {"llm_profiles": {"deepseek": {"ANTHROPIC_AUTH_TOKEN": "replace-me"}}}
+                ),
                 encoding="utf-8",
             )
 
@@ -88,7 +91,7 @@ class ConfigTests(unittest.TestCase):
             profile_dir = Path(home) / ".dogent"
             profile_dir.mkdir(parents=True, exist_ok=True)
             profile_data = {
-                "profiles": {
+                "llm_profiles": {
                     "deepseek": {
                         "ANTHROPIC_BASE_URL": "https://profile.example",
                         "ANTHROPIC_AUTH_TOKEN": "profile-token",
@@ -99,7 +102,7 @@ class ConfigTests(unittest.TestCase):
                     }
                 }
             }
-            (profile_dir / "claude.json").write_text(
+            (profile_dir / "dogent.json").write_text(
                 json.dumps(profile_data), encoding="utf-8"
             )
 
@@ -170,13 +173,14 @@ class ConfigTests(unittest.TestCase):
 
             profile_dir = Path(home) / ".dogent"
             profile_dir.mkdir(parents=True, exist_ok=True)
-            profile_md = profile_dir / "claude.json"
+            profile_md = profile_dir / "dogent.json"
             profile_md.write_text(
                 json.dumps(
                     {
-                        "profiles": {
+                        "workspace_defaults": {"llm_profile": "deepseek"},
+                        "llm_profiles": {
                             "deepseek": {"ANTHROPIC_AUTH_TOKEN": "md-token"}
-                        }
+                        },
                     }
                 ),
                 encoding="utf-8",
@@ -207,9 +211,8 @@ class ConfigTests(unittest.TestCase):
             ConfigManager(paths)
 
             home_dir = Path(tmp_home) / ".dogent"
-            self.assertTrue((home_dir / "claude.json").exists())
-            self.assertTrue((home_dir / "web.json").exists())
-            self.assertTrue((home_dir / "vision.json").exists())
+            self.assertTrue((home_dir / "dogent.json").exists())
+            self.assertTrue((home_dir / "dogent.schema.json").exists())
             self.assertFalse((home_dir / "prompts").exists())
             self.assertFalse((home_dir / "templates").exists())
         if original_home is not None:
@@ -234,6 +237,27 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("mcp__dogent__read_document", options.allowed_tools)
             self.assertIn("mcp__dogent__export_document", options.allowed_tools)
             self.assertIn("mcp__dogent__convert_document", options.allowed_tools)
+            self.assertNotIn("mcp__dogent__analyze_media", options.allowed_tools)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_build_options_registers_vision_tools_when_enabled(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.config_file.write_text(
+                json.dumps({"vision_profile": "glm-4.6v"}),
+                encoding="utf-8",
+            )
+
+            manager = ConfigManager(paths)
+            options = manager.build_options("sys")
+
             self.assertIn("mcp__dogent__analyze_media", options.allowed_tools)
         if original_home is not None:
             os.environ["HOME"] = original_home
@@ -292,9 +316,9 @@ class ConfigTests(unittest.TestCase):
             )
             # Configure home web profile
             paths.global_dir.mkdir(parents=True, exist_ok=True)
-            paths.global_web_file.write_text(
+            paths.global_config_file.write_text(
                 json.dumps(
-                    {"profiles": {"google": {"provider": "google_cse", "api_key": "k", "cse_id": "cx"}}}
+                    {"web_profiles": {"google": {"provider": "google_cse", "api_key": "k", "cse_id": "cx"}}}
                 ),
                 encoding="utf-8",
             )
@@ -336,7 +360,7 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("mcp__dogent__read_document", options.allowed_tools)
             self.assertIn("mcp__dogent__export_document", options.allowed_tools)
             self.assertIn("mcp__dogent__convert_document", options.allowed_tools)
-            self.assertIn("mcp__dogent__analyze_media", options.allowed_tools)
+            self.assertNotIn("mcp__dogent__analyze_media", options.allowed_tools)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -358,7 +382,97 @@ class ConfigTests(unittest.TestCase):
             manager.create_config_template()
             content = paths.config_file.read_text(encoding="utf-8")
             self.assertNotIn('"custom"', content)
-            self.assertIn('"llm_profile"', content)
+            self.assertIn('"web_profile"', content)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_load_project_config_merges_global_and_local(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            home_dir = Path(tmp_home) / ".dogent"
+            home_dir.mkdir(parents=True, exist_ok=True)
+            (home_dir / "dogent.json").write_text(
+                json.dumps(
+                    {
+                        "workspace_defaults": {
+                            "llm_profile": "deepseek",
+                            "doc_template": "global-doc",
+                            "vision_profile": "glm-4.6v",
+                            "anthropic": {"base_url": "https://global.example"},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.config_file.write_text(
+                json.dumps(
+                    {
+                        "doc_template": "local-doc",
+                        "anthropic": {"model": "local-model"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            manager = ConfigManager(paths)
+            config = manager.load_project_config()
+            self.assertEqual(config.get("llm_profile"), "deepseek")
+            self.assertEqual(config.get("doc_template"), "local-doc")
+            self.assertEqual(config.get("vision_profile"), "glm-4.6v")
+            self.assertEqual(config.get("anthropic", {}).get("base_url"), "https://global.example")
+            self.assertEqual(config.get("anthropic", {}).get("model"), "local-model")
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_global_config_upgrade_adds_missing_keys(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            home_dir = Path(tmp_home) / ".dogent"
+            home_dir.mkdir(parents=True, exist_ok=True)
+            (home_dir / "dogent.json").write_text(
+                json.dumps({"version": "0.0.1", "workspace_defaults": {}}),
+                encoding="utf-8",
+            )
+
+            manager = ConfigManager(DogentPaths(root))
+            upgraded = json.loads(manager.paths.global_config_file.read_text(encoding="utf-8"))
+            self.assertIn("llm_profiles", upgraded)
+            self.assertIn("web_profiles", upgraded)
+            self.assertIn("vision_profiles", upgraded)
+            self.assertEqual(upgraded.get("version"), __version__)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_global_config_warns_on_newer_version(self) -> None:
+        original_home = os.environ.get("HOME")
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=False, color_system=None)
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            home_dir = Path(tmp_home) / ".dogent"
+            home_dir.mkdir(parents=True, exist_ok=True)
+            (home_dir / "dogent.json").write_text(
+                json.dumps({"version": "99.0.0", "workspace_defaults": {}}),
+                encoding="utf-8",
+            )
+
+            ConfigManager(DogentPaths(root), console=console)
+            output = buf.getvalue()
+            self.assertIn("newer than Dogent", output)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

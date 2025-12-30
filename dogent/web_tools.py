@@ -272,7 +272,7 @@ def create_dogent_web_tools(
 
     @tool(
         "web_search",
-        "Search the web (and images) via a user-configured search API in ~/.dogent/web.json",
+        "Search the web (and images) via a user-configured search API in ~/.dogent/dogent.json",
         web_search_schema,
     )
     async def web_search(args: dict[str, Any]) -> dict[str, Any]:
@@ -298,7 +298,7 @@ def create_dogent_web_tools(
                         "type": "text",
                         "text": (
                             "No web_profile configured. Set 'web_profile' in .dogent/dogent.json and configure "
-                            "~/.dogent/web.json."
+                            "~/.dogent/dogent.json (web_profiles)."
                         ),
                     }
                 ],
@@ -310,7 +310,7 @@ def create_dogent_web_tools(
                 "content": [
                     {
                         "type": "text",
-                        "text": f"Web profile '{web_profile_name}' is missing 'provider' in ~/.dogent/web.json.",
+                        "text": f"Web profile '{web_profile_name}' is missing 'provider' in ~/.dogent/dogent.json (web_profiles).",
                     }
                 ],
                 "is_error": True,

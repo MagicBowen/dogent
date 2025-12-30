@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import select
 import sys
 import termios
@@ -32,6 +33,7 @@ from .lessons import LessonIncident, LessonsManager
 from .paths import DogentPaths
 from .prompts import PromptBuilder
 from .todo import TodoManager
+from .vision import classify_media
 
 try:
     from prompt_toolkit import PromptSession
@@ -58,6 +60,9 @@ except ImportError:  # pragma: no cover - optional dependency
     get_cwidth = None  # type: ignore
 
 
+DOC_TEMPLATE_TOKEN = "@@"
+
+
 class DogentCompleter(Completer):
     """Suggests slash commands and @file paths while typing."""
 
@@ -78,6 +83,13 @@ class DogentCompleter(Completer):
             for comp in self._command_completions(text):
                 yield comp
             return
+
+        if self.template_provider and DOC_TEMPLATE_TOKEN in text:
+            template_completions = list(self._match_templates(text))
+            if template_completions:
+                for comp in template_completions:
+                    yield comp
+                return
 
         if "@" in text:
             for comp in self._match_files(text):
@@ -165,6 +177,24 @@ class DogentCompleter(Completer):
             if len(results) >= 30:
                 break
         return results
+
+    def _match_templates(self, text: str) -> Iterable[Completion]:
+        token_index = text.rfind(DOC_TEMPLATE_TOKEN)
+        if token_index == -1:
+            return []
+        if token_index > 0 and not text[token_index - 1].isspace():
+            return []
+        partial = text[token_index + len(DOC_TEMPLATE_TOKEN) :]
+        if " " in partial or "\n" in partial:
+            return []
+        options = list(self.template_provider()) if self.template_provider else []
+        if not options:
+            return []
+        matches = [opt for opt in options if opt.startswith(partial)]
+        return [
+            Completion(opt, start_position=-len(partial), display=opt)
+            for opt in matches
+        ]
 
 
 def _should_move_within_multiline(document: Document, direction: str) -> bool:
@@ -421,7 +451,7 @@ class DogentCLI:
         base_url = settings.base_url or "<not set>"
         web_label = settings.web_profile or "default (native)"
         project_cfg = self.config_manager.load_project_config()
-        vision_profile = project_cfg.get("vision_profile", "glm-4.6v") or "<not set>"
+        vision_profile = project_cfg.get("vision_profile") or "<not set>"
         commands = ", ".join(self.registry.names()) or "No commands registered"
         helper_lines = [
             f"Model: {model}",
@@ -1046,7 +1076,7 @@ class DogentCLI:
     async def _cmd_help(self, _: str) -> bool:
         settings = self.config_manager.load_settings()
         project_cfg = self.config_manager.load_project_config()
-        vision_profile = project_cfg.get("vision_profile", "glm-4.6v") or "<not set>"
+        vision_profile = project_cfg.get("vision_profile") or "<not set>"
         commands = "\n".join(self.registry.descriptions()) or "No commands registered"
         body = "\n".join(
             [
@@ -1091,15 +1121,27 @@ class DogentCLI:
                 if not should_continue:
                     break
                 continue
-            message, attachments = self._resolve_attachments(text)
+            message, template_override = self._extract_template_override(text)
+            template_override = self._normalize_template_override(template_override)
+            message, attachments = self._resolve_attachments(message)
             if attachments:
                 self._show_attachments(attachments)
+            if not message and not attachments:
+                continue
+            blocked = self._blocked_media_attachments(attachments)
+            if blocked:
+                self._show_vision_disabled_error(blocked)
+                continue
             if self._armed_incident and self.auto_learn_enabled:
                 if await self._confirm_save_lesson():
                     await self._save_lesson_from_incident(self._armed_incident, message)
                 self._armed_incident = None
             try:
-                await self._run_with_interrupt(message, attachments)
+                await self._run_with_interrupt(
+                    message,
+                    attachments,
+                    config_override=self._build_prompt_override(template_override),
+                )
             except KeyboardInterrupt:
                 await self._graceful_exit()
                 break
@@ -1108,10 +1150,14 @@ class DogentCLI:
         self,
         message: str,
         attachments: list[FileAttachment],
+        *,
+        config_override: dict[str, Any] | None = None,
     ) -> None:
         """Run a task while listening for Esc without stealing future input."""
         stop_event = threading.Event()
-        agent_task = asyncio.create_task(self.agent.send_message(message, attachments))
+        agent_task = asyncio.create_task(
+            self.agent.send_message(message, attachments, config_override=config_override)
+        )
         esc_task = asyncio.create_task(self._wait_for_escape(stop_event))
         try:
             done, _ = await asyncio.wait(
@@ -1270,6 +1316,52 @@ class DogentCLI:
             ),
         )
 
+    def _extract_template_override(self, message: str) -> Tuple[str, str | None]:
+        pattern = re.compile(r"(^|\s)" + re.escape(DOC_TEMPLATE_TOKEN) + r"([^\s]+)")
+        matches = list(pattern.finditer(message))
+        if not matches:
+            return message, None
+        template_key = None
+        for match in matches:
+            raw = match.group(2)
+            cleaned = raw.rstrip(".,;:!?)]}")
+            if cleaned:
+                template_key = cleaned
+        cleaned_message = pattern.sub(" ", message)
+        cleaned_message = re.sub(r"[ \t]{2,}", " ", cleaned_message).strip()
+        return cleaned_message, template_key
+
+    def _normalize_template_override(self, template_key: str | None) -> str | None:
+        if not template_key:
+            return None
+        cleaned = template_key.strip()
+        if not cleaned:
+            return None
+        if cleaned.lower().startswith("workspace:"):
+            self.console.print(
+                Panel(
+                    "Workspace templates do not use the 'workspace:' prefix. Use the template name directly.",
+                    title="Template Override",
+                    border_style="yellow",
+                )
+            )
+            return None
+        if not self.doc_templates.resolve(cleaned):
+            self.console.print(
+                Panel(
+                    f"Template '{cleaned}' not found. Using configured doc_template.",
+                    title="Template Override",
+                    border_style="yellow",
+                )
+            )
+            return None
+        return cleaned
+
+    def _build_prompt_override(self, template_key: str | None) -> dict[str, Any] | None:
+        if not template_key:
+            return None
+        return {"doc_template": template_key}
+
     def _resolve_attachments(self, message: str) -> Tuple[str, list[FileAttachment]]:
         return self.file_resolver.extract(message)
 
@@ -1290,6 +1382,40 @@ class DogentCLI:
                     title="📂 File Reference",
                 )
             )
+
+    def _vision_enabled(self) -> bool:
+        config = self.config_manager.load_project_config()
+        raw = config.get("vision_profile")
+        if not raw:
+            return False
+        if isinstance(raw, str) and raw.strip().lower() == "none":
+            return False
+        return isinstance(raw, str)
+
+    def _blocked_media_attachments(
+        self, attachments: Iterable[FileAttachment]
+    ) -> list[Path]:
+        if not attachments or self._vision_enabled():
+            return []
+        blocked: list[Path] = []
+        for attachment in attachments:
+            media_type = classify_media(self.root / attachment.path)
+            if media_type in {"image", "video"}:
+                blocked.append(attachment.path)
+        return blocked
+
+    def _show_vision_disabled_error(self, blocked: list[Path]) -> None:
+        lines = [
+            "Vision is disabled (vision_profile is not set).",
+            "Remove image/video references or configure vision_profile in .dogent/dogent.json.",
+        ]
+        if blocked:
+            lines.append("")
+            lines.append("Blocked attachments:")
+            lines.extend(f"- {path}" for path in blocked)
+        self.console.print(
+            Panel("\n".join(lines), title="Vision Disabled", border_style="red")
+        )
 
     def _render_todos(self, show_empty: bool = False) -> None:
         panel = self.todo_manager.render_panel(show_empty=show_empty)

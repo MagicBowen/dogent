@@ -11,50 +11,78 @@
 3. Use `/init` to generate `.dogent/dogent.md` and `.dogent/dogent.json` (template picker or wizard).
 
 ## Credentials & Profiles
-- Local config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `vision_profile`, `doc_template`).
-- Global profiles: `~/.dogent/claude.json`, e.g.:
+- Global config: `~/.dogent/dogent.json` (workspace defaults + profiles; auto-created on first run).
+- Local config: `.dogent/dogent.json` (overrides global workspace defaults for the current workspace).
+- JSON schema: `~/.dogent/dogent.schema.json` (for editor validation).
+- Example `~/.dogent/dogent.json`:
   ```json
   {
-    "profiles": {
+    "$schema": "./dogent.schema.json",
+    "version": "0.9.8",
+    "workspace_defaults": {
+      "web_profile": "default",
+      "vision_profile": null,
+      "doc_template": "general",
+      "primary_language": "Chinese",
+      "learn_auto": true
+    },
+    "llm_profiles": {
       "deepseek": {
         "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
-        "ANTHROPIC_AUTH_TOKEN": "xxx",
+        "ANTHROPIC_AUTH_TOKEN": "replace-me",
         "ANTHROPIC_MODEL": "deepseek-reasoner",
         "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-chat",
         "API_TIMEOUT_MS": 600000,
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
       }
+    },
+    "web_profiles": {
+      "google": {
+        "provider": "google_cse",
+        "api_key": "replace-me",
+        "cse_id": "replace-me",
+        "timeout_s": 20
+      }
+    },
+    "vision_profiles": {
+      "glm-4.6v": {
+        "provider": "glm-4.6v",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        "api_key": "replace-me",
+        "model": "glm-4.6v"
+      }
     }
   }
   ```
 
-- Environment fallback if no profile/config is provided.
+- `llm_profile` can be set in `.dogent/dogent.json`; if missing, Dogent falls back to environment variables.
 
 ## Document Templates (Release 0.8.0)
 
 - Workspace templates: `.dogent/templates/<name>.md` (use `<name>` in `doc_template`)
 - Global templates: `~/.dogent/templates/<name>.md` (use `global:<name>` in `doc_template`)
 - Built-in templates: `dogent/templates/doc_templates/<name>.md` (use `built-in:<name>` in `doc_template`)
-- General template: `dogent/templates/doc_templates/doc_template_general.md` (use `general` when no template is selected)
+- General template: `dogent/templates/doc_templates/doc_general.md` (use `general` when no template is selected)
 - Unprefixed names resolve only in the workspace.
-When `doc_template=general`, Dogent uses `dogent/templates/doc_templates/doc_template_general.md` as the default template content in prompts.
+When `doc_template=general`, Dogent uses `dogent/templates/doc_templates/doc_general.md` as the default template content in prompts.
+- For a one-off template override in the prompt, use `@@<template>` (e.g., `@@global:resume`). This does not update config files.
 
 ## Web Search Setup (Release 0.6)
 
 Dogent supports two modes:
 
 - Native mode (default): if `.dogent/dogent.json` has no `web_profile` (or it is empty/`"default"`), Dogent uses Claude Agent SDK’s built-in `WebSearch` / `WebFetch`.
-- Custom mode: if `.dogent/dogent.json` sets `web_profile` to a real profile name that exists in `~/.dogent/web.json`, Dogent uses the custom tools `dogent_web_search` / `dogent_web_fetch` (tool IDs: `mcp__dogent__web_search` / `mcp__dogent__web_fetch`) with your configured provider.
+- Custom mode: if `.dogent/dogent.json` sets `web_profile` to a real profile name that exists in `~/.dogent/dogent.json` under `web_profiles`, Dogent uses the custom tools `dogent_web_search` / `dogent_web_fetch` (tool IDs: `mcp__dogent__web_search` / `mcp__dogent__web_fetch`) with your configured provider.
 
-If you set `web_profile` to a name that does not exist in `~/.dogent/web.json`, Dogent warns at startup and falls back to native mode.
+If you set `web_profile` to a name that does not exist in `~/.dogent/dogent.json`, Dogent warns at startup and falls back to native mode.
 
-### Configure `~/.dogent/web.json`
+### Configure `~/.dogent/dogent.json` (web_profiles)
 
-Dogent creates `~/.dogent/web.json` on first run. It stores named search provider profiles:
+Dogent creates `~/.dogent/dogent.json` on first run. It stores named search provider profiles under `web_profiles`:
 
 ```json
 {
-  "profiles": {
+  "web_profiles": {
     "google": {
       "provider": "google_cse",
       "api_key": "replace-me",
@@ -83,7 +111,6 @@ Then select one profile per workspace in `.dogent/dogent.json`:
 
 ```json
 {
-  "llm_profile": "deepseek",
   "web_profile": "brave"
 }
 ```
@@ -94,7 +121,7 @@ Then select one profile per workspace in `.dogent/dogent.json`:
 2. Enable the **Custom Search API** (JSON API).
 3. Create an API key.
 4. Create a **Programmable Search Engine** (Custom Search Engine) and get its **Search engine ID** (also called `cx`).
-5. Put the values into `~/.dogent/web.json` under a profile (e.g., `google`) and set `.dogent/dogent.json` `web_profile` to `"google"`.
+5. Put the values into `~/.dogent/dogent.json` under `web_profiles` (e.g., `google`) and set `.dogent/dogent.json` `web_profile` to `"google"`.
 
 Notes:
 - For image search, ensure your Programmable Search Engine is configured to search the web (or the sites you need).
@@ -104,11 +131,11 @@ Notes:
 
 1. Sign up for Brave Search API access (Brave developer/portal) and create a subscription.
 2. Create an API key (token).
-3. Put the token into `~/.dogent/web.json` under a profile (e.g., `brave`):
+3. Put the token into `~/.dogent/dogent.json` under `web_profiles` (e.g., `brave`):
 
 ```json
 {
-  "profiles": {
+  "web_profiles": {
     "brave": {
       "provider": "brave",
       "api_key": "YOUR_BRAVE_API_KEY",
@@ -129,7 +156,7 @@ Notes:
 
 Dogent can analyze images and videos on demand via `mcp__dogent__analyze_media`.
 
-`~/.dogent/vision.json` is created on first run. Edit the `api_key` and select the profile in `.dogent/dogent.json`:
+`~/.dogent/dogent.json` is created on first run. Vision is disabled by default (`vision_profile: null`). To enable it, edit the `api_key` under `vision_profiles` and select the profile in `.dogent/dogent.json`:
 
 ```json
 {
@@ -137,11 +164,11 @@ Dogent can analyze images and videos on demand via `mcp__dogent__analyze_media`.
 }
 ```
 
-Example `~/.dogent/vision.json`:
+Example `~/.dogent/dogent.json` snippet:
 
 ```json
 {
-  "profiles": {
+  "vision_profiles": {
     "glm-4.6v": {
       "provider": "glm-4.6v",
       "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
@@ -160,7 +187,7 @@ Example `~/.dogent/vision.json`:
 - `/clean` – clean workspace state (`/clean [history|lesson|memory|all]`; defaults to `all`).
 - `/archive` – archive history/lessons to `.dogent/archives` (`/archive [history|lessons|all]`; defaults to `all`).
 - `/exit` – leave the CLI.
-- Typing `/` shows live command suggestions; typing `@` offers file completions; `!<command>` runs a shell command.
+- Typing `/` shows live command suggestions; typing `@` offers file completions; typing `@@` offers template completions; `!<command>` runs a shell command.
 - Press `Esc` during an in-progress task to interrupt; progress is saved to `.dogent/history.json`.
 
 ## Safety & Permissions (Release 0.9.7)
@@ -172,6 +199,7 @@ Example `~/.dogent/vision.json`:
 ## Referencing Files
 - Inline `@` references attach file metadata to the prompt (path/name/type), e.g. `Review @docs/plan.md`.
 - The agent calls `mcp__dogent__read_document` for text/doc files or `mcp__dogent__analyze_media` for images/videos when it needs content.
+- If `vision_profile` is `null` (or missing), image/video references fail fast and you must enable vision first.
 
 ## Working With Todos
 - The agent uses the `TodoWrite` tool; Dogent mirrors its outputs with emoji statuses and concise logs.

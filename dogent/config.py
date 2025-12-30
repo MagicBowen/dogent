@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -17,6 +18,19 @@ from .document_tools import DOGENT_DOC_ALLOWED_TOOLS, create_dogent_doc_tools
 from .paths import DogentPaths
 from .vision_tools import DOGENT_VISION_ALLOWED_TOOLS, create_dogent_vision_tools
 from .web_tools import DOGENT_WEB_ALLOWED_TOOLS, create_dogent_web_tools
+
+
+DEFAULT_PROJECT_CONFIG: Dict[str, Any] = {
+    "web_profile": "default",
+    "vision_profile": None,
+    "doc_template": "general",
+    "primary_language": "Chinese",
+    "learn_auto": True,
+}
+GLOBAL_DEFAULTS_KEY = "workspace_defaults"
+GLOBAL_LLM_PROFILES_KEY = "llm_profiles"
+GLOBAL_WEB_PROFILES_KEY = "web_profiles"
+GLOBAL_VISION_PROFILES_KEY = "vision_profiles"
 
 
 @dataclass
@@ -54,62 +68,14 @@ class ConfigManager:
     def create_config_template(self) -> None:
         """Create or update .dogent/dogent.json without overwriting existing user settings."""
         self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
-        template_text = self._read_home_template("dogent_default.json")
-
-        defaults: Dict[str, Any] = {}
-        if template_text:
-            try:
-                parsed = json.loads(template_text)
-                if isinstance(parsed, dict):
-                    defaults = parsed
-            except json.JSONDecodeError:
-                defaults = {}
-        if not defaults:
-            defaults = {
-                "llm_profile": "deepseek",
-                "web_profile": "default",
-                "doc_template": "general",
-                "primary_language": "Chinese",
-                "learn_auto": True,
-            }
-
+        defaults = self._default_project_config()
+        global_defaults = self._global_defaults()
+        merged_defaults = self._merge_dicts(defaults, global_defaults)
         current = self._read_json(self.paths.config_file)
-        if not current:
-            merged = dict(defaults)
-        else:
-            merged = dict(current)
-            for key, value in defaults.items():
-                if key not in merged:
-                    merged[key] = value
-
-        raw_web_profile = merged.get("web_profile")
-        if raw_web_profile is None:
-            merged["web_profile"] = "default"
-        elif isinstance(raw_web_profile, str) and not raw_web_profile.strip():
-            merged["web_profile"] = "default"
-
-        if "learn_auto" not in merged or merged.get("learn_auto") is None:
-            merged["learn_auto"] = True
-
-        if "doc_template" not in merged or merged.get("doc_template") is None:
-            merged["doc_template"] = "general"
-        else:
-            raw_doc_template = merged.get("doc_template")
-            if isinstance(raw_doc_template, str) and not raw_doc_template.strip():
-                merged["doc_template"] = "general"
-
-        raw_primary_language = merged.get("primary_language")
-        if isinstance(raw_primary_language, str):
-            if not raw_primary_language.strip():
-                raw_primary_language = None
-        elif raw_primary_language is not None:
-            raw_primary_language = None
-
-        if raw_primary_language is None:
-            merged["primary_language"] = "Chinese"
-
+        merged = self._merge_dicts(merged_defaults, current)
+        normalized = self._normalize_project_config(merged)
         self.paths.config_file.write_text(
-            json.dumps(merged, indent=2, ensure_ascii=False) + "\n",
+            json.dumps(normalized, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
 
@@ -174,6 +140,79 @@ class ConfigManager:
             rendered = rendered.replace("{" + key + "}", value)
         return rendered
 
+    def _default_project_config(self) -> Dict[str, Any]:
+        defaults = dict(DEFAULT_PROJECT_CONFIG)
+        template_defaults = self._read_template_json("dogent_default.json")
+        return self._merge_dicts(defaults, template_defaults)
+
+    def _read_global_config(self) -> Dict[str, Any]:
+        data = self._read_json(self.paths.global_config_file)
+        if not isinstance(data, dict):
+            return {}
+        return self._sanitize_global_config(data)
+
+    def _global_defaults(self) -> Dict[str, Any]:
+        data = self._read_global_config()
+        defaults = data.get(GLOBAL_DEFAULTS_KEY, {})
+        return defaults if isinstance(defaults, dict) else {}
+
+    def _default_global_config(self) -> Dict[str, Any]:
+        template = self._read_template_json("dogent_global_default.json")
+        if not template:
+            template = {
+                GLOBAL_DEFAULTS_KEY: self._default_project_config(),
+                GLOBAL_LLM_PROFILES_KEY: {},
+                GLOBAL_WEB_PROFILES_KEY: {},
+                GLOBAL_VISION_PROFILES_KEY: {},
+            }
+        if not isinstance(template, dict):
+            template = {}
+        template["$schema"] = "./dogent.schema.json"
+        template["version"] = __version__
+        return template
+
+    def _sanitize_global_config(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        cleaned = dict(data)
+        for key in (
+            GLOBAL_DEFAULTS_KEY,
+            GLOBAL_LLM_PROFILES_KEY,
+            GLOBAL_WEB_PROFILES_KEY,
+            GLOBAL_VISION_PROFILES_KEY,
+        ):
+            value = cleaned.get(key)
+            if value is None:
+                continue
+            if not isinstance(value, dict):
+                self.console.print(
+                    f"[yellow]Ignoring {key} in {self.paths.global_config_file}: expected an object.[/yellow]"
+                )
+                cleaned.pop(key, None)
+                continue
+            if key == GLOBAL_DEFAULTS_KEY:
+                cleaned[key] = value
+            else:
+                filtered: Dict[str, Any] = {}
+                for name, entry in value.items():
+                    if isinstance(entry, dict):
+                        filtered[name] = entry
+                    else:
+                        self.console.print(
+                            f"[yellow]Ignoring {key}.{name} in {self.paths.global_config_file}: expected an object.[/yellow]"
+                        )
+                cleaned[key] = filtered
+        return cleaned
+
+    def _merge_dicts(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+        if not override:
+            return dict(base)
+        merged: Dict[str, Any] = dict(base)
+        for key, value in override.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = self._merge_dicts(merged[key], value)  # type: ignore[arg-type]
+            else:
+                merged[key] = value
+        return merged
+
     def load_settings(self) -> DogentSettings:
         """Merge project config, profile, and environment variables."""
         project_cfg = self.load_project_config()
@@ -218,28 +257,35 @@ class ConfigManager:
     def load_project_config(self) -> Dict[str, Any]:
         """Read the workspace-level dogent.json file."""
         data = self._read_json(self.paths.config_file)
-        return self._normalize_project_config(data)
+        defaults = self._default_project_config()
+        global_defaults = self._global_defaults()
+        merged = self._merge_dicts(defaults, global_defaults)
+        merged = self._merge_dicts(merged, data)
+        return self._normalize_project_config(merged)
 
     def _normalize_project_config(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize config keys and apply defaults."""
-        if not data:
-            return {
-                "web_profile": "default",
-                "doc_template": "general",
-                "primary_language": "Chinese",
-                "vision_profile": "glm-4.6v",
-                "learn_auto": True,
-            }
-        normalized = dict(data)
+        normalized = dict(data) if data else {}
+        raw_llm_profile = normalized.get("llm_profile")
+        if isinstance(raw_llm_profile, str):
+            cleaned = raw_llm_profile.strip()
+            if cleaned:
+                normalized["llm_profile"] = cleaned
+            else:
+                normalized.pop("llm_profile", None)
+        elif raw_llm_profile is None:
+            normalized.pop("llm_profile", None)
+        else:
+            normalized.pop("llm_profile", None)
         raw_web_profile = normalized.get("web_profile")
         if raw_web_profile is None:
-            normalized["web_profile"] = "default"
+            normalized["web_profile"] = DEFAULT_PROJECT_CONFIG["web_profile"]
         elif isinstance(raw_web_profile, str) and not raw_web_profile.strip():
-            normalized["web_profile"] = "default"
+            normalized["web_profile"] = DEFAULT_PROJECT_CONFIG["web_profile"]
 
         raw_learn_auto = normalized.get("learn_auto")
         if raw_learn_auto is None:
-            normalized["learn_auto"] = True
+            normalized["learn_auto"] = DEFAULT_PROJECT_CONFIG["learn_auto"]
         elif isinstance(raw_learn_auto, str):
             normalized["learn_auto"] = raw_learn_auto.strip().lower() in {
                 "1",
@@ -252,9 +298,9 @@ class ConfigManager:
             normalized["learn_auto"] = bool(raw_learn_auto)
         raw_doc_template = normalized.get("doc_template")
         if raw_doc_template is None:
-            normalized["doc_template"] = "general"
+            normalized["doc_template"] = DEFAULT_PROJECT_CONFIG["doc_template"]
         elif isinstance(raw_doc_template, str) and not raw_doc_template.strip():
-            normalized["doc_template"] = "general"
+            normalized["doc_template"] = DEFAULT_PROJECT_CONFIG["doc_template"]
         raw_primary_language = normalized.get("primary_language")
         if isinstance(raw_primary_language, str):
             if not raw_primary_language.strip():
@@ -263,15 +309,18 @@ class ConfigManager:
             raw_primary_language = None
 
         if raw_primary_language is None:
-            normalized["primary_language"] = "Chinese"
+            normalized["primary_language"] = DEFAULT_PROJECT_CONFIG["primary_language"]
         raw_vision_profile = normalized.get("vision_profile")
         if raw_vision_profile is None:
-            normalized["vision_profile"] = "glm-4.6v"
+            normalized["vision_profile"] = DEFAULT_PROJECT_CONFIG["vision_profile"]
         elif isinstance(raw_vision_profile, str):
             cleaned = raw_vision_profile.strip()
-            normalized["vision_profile"] = cleaned or "glm-4.6v"
+            if not cleaned or cleaned.lower() == "none":
+                normalized["vision_profile"] = DEFAULT_PROJECT_CONFIG["vision_profile"]
+            else:
+                normalized["vision_profile"] = cleaned
         else:
-            normalized["vision_profile"] = "glm-4.6v"
+            normalized["vision_profile"] = DEFAULT_PROJECT_CONFIG["vision_profile"]
         return normalized
 
     def build_options(
@@ -284,9 +333,11 @@ class ConfigManager:
     ) -> ClaudeAgentOptions:
         """Construct ClaudeAgentOptions for this workspace."""
         settings = self.load_settings()
+        project_cfg = self.load_project_config()
         env = self._build_env(settings)
 
         use_custom_web = bool(settings.web_profile)
+        vision_enabled = self._vision_enabled(project_cfg)
 
         allowed_tools = [
             "Read",
@@ -307,10 +358,11 @@ class ConfigManager:
         ]
         allowed_tools = [t for t in allowed_tools if t]
         allowed_tools.extend(DOGENT_DOC_ALLOWED_TOOLS)
-        allowed_tools.extend(DOGENT_VISION_ALLOWED_TOOLS)
         doc_tools = create_dogent_doc_tools(self.paths.root)
         tools = list(doc_tools)
-        tools.extend(create_dogent_vision_tools(self.paths.root, self))
+        if vision_enabled:
+            allowed_tools.extend(DOGENT_VISION_ALLOWED_TOOLS)
+            tools.extend(create_dogent_vision_tools(self.paths.root, self))
         if use_custom_web:
             allowed_tools.extend(DOGENT_WEB_ALLOWED_TOOLS)
             tools.extend(
@@ -387,11 +439,12 @@ class ConfigManager:
     def _load_profile(self, profile_name: Optional[str]) -> Dict[str, Any]:
         if not profile_name:
             return {}
-        profile_data = self._read_profile_file()
-        if not profile_data:
+        profiles = self._read_profiles_section(GLOBAL_LLM_PROFILES_KEY)
+        if not profiles:
             return {}
-        profiles = profile_data.get("profiles") or profile_data
         chosen = profiles.get(profile_name, {})
+        if not isinstance(chosen, dict):
+            return {}
         mapped = {
             "base_url": chosen.get("ANTHROPIC_BASE_URL") or chosen.get("base_url"),
             "auth_token": chosen.get("ANTHROPIC_AUTH_TOKEN") or chosen.get("auth_token"),
@@ -418,30 +471,27 @@ class ConfigManager:
             )
             return {}
 
-    def _read_profile_file(self) -> Dict[str, Any]:
-        """Read profile config from claude.json only."""
-        path = self.paths.global_profile_file
-        if path.exists():
-            data = self._read_json(path)
-            if data:
-                return data
-        return {}
+    def _read_template_json(self, name: str) -> Dict[str, Any]:
+        template_text = self._read_home_template(name)
+        if not template_text:
+            return {}
+        try:
+            parsed = json.loads(template_text)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
 
-    def _read_web_file(self) -> Dict[str, Any]:
-        path = self.paths.global_web_file
-        if path.exists():
-            data = self._read_json(path)
-            if data:
-                return data
-        return {}
+    def _read_profiles_section(self, key: str) -> Dict[str, Any]:
+        data = self._read_global_config()
+        section = data.get(key, {})
+        return section if isinstance(section, dict) else {}
 
     def _load_web_profile(self, profile_name: Optional[str]) -> Dict[str, Any]:
         if not profile_name:
             return {}
-        data = self._read_web_file()
-        if not data:
+        profiles = self._read_profiles_section(GLOBAL_WEB_PROFILES_KEY)
+        if not profiles:
             return {}
-        profiles = data.get("profiles") or data
         chosen = profiles.get(profile_name, {})
         if not isinstance(chosen, dict):
             return {}
@@ -459,43 +509,76 @@ class ConfigManager:
             return cleaned
         return None
 
+    def _vision_enabled(self, config: Dict[str, Any]) -> bool:
+        raw = (config or {}).get("vision_profile")
+        if not raw:
+            return False
+        if isinstance(raw, str) and raw.strip().lower() == "none":
+            return False
+        return isinstance(raw, str)
+
     def _ensure_home_bootstrap(self) -> None:
         home_dir = self.paths.global_dir
         if not home_dir.exists():
             home_dir.mkdir(parents=True, exist_ok=True)
-        if not self.paths.global_profile_file.exists():
-            default = self._default_profile_template()
+        if not self.paths.global_config_file.exists():
+            default_config = self._default_global_config()
             try:
-                self.paths.global_profile_file.write_text(default, encoding="utf-8")
+                self.paths.global_config_file.write_text(
+                    json.dumps(default_config, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
                 self.console.print(
-                    f"[cyan]Created default config at {self.paths.global_profile_file}. Edit it with your credentials.[/cyan]"
+                    f"[cyan]Created default config at {self.paths.global_config_file}. Edit it with your credentials.[/cyan]"
                 )
             except PermissionError:
                 self.console.print(
-                    f"[yellow]Cannot write {self.paths.global_profile_file}. Please create it manually with your credentials.[/yellow]"
+                    f"[yellow]Cannot write {self.paths.global_config_file}. Please create it manually.[/yellow]"
                 )
-        if not self.paths.global_web_file.exists():
-            default = self._default_web_template()
-            try:
-                self.paths.global_web_file.write_text(default, encoding="utf-8")
-                self.console.print(
-                    f"[cyan]Created default web config at {self.paths.global_web_file}. Edit it with your search API credentials.[/cyan]"
-                )
-            except PermissionError:
-                self.console.print(
-                    f"[yellow]Cannot write {self.paths.global_web_file}. Please create it manually with your search API credentials.[/yellow]"
-                )
-        if not self.paths.global_vision_file.exists():
-            default = self._default_vision_template()
-            try:
-                self.paths.global_vision_file.write_text(default, encoding="utf-8")
-                self.console.print(
-                    f"[cyan]Created default vision config at {self.paths.global_vision_file}. Edit it with your vision API credentials.[/cyan]"
-                )
-            except PermissionError:
-                self.console.print(
-                    f"[yellow]Cannot write {self.paths.global_vision_file}. Please create it manually with your vision API credentials.[/yellow]"
-                )
+        else:
+            self._maybe_upgrade_global_config()
+        if not self.paths.global_schema_file.exists():
+            schema = self._read_home_template("dogent_schema.json")
+            if schema:
+                try:
+                    self.paths.global_schema_file.write_text(schema, encoding="utf-8")
+                except PermissionError:
+                    self.console.print(
+                        f"[yellow]Cannot write {self.paths.global_schema_file}. Please create it manually.[/yellow]"
+                    )
+
+    def _maybe_upgrade_global_config(self) -> None:
+        data = self._read_json(self.paths.global_config_file)
+        if not data or not isinstance(data, dict):
+            return
+        current_version = str(data.get("version") or "").strip()
+        compare = self._compare_versions(current_version, __version__)
+        if compare > 0:
+            self.console.print(
+                "[yellow]"
+                f"Config {self.paths.global_config_file} version {current_version} is newer than Dogent {__version__}. "
+                "Proceeding with caution."
+                "[/yellow]"
+            )
+            return
+        if compare == 0:
+            return
+        defaults = self._default_global_config()
+        merged = self._merge_dicts(defaults, data)
+        merged["version"] = __version__
+        merged["$schema"] = defaults.get("$schema", "./dogent.schema.json")
+        try:
+            self.paths.global_config_file.write_text(
+                json.dumps(merged, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+            self.console.print(
+                f"[cyan]Upgraded config at {self.paths.global_config_file} to {__version__}.[/cyan]"
+            )
+        except PermissionError:
+            self.console.print(
+                f"[yellow]Cannot upgrade {self.paths.global_config_file}. Please update it manually.[/yellow]"
+            )
 
     def _to_bool(self, value: Optional[str]) -> bool:
         if value is None:
@@ -516,25 +599,6 @@ class ConfigManager:
             return template.replace("{doc_template}", "general")
         return "# Dogent Writing Constraints\n"
 
-    def _default_profile_template(self) -> str:
-        template = self._read_home_template("claude_default.json")
-        if template:
-            return template
-        # Minimal placeholder to avoid duplication if resources are missing
-        return json.dumps({"profiles": {"default": {}}}, indent=2)
-
-    def _default_web_template(self) -> str:
-        template = self._read_home_template("web_default.json")
-        if template:
-            return template
-        return json.dumps({"profiles": {"default": {"provider": "google_cse"}}}, indent=2)
-
-    def _default_vision_template(self) -> str:
-        template = self._read_home_template("vision_default.json")
-        if template:
-            return template
-        return json.dumps({"profiles": {"glm-4.6v": {"provider": "glm-4.6v"}}}, indent=2)
-
     def _read_home_template(self, name: str) -> str:
         try:
             data = resources.files("dogent").joinpath("templates").joinpath(name)
@@ -551,7 +615,7 @@ class ConfigManager:
         if token is None or (isinstance(token, str) and "replace" in token.lower()):
             self.console.print(
                 "[yellow]"
-                f"Profile '{profile_name}' in {self.paths.global_profile_file} still has placeholder credentials. "
+                f"Profile '{profile_name}' in {self.paths.global_config_file} (llm_profiles) still has placeholder credentials. "
                 "Please update it before running Dogent."
                 "[/yellow]"
             )
@@ -572,7 +636,7 @@ class ConfigManager:
         if placeholder:
             self.console.print(
                 "[yellow]"
-                f"Web profile '{profile_name}' in {self.paths.global_web_file} still has placeholder credentials "
+                f"Web profile '{profile_name}' in {self.paths.global_config_file} (web_profiles) still has placeholder credentials "
                 f"(provider={provider or 'unknown'}). Please update it before running web tools."
                 "[/yellow]"
             )
@@ -580,7 +644,23 @@ class ConfigManager:
     def _warn_if_missing_web_profile(self, profile_name: str) -> None:
         self.console.print(
             "[yellow]"
-            f"Web profile '{profile_name}' not found in {self.paths.global_web_file}. "
+            f"Web profile '{profile_name}' not found in {self.paths.global_config_file} (web_profiles). "
             "Falling back to native WebSearch/WebFetch."
             "[/yellow]"
         )
+
+    def _compare_versions(self, left: str, right: str) -> int:
+        left_tuple = self._version_tuple(left)
+        right_tuple = self._version_tuple(right)
+        max_len = max(len(left_tuple), len(right_tuple))
+        left_tuple += (0,) * (max_len - len(left_tuple))
+        right_tuple += (0,) * (max_len - len(right_tuple))
+        if left_tuple == right_tuple:
+            return 0
+        return -1 if left_tuple < right_tuple else 1
+
+    def _version_tuple(self, value: str) -> tuple[int, ...]:
+        if not value:
+            return ()
+        numbers = [int(part) for part in re.findall(r"\d+", value)]
+        return tuple(numbers)
