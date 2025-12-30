@@ -14,15 +14,17 @@
 - I hope that dogent cann handle off images or video files. if the user references images or vidios using `@`, dogent can post the image/video  to a configured vision llm to get the content details and add the content in the user prompt so that the writting LLM can understand the detailed content in the images/videos. 
 - You can refer `dogent/dev/spikes/GLM-4V-Vision-Model-Research-Report.md`，user can select different vision model by dogent.json(maybe the vision profiles in ~/.dogent)
 
+## Release 0.9.7
+
+- Monitor the tool usage of the Agent. If it is found that the agent accesses files outside the working path (whether reading or writing) or deletes files within the working path, it is necessary to confirm with the user first (the original task of the claude agent client should not be interrupted). If the user agrees, continue the task; otherwise, exit the task (shows task abort and reason to user).
+
 ---
 
 ## Pending Requirements
 
-- 监控 Agent 的工具使用，发现 agent 访问工作路径之外的文件（无论读写），或者删除工作路径之内的文件，需要先与用户确认，用户同意了才能访问
-- `DocumentTemplateManager` 类中读取文档模板生成模板概要的函数实现： `def _extract_intro(self, content: str) -> str` 中目前的逻辑是获取 `## Introduction` 的段落内容，但是可能有的模板没有 `## Introduction` 段落，这时可以变为读取其文档前 5 行，以增加鲁棒性；
-- 测试 dogent 加载正常的 claude 的 commands 和 skill 等配置？
-- 解决上下文溢出问题
-- 增加处理 excel 还有 csv 的能力
-- 增加使用 mdbook 等 skill ？
-- 读图 和 生成图的能力
-
+- Dogent supports configuring Claude's commands, subagents, and skills;
+- Dogent supports loading Claude's plugins;
+- Dogent supports the ability to generate images;
+- Dogent supports mdbook's skill (using the capability of external skill configuration);
+- Dogent supports more excellent file templates;
+- Provide a good solution for model context overflow;

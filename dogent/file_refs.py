@@ -11,8 +11,6 @@ from typing import Iterable, List, Tuple
 class FileAttachment:
     path: Path
     sheet: str | None = None
-    kind: str | None = None
-    vision: dict[str, object] | None = None
 
 
 class FileReferenceResolver:

@@ -26,10 +26,14 @@ from .history import HistoryManager
 from .todo import TodoManager
 from .wait_indicator import LLMWaitIndicator
 from .document_tools import DOGENT_DOC_TOOL_DISPLAY_NAMES
+from .vision_tools import DOGENT_VISION_TOOL_DISPLAY_NAMES
 from .web_tools import DOGENT_WEB_TOOL_DISPLAY_NAMES
-from .vision import VisionManager, classify_media
 
-DOGENT_TOOL_DISPLAY_NAMES = {**DOGENT_WEB_TOOL_DISPLAY_NAMES, **DOGENT_DOC_TOOL_DISPLAY_NAMES}
+DOGENT_TOOL_DISPLAY_NAMES = {
+    **DOGENT_WEB_TOOL_DISPLAY_NAMES,
+    **DOGENT_DOC_TOOL_DISPLAY_NAMES,
+    **DOGENT_VISION_TOOL_DISPLAY_NAMES,
+}
 
 NEEDS_CLARIFICATION_SENTINEL = "[[DOGENT_STATUS:NEEDS_CLARIFICATION]]"
 
@@ -68,9 +72,6 @@ class AgentRunner:
         self._interrupted: bool = False
         self.last_outcome: RunOutcome | None = None
         self._wait_indicator: LLMWaitIndicator | None = None
-        self._vision_manager = (
-            VisionManager(self.config.paths, console=self.console) if self.config else None
-        )
 
     async def reset(self) -> None:
         """Close current session so it can be re-created with new settings."""
@@ -98,15 +99,12 @@ class AgentRunner:
     ) -> None:
         settings = self.config.load_settings()
         project_config = self.config.load_project_config()
-        prepared_attachments = await self._prepare_attachments(
-            list(attachments), project_config
-        )
         system_prompt = self.prompt_builder.build_system_prompt(
             settings=settings, config=project_config
         )
         user_prompt = self.prompt_builder.build_user_prompt(
             user_message,
-            prepared_attachments,
+            list(attachments),
             settings=settings,
             config=project_config,
         )
@@ -439,43 +437,6 @@ class AgentRunner:
         counts = ", ".join(f"{k}:{v}" for k, v in status_counts.items())
         return f"Todo update ({len(items)} items; {counts})"
 
-    async def _prepare_attachments(
-        self,
-        attachments: list[FileAttachment],
-        config: dict[str, object],
-    ) -> list[FileAttachment]:
-        if not attachments:
-            return []
-        if not self._vision_manager or not self.config:
-            return attachments
-        profile_name = config.get("vision_profile") if config else None
-        prepared: list[FileAttachment] = []
-        for attachment in attachments:
-            abs_path = self.config.paths.root / attachment.path
-            media_kind = classify_media(abs_path)
-            if media_kind:
-                vision = await self._vision_manager.analyze(
-                    abs_path, media_kind, str(profile_name) if profile_name else None
-                )
-                prepared.append(
-                    FileAttachment(
-                        path=attachment.path,
-                        sheet=attachment.sheet,
-                        kind=media_kind,
-                        vision=vision,
-                    )
-                )
-            else:
-                fallback = abs_path.suffix.lstrip(".").lower() or "file"
-                prepared.append(
-                    FileAttachment(
-                        path=attachment.path,
-                        sheet=attachment.sheet,
-                        kind=fallback,
-                        vision=None,
-                    )
-                )
-        return prepared
 
 
     async def _safe_disconnect(self, interrupted: bool = False) -> None:

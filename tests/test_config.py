@@ -232,6 +232,7 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("mcp__dogent__read_document", options.allowed_tools)
             self.assertIn("mcp__dogent__export_document", options.allowed_tools)
             self.assertIn("mcp__dogent__convert_document", options.allowed_tools)
+            self.assertIn("mcp__dogent__analyze_media", options.allowed_tools)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -297,6 +298,7 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("mcp__dogent__read_document", options.allowed_tools)
             self.assertIn("mcp__dogent__export_document", options.allowed_tools)
             self.assertIn("mcp__dogent__convert_document", options.allowed_tools)
+            self.assertIn("mcp__dogent__analyze_media", options.allowed_tools)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

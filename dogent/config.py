@@ -15,6 +15,7 @@ from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server
 from . import __version__
 from .document_tools import DOGENT_DOC_ALLOWED_TOOLS, create_dogent_doc_tools
 from .paths import DogentPaths
+from .vision_tools import DOGENT_VISION_ALLOWED_TOOLS, create_dogent_vision_tools
 from .web_tools import DOGENT_WEB_ALLOWED_TOOLS, create_dogent_web_tools
 
 
@@ -299,8 +300,10 @@ class ConfigManager:
         ]
         allowed_tools = [t for t in allowed_tools if t]
         allowed_tools.extend(DOGENT_DOC_ALLOWED_TOOLS)
+        allowed_tools.extend(DOGENT_VISION_ALLOWED_TOOLS)
         doc_tools = create_dogent_doc_tools(self.paths.root)
         tools = list(doc_tools)
+        tools.extend(create_dogent_vision_tools(self.paths.root, self))
         if use_custom_web:
             allowed_tools.extend(DOGENT_WEB_ALLOWED_TOOLS)
             tools.extend(
