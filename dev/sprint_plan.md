@@ -58,3 +58,19 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: Unit tests with mocked vision responses + manual prompt with media files.
+
+## Release 0.9.7
+
+### Story 0: Confirm out-of-workspace file access
+- User Value: The user explicitly approves any tool reads/writes outside the workspace.
+- Acceptance: For built-in `Read`/`Write`/`Edit` tool calls targeting paths outside the workspace, Dogent pauses mid-run and asks for confirmation; deny aborts with status `aborted` and a clear reason; allow continues the task.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit tests for permission checks + manual tool call checks.
+
+### Story 1: Confirm delete commands
+- User Value: The user explicitly approves delete operations.
+- Acceptance: For `Bash` commands starting with `rm`, `rmdir`, or `del`, Dogent asks for confirmation before execution; deny aborts with status `aborted`; allow continues.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit tests for delete parsing + manual shell command check.

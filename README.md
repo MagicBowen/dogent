@@ -7,6 +7,7 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 - System prompt + per-turn user prompt templates under `dogent/prompts/`
 - Todo panel synced to `TodoWrite` tool calls/results (no seeded todos)
 - @file references list core file metadata; the agent calls MCP tools to read content or analyze media on demand
+- Tool access confirmation for out-of-workspace reads/writes and delete commands (inline yes/no selector)
 - Supports `.dogent/dogent.md` constraints, profiles in `~/.dogent/claude.json`, and env fallbacks
 - Project-only lessons in `.dogent/lessons.md` (auto-captured after failures/interrupts; injected into prompt context)
 - Ready for packaging via `pyproject.toml` with Rich-based UI

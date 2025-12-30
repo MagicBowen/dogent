@@ -163,6 +163,12 @@ Example `~/.dogent/vision.json`:
 - Typing `/` shows live command suggestions; typing `@` offers file completions; `!<command>` runs a shell command.
 - Press `Esc` during an in-progress task to interrupt; progress is saved to `.dogent/history.json`.
 
+## Safety & Permissions (Release 0.9.7)
+- Dogent prompts for confirmation before any built-in `Read`/`Write`/`Edit` tool accesses paths outside the workspace.
+- Delete commands (`rm`, `rmdir`, `del`) require confirmation before execution.
+- Denied permissions abort the current task with an `aborted` status.
+- Prompts show inline `yes   no` choices; use left/right (or up/down) to switch and Enter to accept the default.
+
 ## Referencing Files
 - Inline `@` references attach file metadata to the prompt (path/name/type), e.g. `Review @docs/plan.md`.
 - The agent calls `mcp__dogent__read_document` for text/doc files or `mcp__dogent__analyze_media` for images/videos when it needs content.
@@ -173,7 +179,7 @@ Example `~/.dogent/vision.json`:
 
 ## Lessons (Release 0.7.0)
 - Lessons live in `.dogent/lessons.md` (project-only, user-editable) and are injected into prompt context on every new task.
-- When a run ends with `❌ Failed` or `⛔ Interrupted`, Dogent prompts on your next message: “Save a lesson… [Y/n]” (default **Y**).
+- When a run ends with `❌ Failed` or `⛔ Interrupted`, Dogent prompts on your next message with an inline yes/no selector (default **yes**).
 - Use `/learn off` to disable the automatic prompt (saved to `.dogent/dogent.json`; you can still use `/learn <text>` any time).
 
 ## Document Writing Expectations

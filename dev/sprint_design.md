@@ -120,3 +120,37 @@
 - Config tests for `vision_profile` defaults and tool registration.
 - Unit tests for attachment JSON formatting (no media content).
 - Vision manager tests with mocked responses and a tool handler test.
+
+## Release 0.9.7
+
+### Goals
+- Require explicit user confirmation before any tool reads or writes outside the workspace.
+- Require explicit confirmation before delete commands that target files (inside or outside the workspace).
+- Denied confirmations must abort the run with a clear "aborted" status and reason.
+- Treat `~/.dogent/*` as inside for permission checks.
+
+### Decisions
+- Gate only built-in tools: `Read`, `Write`, `Edit`, and `Bash`.
+- Detect delete operations only for explicit `rm`, `rmdir`, and `del` commands.
+- Use the Claude Agent SDK `PreToolUse` hook to enforce confirmations before tool execution.
+- Show an inline yes/no selector during prompts (left/right + Enter, default highlighted) to avoid full-screen dialogs.
+
+### Architecture
+- Add `dogent/tool_permissions.py` for:
+  - Parsing tool inputs and bash commands.
+  - Resolving paths and checking allowed roots.
+  - Determining whether a confirmation is required and returning a human-readable reason.
+- Extend `AgentRunner` to:
+  - Register a `PreToolUse` hook and invoke the permission prompt.
+  - Track `_aborted_reason` and render a `🛑 Aborted` summary when denied.
+- Extend `DogentCLI` to:
+  - Provide an inline yes/no selector for permission prompts and lesson capture prompts.
+  - Pause the Esc listener while prompts are active.
+
+### Failure Behavior
+- On denial: the tool call is blocked, the run ends with status `aborted`, and history records the reason.
+- On approval: the run continues normally with no other side effects.
+
+### Tests
+- Unit tests for `should_confirm_tool_use` and delete target parsing.
+- Coverage for inside/outside path checks and delete detection.

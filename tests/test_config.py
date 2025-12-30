@@ -7,6 +7,8 @@ from pathlib import Path
 
 from rich.console import Console
 
+from claude_agent_sdk import HookMatcher
+
 from dogent.config import ConfigManager
 from dogent.paths import DogentPaths
 
@@ -233,6 +235,42 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("mcp__dogent__export_document", options.allowed_tools)
             self.assertIn("mcp__dogent__convert_document", options.allowed_tools)
             self.assertIn("mcp__dogent__analyze_media", options.allowed_tools)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_build_options_uses_default_permission_mode_with_callback(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            manager = ConfigManager(paths)
+
+            def can_use_tool(*_args, **_kwargs):
+                return None
+
+            options = manager.build_options("sys", can_use_tool=can_use_tool)
+            self.assertEqual(options.permission_mode, "default")
+            self.assertIs(options.can_use_tool, can_use_tool)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_build_options_registers_hooks(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            manager = ConfigManager(paths)
+
+            async def dummy_hook(*_args, **_kwargs):
+                return {}
+
+            hooks = {"PreToolUse": [HookMatcher(matcher=None, hooks=[dummy_hook])]}
+            options = manager.build_options("sys", hooks=hooks)
+            self.assertEqual(options.hooks, hooks)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

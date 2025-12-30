@@ -23,7 +23,7 @@ class HelpAndToolDisplayTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
             console = Console(record=True, force_terminal=False, color_system=None)
-            cli = DogentCLI(root=Path(tmp), console=console)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
 
             await cli._cmd_help("/help")
 

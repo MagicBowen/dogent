@@ -15,7 +15,7 @@ class HistoryCommandTests(unittest.IsolatedAsyncioTestCase):
             os.environ["HOME"] = tmp_home
             root = Path(tmp)
             console = Console(record=True, force_terminal=False, color_system=None)
-            cli = DogentCLI(root=root, console=console)
+            cli = DogentCLI(root=root, console=console, interactive_prompts=False)
 
             entries = [
                 {
@@ -49,7 +49,7 @@ class HistoryCommandTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
             console = Console(record=True, force_terminal=False, color_system=None)
-            cli = DogentCLI(root=Path(tmp), console=console)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
             self.assertEqual("🟢", cli._status_icon("started"))  # type: ignore[attr-defined]
             self.assertEqual("❓", cli._status_icon("needs_clarification"))  # type: ignore[attr-defined]
         if original_home is not None:

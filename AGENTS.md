@@ -44,7 +44,7 @@
 ## Process & Quality Requirements
 - All functions must have automated tests; extend `tests/` alongside new code.
 - After receiving the user's update to dev/requirements.md requesting the implementation of specified release requirements, first analyze and conduct preliminary design of the requirements. 
-- The design results can be archived by release in `dev/sprint_design.md`. If there are contradictions or unclear points, it is necessary to clarify with the user before continuing to revise the design. 
-- Once the design is confirmed to be problem-free, split the requirements into user stories with end-to-end value that can be independently accepted, sort them according to dependency order, and record them by release in `dev/sprint_plan.md`. 
-- After finishing each story, design user acceptance test cases for each user story (guiding users to conduct manual step-by-step testing and acceptance in the sample directory, as well as updating acceptance results and identified issues in uat_plan.md), and write them into `dev/uat_plan.md` by release.
+- The design results can be append to `dev/sprint_design.md` by release. If there are contradictions or unclear points, it is necessary to clarify with the user before continuing to revise the design. 
+- Once the design is confirmed to be problem-free, split the requirements into user stories with end-to-end value that can be independently accepted, sort them according to dependency order, and append them to `dev/sprint_plan.md`  by release. 
+- After finishing each story, design user acceptance test cases for each user story (guiding users to conduct manual step-by-step testing and acceptance in the sample directory, as well as updating acceptance results and identified issues in uat_plan.md), and append them to `dev/uat_plan.md` by release.
 - Keep `dev/sprint_plan.md` updated with development and acceptance status; work stories sequentially and fix per user acceptance feedback.

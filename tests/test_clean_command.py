@@ -16,7 +16,7 @@ class CleanCommandTests(unittest.IsolatedAsyncioTestCase):
             os.environ["HOME"] = tmp_home
             root = Path(tmp)
             console = Console(record=True, force_terminal=False, color_system=None)
-            cli = DogentCLI(root=root, console=console)
+            cli = DogentCLI(root=root, console=console, interactive_prompts=False)
 
             cli.history_manager._write_entries(  # type: ignore[attr-defined]
                 [{"summary": "old entry", "status": "completed"}]
@@ -44,7 +44,7 @@ class CleanCommandTests(unittest.IsolatedAsyncioTestCase):
             os.environ["HOME"] = tmp_home
             root = Path(tmp)
             console = Console(record=True, force_terminal=False, color_system=None)
-            cli = DogentCLI(root=root, console=console)
+            cli = DogentCLI(root=root, console=console, interactive_prompts=False)
             cli.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
             cli.history_manager._write_entries(  # type: ignore[attr-defined]
                 [{"summary": "old entry", "status": "completed"}]
@@ -83,4 +83,3 @@ class CleanCommandTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

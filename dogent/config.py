@@ -274,7 +274,14 @@ class ConfigManager:
             normalized["vision_profile"] = "glm-4.6v"
         return normalized
 
-    def build_options(self, system_prompt: str) -> ClaudeAgentOptions:
+    def build_options(
+        self,
+        system_prompt: str,
+        *,
+        can_use_tool=None,
+        hooks=None,
+        permission_mode: str | None = None,
+    ) -> ClaudeAgentOptions:
         """Construct ClaudeAgentOptions for this workspace."""
         settings = self.load_settings()
         env = self._build_env(settings)
@@ -329,16 +336,22 @@ class ConfigManager:
             else None
         )
 
+        resolved_permission_mode = permission_mode
+        if resolved_permission_mode is None:
+            resolved_permission_mode = "default" if can_use_tool else "acceptEdits"
+
         options = ClaudeAgentOptions(
             system_prompt=system_prompt,
             cwd=str(self.paths.root),
             model=settings.model,
             fallback_model=fallback_model,
-            permission_mode="acceptEdits",
+            permission_mode=resolved_permission_mode,
             allowed_tools=allowed_tools,
             add_dirs=add_dirs,
             env=env,
             mcp_servers=mcp_servers,
+            can_use_tool=can_use_tool,
+            hooks=hooks,
         )
         return options
 

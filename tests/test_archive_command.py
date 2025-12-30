@@ -16,7 +16,7 @@ class ArchiveCommandTests(unittest.IsolatedAsyncioTestCase):
             os.environ["HOME"] = tmp_home
             root = Path(tmp)
             console = Console(record=True, force_terminal=False, color_system=None)
-            cli = DogentCLI(root=root, console=console)
+            cli = DogentCLI(root=root, console=console, interactive_prompts=False)
 
             entries = [{"summary": "old entry", "status": "completed"}]
             cli.history_manager._write_entries(entries)  # type: ignore[attr-defined]
@@ -42,7 +42,7 @@ class ArchiveCommandTests(unittest.IsolatedAsyncioTestCase):
             os.environ["HOME"] = tmp_home
             root = Path(tmp)
             console = Console(record=True, force_terminal=False, color_system=None)
-            cli = DogentCLI(root=root, console=console)
+            cli = DogentCLI(root=root, console=console, interactive_prompts=False)
 
             lessons_content = "# Lessons\n\n## L1\n\nNote\n"
             cli.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
@@ -70,7 +70,7 @@ class ArchiveCommandTests(unittest.IsolatedAsyncioTestCase):
             os.environ["HOME"] = tmp_home
             root = Path(tmp)
             console = Console(record=True, force_terminal=False, color_system=None)
-            cli = DogentCLI(root=root, console=console)
+            cli = DogentCLI(root=root, console=console, interactive_prompts=False)
 
             cli.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
             cli.paths.lessons_file.write_text("# Lessons\n\n", encoding="utf-8")
