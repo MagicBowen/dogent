@@ -69,3 +69,27 @@ User Test Results: PASS
 7) Expect: request fails fast with a clear, user-friendly message indicating the vision profile/config is invalid.
 
 User Test Results: PASS
+
+## Release 0.9.7
+
+### Story 0 - Confirm out-of-workspace file access
+1) From `sample/`, start `dogent`.
+2) Prompt: `Please read /etc/hosts and summarize it.`
+3) Expect: a permission prompt appears requesting confirmation for an outside-path read.
+4) Choose `n`.
+5) Expect: task aborts with status `aborted` and a clear reason.
+6) Prompt again and choose `y`.
+7) Expect: task proceeds and reads the file.
+
+User Test Results: PASS
+
+### Story 1 - Confirm delete commands
+1) From `sample/`, start `dogent`.
+2) Prompt: `Run the bash command rm -f temp.txt.`
+3) Expect: a permission prompt appears for the delete command.
+4) Choose `n`.
+5) Expect: task aborts with status `aborted`.
+6) Prompt again and choose `y`.
+7) Expect: command runs and the file is deleted if it exists.
+
+User Test Results: PASS

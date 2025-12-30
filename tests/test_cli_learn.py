@@ -29,7 +29,12 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
-            cli = DogentCLI(root=Path(tmp), console=console, lesson_drafter=FakeLessonDrafter())
+            cli = DogentCLI(
+                root=Path(tmp),
+                console=console,
+                lesson_drafter=FakeLessonDrafter(),
+                interactive_prompts=False,
+            )
 
             await cli._handle_command("/learn off")
             self.assertFalse(cli.auto_learn_enabled)
@@ -49,7 +54,12 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
             root = Path(tmp)
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
             drafter = FakeLessonDrafter()
-            cli = DogentCLI(root=root, console=console, lesson_drafter=drafter)
+            cli = DogentCLI(
+                root=root,
+                console=console,
+                lesson_drafter=drafter,
+                interactive_prompts=False,
+            )
 
             await cli._handle_command("/learn use pathlib for paths")
             self.assertTrue(cli.paths.lessons_file.exists())
@@ -69,7 +79,12 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
             root = Path(tmp)
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
             drafter = FakeLessonDrafter()
-            cli = DogentCLI(root=root, console=console, lesson_drafter=drafter)
+            cli = DogentCLI(
+                root=root,
+                console=console,
+                lesson_drafter=drafter,
+                interactive_prompts=False,
+            )
             cli._armed_incident = LessonIncident(
                 status="error",
                 summary="boom",
@@ -91,14 +106,24 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
             os.environ["HOME"] = tmp_home
             root = Path(tmp)
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
-            cli = DogentCLI(root=root, console=console, lesson_drafter=FakeLessonDrafter())
+            cli = DogentCLI(
+                root=root,
+                console=console,
+                lesson_drafter=FakeLessonDrafter(),
+                interactive_prompts=False,
+            )
 
             await cli._handle_command("/learn off")
             self.assertFalse(cli.auto_learn_enabled)
             cfg = cli.paths.config_file.read_text(encoding="utf-8")
             self.assertIn('"learn_auto": false', cfg.lower())
 
-            cli2 = DogentCLI(root=root, console=console, lesson_drafter=FakeLessonDrafter())
+            cli2 = DogentCLI(
+                root=root,
+                console=console,
+                lesson_drafter=FakeLessonDrafter(),
+                interactive_prompts=False,
+            )
             self.assertFalse(cli2.auto_learn_enabled)
 
         if original_home is not None:
@@ -112,7 +137,12 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
             os.environ["HOME"] = tmp_home
             root = Path(tmp)
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
-            cli = DogentCLI(root=root, console=console, lesson_drafter=FakeLessonDrafter())
+            cli = DogentCLI(
+                root=root,
+                console=console,
+                lesson_drafter=FakeLessonDrafter(),
+                interactive_prompts=False,
+            )
 
             await cli._handle_command("/learn off")
             await cli._handle_command("/init")

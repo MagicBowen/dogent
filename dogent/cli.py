@@ -6,6 +6,7 @@ import select
 import sys
 import termios
 import threading
+import time
 import tty
 from contextlib import suppress
 from datetime import datetime
@@ -34,15 +35,26 @@ from .todo import TodoManager
 
 try:
     from prompt_toolkit import PromptSession
+    from prompt_toolkit.application import Application
     from prompt_toolkit.completion import Completer, Completion
     from prompt_toolkit.document import Document
     from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.layout import Layout
+    from prompt_toolkit.layout.containers import Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.styles import Style
     from prompt_toolkit.utils import get_cwidth
 except ImportError:  # pragma: no cover - optional dependency
     PromptSession = None  # type: ignore
+    Application = None  # type: ignore
     Completer = object  # type: ignore
     Completion = object  # type: ignore
     Document = object  # type: ignore
+    KeyBindings = None  # type: ignore
+    Layout = None  # type: ignore
+    Window = None  # type: ignore
+    FormattedTextControl = None  # type: ignore
+    Style = None  # type: ignore
     get_cwidth = None  # type: ignore
 
 
@@ -238,6 +250,7 @@ class DogentCLI:
         console: Console | None = None,
         *,
         lesson_drafter: LessonDrafter | None = None,
+        interactive_prompts: bool = True,
     ) -> None:
         self.console = console or Console()
         self.root = root or Path.cwd()
@@ -259,12 +272,15 @@ class DogentCLI:
         self.prompt_builder = PromptBuilder(
             self.paths, self.todo_manager, self.history_manager, console=self.console
         )
+        self._permission_prompt_active = threading.Event()
+        self._interactive_prompts = interactive_prompts
         self.agent = AgentRunner(
             config=self.config_manager,
             prompt_builder=self.prompt_builder,
             todo_manager=self.todo_manager,
             history=self.history_manager,
             console=self.console,
+            permission_prompt=self._prompt_tool_permission,
         )
         self.lesson_drafter: LessonDrafter = lesson_drafter or ClaudeLessonDrafter(
             config=self.config_manager,
@@ -404,6 +420,8 @@ class DogentCLI:
         fast_model = settings.small_model or "<not set>"
         base_url = settings.base_url or "<not set>"
         web_label = settings.web_profile or "default (native)"
+        project_cfg = self.config_manager.load_project_config()
+        vision_profile = project_cfg.get("vision_profile", "glm-4.6v") or "<not set>"
         commands = ", ".join(self.registry.names()) or "No commands registered"
         helper_lines = [
             f"Model: {model}",
@@ -411,8 +429,10 @@ class DogentCLI:
             f"API: {base_url}",
             f"LLM Profile: {settings.profile or '<not set>'}",
             f"Web Profile: {web_label}",
+            f"Vision Profile: {vision_profile}",
             f"Commands: {commands}",
-            "Esc interrupts current task • Alt/Option+Enter inserts a newline • Ctrl+C exits cleanly",
+            "Shortcuts: Esc interrupt • Alt/Option+Enter newline • Alt/Option+Backspace delete word",
+            "Ctrl+C exit • !<command> run shell command in workspace",
         ]
         body = Align.center(art.strip("\n"))
         helper = Align.center("\n".join(helper_lines))
@@ -567,6 +587,147 @@ class DogentCLI:
         if not response:
             return False
         return response in {"y", "yes"}
+
+    async def _prompt_tool_permission(self, title: str, message: str) -> bool:
+        return await self._prompt_yes_no(
+            title=title,
+            message=message,
+            prompt="Allow? [y/N] ",
+            default=False,
+            show_panel=True,
+        )
+
+    async def _prompt_yes_no(
+        self,
+        *,
+        title: str,
+        message: str,
+        prompt: str,
+        default: bool,
+        show_panel: bool,
+    ) -> bool:
+        self._permission_prompt_active.set()
+        try:
+            if show_panel and message:
+                self.console.print(Panel(message, title=title, border_style="yellow"))
+            if self._can_use_inline_choice():
+                prompt_text = self._clean_yes_no_prompt(prompt)
+                return await self._prompt_yes_no_inline(prompt_text, default)
+            return await self._prompt_yes_no_text(prompt, default)
+        finally:
+            self._permission_prompt_active.clear()
+
+    def _can_use_inline_choice(self) -> bool:
+        if not self._interactive_prompts:
+            return False
+        if (
+            Application is None
+            or FormattedTextControl is None
+            or Layout is None
+            or Window is None
+            or KeyBindings is None
+            or Style is None
+        ):
+            return False
+        return sys.stdin.isatty() and sys.stdout.isatty()
+
+    def _clean_yes_no_prompt(self, prompt: str) -> str:
+        cleaned = prompt.replace("[y/N]", "").replace("[Y/n]", "")
+        cleaned = cleaned.replace("[Y/N]", "").replace("[y/n]", "")
+        return cleaned.strip()
+
+    async def _prompt_yes_no_inline(self, prompt_text: str, default: bool) -> bool:
+        selection = "yes" if default else "no"
+        prefix = "dogent> "
+        spacing = "   "
+
+        def _fragments():
+            yes_style = "class:selected" if selection == "yes" else "class:choice"
+            no_style = "class:selected" if selection == "no" else "class:choice"
+            text_parts = [
+                ("class:prompt", prefix),
+            ]
+            if prompt_text:
+                text_parts.append(("class:prompt", f"{prompt_text} "))
+            text_parts.extend(
+                [
+                    (yes_style, "yes"),
+                    ("", spacing),
+                    (no_style, "no"),
+                ]
+            )
+            return text_parts
+
+        control = FormattedTextControl(_fragments, focusable=True, show_cursor=False)
+        window = Window(control, height=1, dont_extend_height=True)
+        layout = Layout(window, focused_element=window)
+        bindings = KeyBindings()
+
+        @bindings.add("left")
+        @bindings.add("up")
+        def _select_yes(event) -> None:  # type: ignore[no-untyped-def]
+            nonlocal selection
+            selection = "yes"
+            event.app.invalidate()
+
+        @bindings.add("right")
+        @bindings.add("down")
+        def _select_no(event) -> None:  # type: ignore[no-untyped-def]
+            nonlocal selection
+            selection = "no"
+            event.app.invalidate()
+
+        @bindings.add("enter")
+        def _accept(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=selection)
+
+        @bindings.add("escape")
+        def _cancel(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result="yes" if default else "no")
+
+        @bindings.add("y")
+        @bindings.add("Y")
+        def _yes(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result="yes")
+
+        @bindings.add("n")
+        def _no(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result="no")
+
+        @bindings.add("c-c")
+        def _cancel_sigint(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result="yes" if default else "no")
+
+        style = Style.from_dict(
+            {
+                "prompt": "",
+                "choice": "",
+                "selected": "underline",
+            }
+        )
+        app = Application(
+            layout=layout,
+            key_bindings=bindings,
+            mouse_support=True,
+            full_screen=False,
+            style=style,
+        )
+        result = await app.run_async()
+        return result == "yes"
+
+    async def _prompt_yes_no_text(self, prompt: str, default: bool) -> bool:
+        try:
+            response_raw = await self._read_input(prompt=prompt)
+        except (EOFError, KeyboardInterrupt):
+            return default
+        response = (response_raw or "").strip().lower()
+        if not response:
+            return default
+        if response.startswith("y"):
+            return True
+        if response.startswith("n"):
+            return False
+        return default
 
     async def _cmd_learn(self, command: str) -> bool:
         parts = command.split(maxsplit=1)
@@ -884,6 +1045,8 @@ class DogentCLI:
 
     async def _cmd_help(self, _: str) -> bool:
         settings = self.config_manager.load_settings()
+        project_cfg = self.config_manager.load_project_config()
+        vision_profile = project_cfg.get("vision_profile", "glm-4.6v") or "<not set>"
         commands = "\n".join(self.registry.descriptions()) or "No commands registered"
         body = "\n".join(
             [
@@ -892,6 +1055,7 @@ class DogentCLI:
                 f"API: {settings.base_url or '<not set>'}",
                 f"LLM Profile: {settings.profile or '<not set>'}",
                 f"Web Profile: {settings.web_profile or 'default (native)'}",
+                f"Vision Profile: {vision_profile}",
                 "",
                 "Commands:",
                 commands,
@@ -899,6 +1063,7 @@ class DogentCLI:
                 "Shortcuts:",
                 "- Esc: interrupt current task",
                 "- Alt/Option+Enter: insert newline",
+                "- Alt/Option+Backspace: delete word",
                 "- Ctrl+C: exit gracefully",
                 "- !<command>: run a shell command in the workspace",
             ]
@@ -996,8 +1161,13 @@ class DogentCLI:
             return False
         try:
             while not stop_event.is_set():
+                if self._permission_prompt_active.is_set():
+                    time.sleep(0.05)
+                    continue
                 rlist, _, _ = select.select([fd], [], [], 0.2)
                 if not rlist:
+                    continue
+                if self._permission_prompt_active.is_set():
                     continue
                 ch = sys.stdin.read(1)
                 if ch == "\x1b":
@@ -1156,6 +1326,7 @@ class DogentCLI:
             "interrupted": "⛔",
             "completed": "✅",
             "error": "❌",
+            "aborted": "🛑",
             "needs_clarification": "❓",
             "needs clarification": "❓",
         }
@@ -1180,15 +1351,13 @@ class DogentCLI:
         )
 
     async def _confirm_save_lesson(self) -> bool:
-        answer = (await self._read_input("Save a lesson from the last failure/interrupt? [Y/n] ")).strip()
-        if not answer:
-            return True
-        lowered = answer.lower()
-        if lowered.startswith("y"):
-            return True
-        if lowered.startswith("n"):
-            return False
-        return True
+        return await self._prompt_yes_no(
+            title="Save lesson?",
+            message="Save a lesson from the last failure/interrupt?",
+            prompt="Save a lesson from the last failure/interrupt? [Y/n] ",
+            default=True,
+            show_panel=False,
+        )
 
     async def _draft_lesson(self, incident: LessonIncident | None, user_text: str) -> str:
         try:

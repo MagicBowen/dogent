@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Dict, Iterable, Optional
+from typing import Awaitable, Callable, Dict, Iterable, Optional
 
 from rich.console import Console
 from rich.panel import Panel
@@ -17,6 +17,10 @@ from claude_agent_sdk import (
     ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
+    HookContext,
+    HookInput,
+    HookJSONOutput,
+    HookMatcher,
 )
 
 from .config import ConfigManager
@@ -28,6 +32,7 @@ from .wait_indicator import LLMWaitIndicator
 from .document_tools import DOGENT_DOC_TOOL_DISPLAY_NAMES
 from .vision_tools import DOGENT_VISION_TOOL_DISPLAY_NAMES
 from .web_tools import DOGENT_WEB_TOOL_DISPLAY_NAMES
+from .tool_permissions import should_confirm_tool_use
 
 DOGENT_TOOL_DISPLAY_NAMES = {
     **DOGENT_WEB_TOOL_DISPLAY_NAMES,
@@ -40,7 +45,7 @@ NEEDS_CLARIFICATION_SENTINEL = "[[DOGENT_STATUS:NEEDS_CLARIFICATION]]"
 
 @dataclass(frozen=True)
 class RunOutcome:
-    status: str  # completed|error|interrupted|needs_clarification
+    status: str  # completed|error|interrupted|needs_clarification|aborted
     summary: str
     todos_snapshot: list[dict[str, object]]
     remaining_todos_markdown: str
@@ -56,6 +61,8 @@ class AgentRunner:
         todo_manager: TodoManager,
         history: HistoryManager,
         console: Optional[Console] = None,
+        *,
+        permission_prompt: Optional[Callable[[str, str], Awaitable[bool]]] = None,
     ) -> None:
         self.config = config
         self.prompt_builder = prompt_builder
@@ -72,6 +79,9 @@ class AgentRunner:
         self._interrupted: bool = False
         self.last_outcome: RunOutcome | None = None
         self._wait_indicator: LLMWaitIndicator | None = None
+        self._permission_prompt = permission_prompt
+        self._aborted_reason: str | None = None
+        self._abort_requested = False
 
     async def reset(self) -> None:
         """Close current session so it can be re-created with new settings."""
@@ -113,6 +123,8 @@ class AgentRunner:
         self._needs_clarification = False
         self._interrupted = False
         self.last_outcome = None
+        self._aborted_reason = None
+        self._abort_requested = False
         preview = self._shorten(user_message, limit=240)
         self.console.print(
             Panel(
@@ -132,7 +144,14 @@ class AgentRunner:
             await self._start_wait_indicator()
             async with self._lock:
                 if self._client is None:
-                    options = self.config.build_options(system_prompt)
+                    hooks = None
+                    if self._permission_prompt is not None:
+                        hooks = {
+                            "PreToolUse": [
+                                HookMatcher(matcher=None, hooks=[self._pre_tool_use_hook])
+                            ]
+                        }
+                    options = self.config.build_options(system_prompt, hooks=hooks)
                     self._client = ClaudeSDKClient(options=options)
                     await self._client.connect()
                 else:
@@ -144,53 +163,61 @@ class AgentRunner:
             await self._safe_disconnect()
         except Exception as exc:  # noqa: BLE001
             await self._stop_wait_indicator()
-            todos_snapshot = self.todo_manager.export_items()
-            remaining = self.todo_manager.remaining_markdown()
-            self.last_outcome = RunOutcome(
-                status="error",
-                summary=str(exc),
-                todos_snapshot=todos_snapshot,
-                remaining_todos_markdown=remaining,
-            )
-            body_lines = [
-                f"Reason: {exc}",
-                "",
-                "Remaining Todos:" if remaining else "Remaining Todos: (none)",
-                remaining,
-            ]
-            self.console.print(
-                Panel(
-                    Text("\n".join(line for line in body_lines if line).strip()),
-                    title="❌ Failed",
-                    border_style="red",
+            if self._aborted_reason:
+                self._finalize_aborted()
+            else:
+                todos_snapshot = self.todo_manager.export_items()
+                remaining = self.todo_manager.remaining_markdown()
+                self.last_outcome = RunOutcome(
+                    status="error",
+                    summary=str(exc),
+                    todos_snapshot=todos_snapshot,
+                    remaining_todos_markdown=remaining,
                 )
-            )
+                body_lines = [
+                    f"Reason: {exc}",
+                    "",
+                    "Remaining Todos:" if remaining else "Remaining Todos: (none)",
+                    remaining,
+                ]
+                self.console.print(
+                    Panel(
+                        Text("\n".join(line for line in body_lines if line).strip()),
+                        title="❌ Failed",
+                        border_style="red",
+                    )
+                )
+                self.history.append(
+                    summary=f"Session error: {exc}",
+                    status="error",
+                    prompt=None,
+                    todos=todos_snapshot,  # type: ignore[arg-type]
+                )
             await self._safe_disconnect()
-            self.history.append(
-                summary=f"Session error: {exc}",
-                status="error",
-                prompt=None,
-                todos=todos_snapshot,  # type: ignore[arg-type]
-            )
         finally:
             await self._stop_wait_indicator()
 
     async def _stream_responses(self) -> None:
         if not self._client:
             return
+        saw_result = False
         await self._start_wait_indicator()
         async for message in self._client.receive_response():
             if self._interrupted:
                 break
             await self._stop_wait_indicator()
             if isinstance(message, AssistantMessage):
-                self._handle_assistant_message(message)
+                if not self._abort_requested:
+                    self._handle_assistant_message(message)
             elif isinstance(message, ResultMessage):
                 if not self._interrupted:
                     self._handle_result(message)
+                saw_result = True
                 break
             if not self._interrupted:
                 await self._start_wait_indicator()
+        if not saw_result and self._aborted_reason and not self._interrupted:
+            self._finalize_aborted()
 
     async def interrupt(self, reason: str) -> None:
         async with self._lock:
@@ -223,6 +250,36 @@ class AgentRunner:
                 prompt=None,
                 todos=todos_snapshot,  # type: ignore[arg-type]
             )
+
+    def _finalize_aborted(self) -> None:
+        reason = self._aborted_reason or "Aborted."
+        todos_snapshot = self.todo_manager.export_items()
+        remaining = self.todo_manager.remaining_markdown()
+        self.last_outcome = RunOutcome(
+            status="aborted",
+            summary=reason,
+            todos_snapshot=todos_snapshot,
+            remaining_todos_markdown=remaining,
+        )
+        body_lines = [
+            reason,
+            "",
+            "Remaining Todos:" if remaining else "Remaining Todos: (none)",
+            remaining,
+        ]
+        self.console.print(
+            Panel(
+                Text("\n".join(line for line in body_lines if line).strip()),
+                title="🛑 Aborted",
+                border_style="yellow",
+            )
+        )
+        self.history.append(
+            summary=reason,
+            status="aborted",
+            prompt=None,
+            todos=todos_snapshot,  # type: ignore[arg-type]
+        )
 
     def _handle_assistant_message(self, message: AssistantMessage) -> None:
         reply_parts: list[str] = []
@@ -283,7 +340,19 @@ class AgentRunner:
         result_text = message.result or ""
         self._last_summary = result_text or None
 
-        if is_error:
+        if self._aborted_reason:
+            title = "🛑 Aborted"
+            status = "aborted"
+            body_lines = [
+                self._aborted_reason,
+                "",
+                "Remaining Todos:" if remaining else "Remaining Todos: (none)",
+                remaining,
+                "",
+                metrics,
+            ]
+            history_summary = self._aborted_reason
+        elif is_error:
             title = "❌ Failed"
             status = "error"
             body_lines = [
@@ -437,8 +506,6 @@ class AgentRunner:
         counts = ", ".join(f"{k}:{v}" for k, v in status_counts.items())
         return f"Todo update ({len(items)} items; {counts})"
 
-
-
     async def _safe_disconnect(self, interrupted: bool = False) -> None:
         if not self._client:
             return
@@ -475,3 +542,58 @@ class AgentRunner:
             else:
                 lines.append(line)
         return "\n".join(lines).strip(), found
+
+    async def _pre_tool_use_hook(
+        self,
+        input_data: HookInput,
+        tool_use_id: str | None,
+        context: HookContext,
+    ) -> HookJSONOutput:
+        if not self.config:
+            return {}
+        tool_name = input_data.get("tool_name")
+        tool_input = input_data.get("tool_input")
+        if not tool_name or not isinstance(tool_input, dict):
+            return {}
+        if self._abort_requested and self._aborted_reason:
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": self._aborted_reason,
+                }
+            }
+        allowed_roots = [
+            self.config.paths.root.resolve(),
+            self.config.paths.global_dir.resolve(),
+        ]
+        needs_confirm, reason = should_confirm_tool_use(
+            tool_name, tool_input, cwd=self.config.paths.root, allowed_roots=allowed_roots
+        )
+        if not needs_confirm:
+            return {}
+        if await self._request_permission(tool_name, reason):
+            return {}
+        self._aborted_reason = f"User denied permission: {reason}"
+        self._abort_requested = True
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": self._aborted_reason,
+            }
+        }
+
+    async def _request_permission(self, tool_name: str, reason: str) -> bool:
+        if not self._permission_prompt:
+            return False
+        was_running = self._wait_indicator is not None
+        if was_running:
+            await self._stop_wait_indicator()
+        try:
+            title = f"Permission required: {tool_name}"
+            body = reason
+            return await self._permission_prompt(title, body)
+        finally:
+            if was_running:
+                await self._start_wait_indicator()

@@ -165,6 +165,39 @@ class AgentDisplayTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_finalize_aborted_records_status(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            todo = TodoManager(console=console)
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo, history)
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=builder,
+                todo_manager=todo,
+                history=history,
+                console=console,
+            )
+
+            runner._aborted_reason = "User denied permission: Read path outside workspace."
+            runner._finalize_aborted()
+
+            self.assertIsNotNone(runner.last_outcome)
+            assert runner.last_outcome
+            self.assertEqual(runner.last_outcome.status, "aborted")
+            output = console.file.getvalue()
+            self.assertIn("Aborted", output)
+            entries = history.read_entries()
+            self.assertEqual(entries[-1]["status"], "aborted")
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
 
 if __name__ == "__main__":
     unittest.main()
