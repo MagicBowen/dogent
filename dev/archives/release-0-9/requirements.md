@@ -276,3 +276,22 @@ Users must be able to add incremental, project-specific customization and supple
 
 - Add an `/archive` subcommand that accepts a parameter (`history|lessons|all`, default is `all`) to archive relevant record files in the `.dogent` directory of the current working directory. The archived files will be stored in the `.dogent/archives` directory under the current working directory, named in the format `history_YYYYMMDD_HHMMSS.json`. After archiving, the corresponding history or lessons file will be cleared to facilitate new work for the user.
 - Bug fix: When the user inputs a long Chinese content that causes line wrapping due to terminal width limitations, pressing the up and down keys for cursor movement results in either the cursor not moving or the cursor position becoming disordered. This issue needs to be fixed to ensure that the cursor moves correctly when inputting long Chinese content.
+
+
+## Release 0.9.5
+
+- I hope that dogent can handle pdf / docx / xlsx files. This includes correctly reading the content in these types of files if the user references them using `@` (for now, pdf files can only support text-based PDFs; for other unsupported pdf file types, after detection and identification, it is necessary to return a failure to the user and clearly inform them of the reason).
+- I hope that if the user specifies the output type of the document as a pdf or docx file, then dogent can correctly generate pdf and docx files.
+- The document(PDF/DOCX) reading and generation can be referred to `dev/spikes/doc_convert.md` and examples in `claude-agent/sdk/skills/skills/pdf/*`、`claude-agent/sdk/skills/skills/docx/*` and `claude-agent/sdk/skills/skills/xlsx/*`, You need to synthesize the characteristics of dogent based on these examples and provide me with the best design solution choice.
+- when I told agent to "convert a docx file to markdown file and extract all images in specified path", the agent used the `pandoc` app execute the task (`pandoc "src.docx" -t markdown -o "dst.md" --extract-media=./images`)，This depends on the user's machine app install state. I hope to build the file format conversion capability into dogent. Therefore, please check if this can be done using Python itself, such as with the help of pypandoc. Can we create an mcp specifically for converting between docx, pdf, and markdown?
+
+## Release 0.9.6
+
+- I hope that dogent cann handle off images or video files. if the user references images or vidios using `@`, dogent can post the image/video  to a configured vision llm to get the content details and add the content in the user prompt so that the writting LLM can understand the detailed content in the images/videos. 
+- You can refer `dogent/dev/spikes/GLM-4V-Vision-Model-Research-Report.md`，user can select different vision model by dogent.json(maybe the vision profiles in ~/.dogent)
+
+## Release 0.9.7
+
+- Monitor the tool usage of the Agent. If it is found that the agent accesses files outside the working path (whether reading or writing) or deletes files within the working path, it is necessary to confirm with the user first (the original task of the claude agent client should not be interrupted). If the user agrees, continue the task; otherwise, exit the task (shows task abort and reason to user).
+
+
