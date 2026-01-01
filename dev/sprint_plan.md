@@ -59,19 +59,19 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - User Value: Users can customize PDF output styling globally and override it per workspace.
 - Acceptance: Default PDF CSS is installed to `~/.dogent/pdf_style.css` on first run; `.dogent/pdf_style.css` overrides global when present; PDF export applies the resolved CSS; unreadable style files fall back with a warning.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Done
 - Verification: Unit tests for style resolution and warnings; manual PDF export check.
 
 ### Story 2: Template Override in User Prompt
 - User Value: Users can temporarily select a writing template with `@@` and have it applied explicitly for that request.
 - Acceptance: When `@@<template>` is used, the system prompt does not include the template content; the user prompt includes a separate "Template Remark" section with the selected template content; the system prompt instructs to prioritize that remark over `.dogent.json`/`.dogent.md`.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Done
 - Verification: Unit tests for prompt rendering and override flow.
 
 ### Story 3: Graceful Exit Without Pipe Errors
 - User Value: `/exit` closes Dogent cleanly without terminal pipe errors.
 - Acceptance: Running `/exit` exits the CLI without raising `EPIPE` or other write errors.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Done
 - Verification: Manual `/exit` check in a terminal and in a piped environment.
