@@ -17,10 +17,9 @@ from claude_agent_sdk import (
     ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
-    HookContext,
-    HookInput,
-    HookJSONOutput,
-    HookMatcher,
+    PermissionResultAllow,
+    PermissionResultDeny,
+    ToolPermissionContext,
 )
 
 from .config import ConfigManager
@@ -33,6 +32,12 @@ from .document_tools import DOGENT_DOC_TOOL_DISPLAY_NAMES
 from .vision_tools import DOGENT_VISION_TOOL_DISPLAY_NAMES
 from .web_tools import DOGENT_WEB_TOOL_DISPLAY_NAMES
 from .tool_permissions import should_confirm_tool_use
+from .clarification import (
+    ClarificationPayload,
+    CLARIFICATION_JSON_TAG,
+    extract_clarification_payload,
+    has_clarification_tag,
+)
 
 DOGENT_TOOL_DISPLAY_NAMES = {
     **DOGENT_WEB_TOOL_DISPLAY_NAMES,
@@ -82,6 +87,7 @@ class AgentRunner:
         self._permission_prompt = permission_prompt
         self._aborted_reason: str | None = None
         self._abort_requested = False
+        self._clarification_payload: ClarificationPayload | None = None
 
     async def reset(self) -> None:
         """Close current session so it can be re-created with new settings."""
@@ -101,6 +107,11 @@ class AgentRunner:
         async with self._lock:
             if self._client:
                 self._client.options.system_prompt = system_prompt
+
+    def pop_clarification_payload(self) -> ClarificationPayload | None:
+        payload = self._clarification_payload
+        self._clarification_payload = None
+        return payload
 
     async def send_message(
         self,
@@ -130,7 +141,12 @@ class AgentRunner:
         self.last_outcome = None
         self._aborted_reason = None
         self._abort_requested = False
-        preview = self._shorten(user_message, limit=240)
+        self._clarification_payload = None
+        preview = (
+            user_message
+            if self._is_clarification_answers(user_message)
+            else self._shorten(user_message, limit=240)
+        )
         self.console.print(
             Panel(
                 f"Received request:\n{preview}",
@@ -141,7 +157,7 @@ class AgentRunner:
         self.history.append(
             summary="User request",
             status="started",
-            prompt=user_message,
+            prompt=user_prompt,
             todos=self.todo_manager.export_items(),
         )
 
@@ -149,14 +165,10 @@ class AgentRunner:
             await self._start_wait_indicator()
             async with self._lock:
                 if self._client is None:
-                    hooks = None
+                    can_use_tool = None
                     if self._permission_prompt is not None:
-                        hooks = {
-                            "PreToolUse": [
-                                HookMatcher(matcher=None, hooks=[self._pre_tool_use_hook])
-                            ]
-                        }
-                    options = self.config.build_options(system_prompt, hooks=hooks)
+                        can_use_tool = self._can_use_tool
+                    options = self.config.build_options(system_prompt, can_use_tool=can_use_tool)
                     self._client = ClaudeSDKClient(options=options)
                     await self._client.connect()
                 else:
@@ -165,7 +177,8 @@ class AgentRunner:
                 await self._client.query(user_prompt)
 
             await self._stream_responses()
-            await self._safe_disconnect()
+            if not self._needs_clarification:
+                await self._safe_disconnect()
         except Exception as exc:  # noqa: BLE001
             await self._stop_wait_indicator()
             if self._aborted_reason:
@@ -202,6 +215,12 @@ class AgentRunner:
         finally:
             await self._stop_wait_indicator()
 
+    async def abort(self, reason: str) -> None:
+        async with self._lock:
+            self._aborted_reason = reason
+            await self._safe_disconnect()
+            self._finalize_aborted()
+
     async def _stream_responses(self) -> None:
         if not self._client:
             return
@@ -214,6 +233,10 @@ class AgentRunner:
             if isinstance(message, AssistantMessage):
                 if not self._abort_requested:
                     self._handle_assistant_message(message)
+                if self._needs_clarification and self._client:
+                    with suppress(Exception):
+                        await self._client.interrupt()
+                    break
             elif isinstance(message, ResultMessage):
                 if not self._interrupted:
                     self._handle_result(message)
@@ -287,16 +310,11 @@ class AgentRunner:
         )
 
     def _handle_assistant_message(self, message: AssistantMessage) -> None:
-        reply_parts: list[str] = []
-        clarification_found = False
+        text_blocks: list[str] = []
         for block in message.content:
             if isinstance(block, TextBlock):
-                cleaned, found = self._strip_clarification_sentinel(block.text)
-                clarification_found = clarification_found or found
-                if cleaned:
-                    reply_parts.append(cleaned)
-                    self.console.print(Panel(cleaned, title="💬 Reply"))
-                    self.console.print()
+                if block.text:
+                    text_blocks.append(block.text)
             elif isinstance(block, ThinkingBlock):
                 thinking_text = getattr(block, "thinking", "") or ""
                 self.console.print(Panel(thinking_text, title="🤔 Thinking"))
@@ -328,10 +346,47 @@ class AgentRunner:
                     self._log_tool_result(tool_name, block)
                 self.console.print()
         self._render_todos(show_empty=False)
+        handled = False
+        full_text = ""
+        if text_blocks:
+            full_text = "\n\n".join(
+                part.strip() for part in text_blocks if part and part.strip()
+            ).strip()
+            if full_text:
+                handled = self._process_clarification_text(full_text, show_reply=True)
+        _ = handled
+
+    def _process_clarification_text(self, full_text: str, *, show_reply: bool) -> bool:
+        payload, errors = extract_clarification_payload(full_text)
+        if payload:
+            self._clarification_payload = payload
+            self._needs_clarification = True
+            note = payload.preface or payload.title or "Clarification required."
+            self._clarification_text = note
+            self.console.print(Panel(note, title="❓ Clarification Needed"))
+            self.console.print()
+            return True
+        tag_present = has_clarification_tag(full_text)
+        invalid_payload = tag_present and bool(errors)
+        if invalid_payload:
+            warning = "Clarification payload invalid. Falling back to plain text."
+            body = f"{warning}\n\n{full_text}"
+            self.console.print(Panel(body, title="Clarification", border_style="yellow"))
+            self.console.print()
+        clarification_found = False
+        if tag_present and not invalid_payload:
+            full_text = full_text.replace(CLARIFICATION_JSON_TAG, "").strip()
+            clarification_found = True
+        cleaned, found = self._strip_clarification_sentinel(full_text)
+        clarification_found = clarification_found or found
+        if cleaned and show_reply and not invalid_payload:
+            self.console.print(Panel(cleaned, title="💬 Reply"))
+            self.console.print()
         if clarification_found:
             self._needs_clarification = True
-            if reply_parts:
-                self._clarification_text = "\n\n".join(reply_parts)
+            if cleaned:
+                self._clarification_text = cleaned
+        return clarification_found
 
     def _handle_result(self, message: ResultMessage) -> None:
         cost = f"${message.total_cost_usd:.4f}" if message.total_cost_usd is not None else "n/a"
@@ -501,6 +556,9 @@ class AgentRunner:
         text = str(obj)
         return text if len(text) <= limit else text[: limit] + " …"
 
+    def _is_clarification_answers(self, message: str) -> bool:
+        return message.lstrip().startswith("Clarification answers:")
+
     def _summarize_todos(self, payload: object) -> str:
         items = self.todo_manager._normalize_items(payload)  # type: ignore[attr-defined]
         if not items:
@@ -548,46 +606,36 @@ class AgentRunner:
                 lines.append(line)
         return "\n".join(lines).strip(), found
 
-    async def _pre_tool_use_hook(
+    async def _can_use_tool(
         self,
-        input_data: HookInput,
-        tool_use_id: str | None,
-        context: HookContext,
-    ) -> HookJSONOutput:
+        tool_name: str,
+        input_data: dict,
+        context: ToolPermissionContext,
+    ) -> PermissionResultAllow | PermissionResultDeny:
+        del context
         if not self.config:
-            return {}
-        tool_name = input_data.get("tool_name")
-        tool_input = input_data.get("tool_input")
-        if not tool_name or not isinstance(tool_input, dict):
-            return {}
+            return PermissionResultAllow()
         if self._abort_requested and self._aborted_reason:
-            return {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": self._aborted_reason,
-                }
-            }
+            return PermissionResultDeny(message=self._aborted_reason)
         allowed_roots = [
             self.config.paths.root.resolve(),
             self.config.paths.global_dir.resolve(),
         ]
+        delete_whitelist = [self.config.paths.memory_file.resolve()]
         needs_confirm, reason = should_confirm_tool_use(
-            tool_name, tool_input, cwd=self.config.paths.root, allowed_roots=allowed_roots
+            tool_name,
+            input_data,
+            cwd=self.config.paths.root,
+            allowed_roots=allowed_roots,
+            delete_whitelist=delete_whitelist,
         )
         if not needs_confirm:
-            return {}
+            return PermissionResultAllow()
         if await self._request_permission(tool_name, reason):
-            return {}
+            return PermissionResultAllow()
         self._aborted_reason = f"User denied permission: {reason}"
         self._abort_requested = True
-        return {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": self._aborted_reason,
-            }
-        }
+        return PermissionResultDeny(message=self._aborted_reason)
 
     async def _request_permission(self, tool_name: str, reason: str) -> bool:
         if not self._permission_prompt:

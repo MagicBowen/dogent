@@ -9,7 +9,7 @@ from rich.console import Console
 from dogent.file_refs import FileReferenceResolver
 from dogent.history import HistoryManager
 from dogent.paths import DogentPaths
-from dogent.prompts import PromptBuilder
+from dogent.prompts import PromptBuilder, TemplateRenderer
 from dogent.todo import TodoItem, TodoManager
 
 
@@ -41,9 +41,8 @@ class PromptTests(unittest.TestCase):
 
             self.assertIn("自定义约束", system_prompt)
             self.assertIn("draft section", user_prompt)
-            self.assertIn('"path": "sample.txt"', user_prompt)
-            self.assertIn('"name": "sample.txt"', user_prompt)
-            self.assertIn('"type": "txt"', user_prompt)
+            self.assertIn("Referenced Files", user_prompt)
+            self.assertIn("- sample.txt", user_prompt)
             self.assertNotIn("content from file", user_prompt)
         if original_home is not None:
             os.environ["HOME"] = original_home
@@ -79,6 +78,21 @@ class PromptTests(unittest.TestCase):
             os.environ["HOME"] = original_home
         else:
             os.environ.pop("HOME", None)
+
+    def test_template_renderer_skips_json_braces(self) -> None:
+        console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+        renderer = TemplateRenderer(console=console)
+        template = 'Schema: {"label": "A"} and {working_dir}'
+
+        def resolver(key: str) -> str | None:
+            if key == "working_dir":
+                return "/tmp"
+            return None
+
+        rendered = renderer.render(template, resolver, template_name="test")
+        self.assertIn('{"label": "A"}', rendered)
+        output = console.file.getvalue()
+        self.assertNotIn("Warning: template 'test' missing values", output)
 
     def test_doc_template_injected_into_system_prompt(self) -> None:
         original_home = os.environ.get("HOME")
@@ -149,7 +163,7 @@ class PromptTests(unittest.TestCase):
             user_prompt = builder.build_user_prompt("msg", [], config=config)
 
             self.assertNotIn("Override template.", system_prompt)
-            self.assertIn("Template Remark", user_prompt)
+            self.assertIn("Doc Template Reference", user_prompt)
             self.assertIn("Override template.", user_prompt)
         if original_home is not None:
             os.environ["HOME"] = original_home

@@ -15,6 +15,7 @@ def should_confirm_tool_use(
     *,
     cwd: Path,
     allowed_roots: Iterable[Path],
+    delete_whitelist: Iterable[Path] | None = None,
 ) -> tuple[bool, str]:
     if tool_name in FILE_TOOLS:
         raw_path = _extract_file_path(input_data)
@@ -31,7 +32,10 @@ def should_confirm_tool_use(
         command = str(input_data.get("command") or "")
         targets = extract_delete_targets(command, cwd=cwd)
         if targets:
-            joined = ", ".join(str(path) for path in targets)
+            remaining = _exclude_whitelisted_targets(targets, delete_whitelist)
+            if not remaining:
+                return False, ""
+            joined = ", ".join(str(path) for path in remaining)
             return True, f"Delete command targets: {joined}"
         paths = extract_command_paths(command, cwd=cwd)
         for path in paths:
@@ -134,3 +138,17 @@ def _is_outside_allowed_roots(path: Path, roots: Iterable[Path]) -> bool:
         except Exception:
             continue
     return True
+
+
+def _exclude_whitelisted_targets(
+    targets: Iterable[Path], delete_whitelist: Iterable[Path] | None
+) -> list[Path]:
+    if not delete_whitelist:
+        return list(targets)
+    whitelist = {path.resolve() for path in delete_whitelist}
+    remaining: list[Path] = []
+    for target in targets:
+        if target.resolve() in whitelist:
+            continue
+        remaining.append(target)
+    return remaining

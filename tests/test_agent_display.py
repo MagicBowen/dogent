@@ -4,11 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
-from claude_agent_sdk import TextBlock, ToolResultBlock
+from claude_agent_sdk import AssistantMessage, TextBlock, ToolResultBlock
 from rich.console import Console
 
 from dogent.agent import AgentRunner, NEEDS_CLARIFICATION_SENTINEL
+from dogent.clarification import CLARIFICATION_JSON_TAG
 from dogent.config import ConfigManager
 from dogent.history import HistoryManager
 from dogent.paths import DogentPaths
@@ -193,6 +195,82 @@ class AgentDisplayTests(unittest.TestCase):
             self.assertIn("Aborted", output)
             entries = history.read_entries()
             self.assertEqual(entries[-1]["status"], "aborted")
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+
+class AgentClarificationDisplayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_clarification_answers_not_shortened(self) -> None:
+        class DummyClient:
+            def __init__(self) -> None:
+                self.options = SimpleNamespace(system_prompt="")
+
+            async def query(self, _prompt: str) -> None:
+                return None
+
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            todo = TodoManager(console=console)
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo, history)
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=builder,
+                todo_manager=todo,
+                history=history,
+                console=console,
+            )
+            runner._client = DummyClient()
+            message = "Clarification answers:\n" + ("A" * 260) + "TAILMARKER"
+            with mock.patch.object(
+                runner, "_stream_responses", new=mock.AsyncMock()
+            ), mock.patch.object(
+                runner, "_safe_disconnect", new=mock.AsyncMock()
+            ), mock.patch.object(
+                runner, "_start_wait_indicator", new=mock.AsyncMock()
+            ), mock.patch.object(
+                runner, "_stop_wait_indicator", new=mock.AsyncMock()
+            ):
+                await runner.send_message(message, [], config_override=None)
+            output = console.file.getvalue()
+            self.assertIn("TAILMARKER", output)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_invalid_clarification_payload_shows_original_text(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console(
+                file=io.StringIO(), force_terminal=True, color_system=None, width=200
+            )
+            todo = TodoManager(console=console)
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo, history)
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=builder,
+                todo_manager=todo,
+                history=history,
+                console=console,
+            )
+            text = f"{CLARIFICATION_JSON_TAG}\n{{\"title\":\"Need\",\"questions\":[]}}"
+            message = AssistantMessage(content=[TextBlock(text)], model="test")
+            runner._handle_assistant_message(message)
+            output = console.file.getvalue()
+            self.assertIn("Clarification payload invalid", output)
+            self.assertIn(CLARIFICATION_JSON_TAG, output)
+            self.assertIn("{\"title\":\"Need\",\"questions\":[]}", output)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

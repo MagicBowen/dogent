@@ -19,11 +19,14 @@ class TemplateOverrideTests(unittest.TestCase):
             cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
 
             message, template = cli._extract_template_override("Write @@demo")
-            self.assertEqual(message, "Write")
+            self.assertEqual(message, "Write [doc template]: demo")
             self.assertEqual(template, "demo")
 
             message, template = cli._extract_template_override("Start @@alpha then @@beta")
-            self.assertEqual(message, "Start then")
+            self.assertEqual(
+                message,
+                "Start [doc template]: alpha then [doc template]: beta",
+            )
             self.assertEqual(template, "beta")
         if original_home is not None:
             os.environ["HOME"] = original_home
@@ -75,6 +78,41 @@ class TemplateOverrideTests(unittest.TestCase):
             )
             blocked = cli._blocked_media_attachments(attachments)
             self.assertEqual(blocked, [])
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_replace_file_references(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            cli = DogentCLI(root=root, console=console, interactive_prompts=False)
+            file_path = root / "note.md"
+            file_path.write_text("hi", encoding="utf-8")
+
+            _, attachments = cli._resolve_attachments("Review @note.md.")
+            message = cli._replace_file_references("Review @note.md.", attachments)
+            self.assertEqual(message, "Review [local file]: note.md.")
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_show_template_reference(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            cli = DogentCLI(root=root, console=console, interactive_prompts=False)
+
+            cli._show_template_reference("demo")
+            output = console.file.getvalue()
+            self.assertIn("Doc Template", output)
+            self.assertIn("demo", output)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
