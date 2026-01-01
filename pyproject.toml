@@ -12,6 +12,7 @@ license = {text = "MIT"}
 authors = [{name = "Dogent Team"}]
 dependencies = [
     "claude-agent-sdk>=0.1.17",
+    "jsonschema>=4.21.0",
     "markdown-it-py>=3.0.0",
     "openpyxl>=3.1.2",
     "playwright>=1.46.0",
@@ -32,6 +33,7 @@ include-package-data = true
 [tool.setuptools.package-data]
 dogent = [
   "prompts/*.md",
+  "schemas/*.json",
   "templates/*.md",
   "templates/*.json",
   "templates/*.css",

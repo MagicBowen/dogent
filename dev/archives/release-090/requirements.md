@@ -278,20 +278,28 @@ Users must be able to add incremental, project-specific customization and supple
 - Bug fix: When the user inputs a long Chinese content that causes line wrapping due to terminal width limitations, pressing the up and down keys for cursor movement results in either the cursor not moving or the cursor position becoming disordered. This issue needs to be fixed to ensure that the cursor moves correctly when inputting long Chinese content.
 
 
-## Release 0.9.5
+## Release 0.9.3
 
 - I hope that dogent can handle pdf / docx / xlsx files. This includes correctly reading the content in these types of files if the user references them using `@` (for now, pdf files can only support text-based PDFs; for other unsupported pdf file types, after detection and identification, it is necessary to return a failure to the user and clearly inform them of the reason).
 - I hope that if the user specifies the output type of the document as a pdf or docx file, then dogent can correctly generate pdf and docx files.
 - The document(PDF/DOCX) reading and generation can be referred to `dev/spikes/doc_convert.md` and examples in `claude-agent/sdk/skills/skills/pdf/*`、`claude-agent/sdk/skills/skills/docx/*` and `claude-agent/sdk/skills/skills/xlsx/*`, You need to synthesize the characteristics of dogent based on these examples and provide me with the best design solution choice.
 - when I told agent to "convert a docx file to markdown file and extract all images in specified path", the agent used the `pandoc` app execute the task (`pandoc "src.docx" -t markdown -o "dst.md" --extract-media=./images`)，This depends on the user's machine app install state. I hope to build the file format conversion capability into dogent. Therefore, please check if this can be done using Python itself, such as with the help of pypandoc. Can we create an mcp specifically for converting between docx, pdf, and markdown?
 
-## Release 0.9.6
+## Release 0.9.4
 
 - I hope that dogent cann handle off images or video files. if the user references images or vidios using `@`, dogent can post the image/video  to a configured vision llm to get the content details and add the content in the user prompt so that the writting LLM can understand the detailed content in the images/videos. 
 - You can refer `dogent/dev/spikes/GLM-4V-Vision-Model-Research-Report.md`，user can select different vision model by dogent.json(maybe the vision profiles in ~/.dogent)
 
-## Release 0.9.7
+## Release 0.9.5
 
 - Monitor the tool usage of the Agent. If it is found that the agent accesses files outside the working path (whether reading or writing) or deletes files within the working path, it is necessary to confirm with the user first (the original task of the claude agent client should not be interrupted). If the user agrees, continue the task; otherwise, exit the task (shows task abort and reason to user).
 
+## Release 0.9.8
 
+- Optimize the interaction experience when the Agent asks users questions and requests clarification: have an independent question-and-answer interface that displays the total number of questions and the progress; ask questions one by one, and after the user answers, proceed to the next question; 
+- for each question, provide users with answer options, allowing them to select by moving the cursor or add free answers. The cursor is by default on the most recommended answer. 
+- To achieve this goal, it may be necessary to modify the system prompt so that when the LLM needs the user to answer questions, it organizes the required information such as questions and suggested options in a structured format (e.g., json). Then, the codes extracts this structured content, enters the question-and-answer interactive interface, collects the user's answers, splices all the questions and answers together, and returns them to the LLM for subsequent processing.
+- You need to consider whether, in the process of the Agent asking follow-up questions and the user answering questions, in principle, the current loop of the agent client should not exit, otherwise the LLM context will be lost?
+- In addition, it is necessary to consider that if the user does not answer for a long time (timeout), the task is regarded as aborted, and the current agent loop is ended.
+- In the question-and-answer interaction, the user also has the right to exit and interrupt the task (consider the interaction design, whether to use the same way as the esc interrupt, or need to use other ways to avoid conflicts with the normal exit of the agent loop?).
+- For this requirement, you need to have an aesthetically pleasing and user-friendly interaction scheme design;

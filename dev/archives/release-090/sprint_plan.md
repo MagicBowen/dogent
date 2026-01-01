@@ -455,7 +455,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Acceptance Status: PASS
 - Verification: `tests/test_cli_input.py`, UAT Release 0.9.2.
 
-## Release 0.9.5
+## Release 0.9.3
 
 ### Story 0: Document MCP tools registered
 - User Value: Document read/export capabilities are exposed as MCP tools for Claude Agent SDK.
@@ -485,7 +485,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Acceptance Status: Accepted
 - Verification: Unit tests with mocks + manual export in `sample/`.
 
-## Release 0.9.6
+## Release 0.9.4
 
 ### Story 0: Vision profile configuration
 - User Value: User can configure a vision model profile and select it per workspace.
@@ -501,7 +501,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Acceptance Status: Accepted
 - Verification: Unit tests with mocked vision responses + manual prompt with media files.
 
-## Release 0.9.7
+## Release 0.9.5
 
 ### Story 0: Confirm out-of-workspace file access
 - User Value: The user explicitly approves any tool reads/writes outside the workspace.
@@ -516,3 +516,89 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: Unit tests for delete parsing + manual shell command check.
+
+## Release 0.9.6
+### Story 1: Layered Config Defaults
+- User Value: Global config in `~/.dogent/dogent.json` provides defaults for new workspaces; local overrides remain scoped to the workspace.
+- Acceptance: `load_project_config()` merges defaults -> global -> local; if no local config, global values are used; if global lacks `llm_profile`, env fallback remains; `/init` creates `.dogent/dogent.json` using global defaults without overwriting existing keys.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit tests for merge behavior and config template creation.
+
+### Story 2: Vision Disabled by Default
+- User Value: Vision tools are opt-in; image references fail fast when `vision_profile` is `null` or missing.
+- Acceptance: Default `vision_profile` is `null`; vision MCP tools are not registered when disabled; CLI blocks image/video attachments with a clear error when vision is disabled.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit tests for tool registration and CLI attachment blocking.
+
+### Story 3: Prompt-Level Doc Template Override
+- User Value: Users can temporarily select a doc template per request using a selector token without editing config files.
+- Acceptance: Typing `@@` triggers template completion; `@@<template>` overrides `doc_template` only for that request and is stripped from the outgoing user message.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit tests for token parsing and prompt rendering with overrides.
+
+### Story 4: Unified Global Config File
+- User Value: All global profiles and defaults live in a single `~/.dogent/dogent.json`.
+- Acceptance: LLM/web/vision profiles are read from `llm_profiles`/`web_profiles`/`vision_profiles` in the global config; legacy separate files are no longer referenced; warnings and docs point to `~/.dogent/dogent.json`.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit tests for profile loading and web/vision tool behavior.
+
+### Story 5: Versioned Global Config Upgrade
+- User Value: Dogent upgrades the global config when new keys are added, without overwriting user settings.
+- Acceptance: `~/.dogent/dogent.json` includes `version`; on startup, if config version < Dogent version, merge in missing keys only and update `version`; if config version > Dogent version, warn.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit tests for upgrade behavior and warnings.
+
+---
+
+## Release 0.9.7
+
+### Story 1: Configurable PDF Style
+- User Value: Users can customize PDF output styling globally and override it per workspace.
+- Acceptance: Default PDF CSS is installed to `~/.dogent/pdf_style.css` on first run; `.dogent/pdf_style.css` overrides global when present; PDF export applies the resolved CSS; unreadable style files fall back with a warning.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit tests for style resolution and warnings; manual PDF export check; UAT PASS in dev/sprint_uat.md.
+
+### Story 2: Template Override in User Prompt
+- User Value: Users can temporarily select a writing template with `@@` and have it applied explicitly for that request.
+- Acceptance: When `@@<template>` is used, the system prompt does not include the template content; the user prompt includes a separate "Template Remark" section with the selected template content; the system prompt instructs to prioritize that remark over `.dogent.json`/`.dogent.md`.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit tests for prompt rendering and override flow; UAT PASS in dev/sprint_uat.md.
+
+### Story 3: Graceful Exit Without Pipe Errors
+- User Value: `/exit` closes Dogent cleanly without terminal pipe errors.
+- Acceptance: Running `/exit` exits the CLI without raising `EPIPE` or other write errors.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Manual `/exit` check in a terminal and in a piped environment; UAT PASS in dev/sprint_uat.md.
+
+---
+
+## Release 0.9.8
+
+### Story 1: Structured Clarification Payloads
+- User Value: When Dogent needs clarification, it can present questions in a consistent, machine-readable format for a smoother Q&A flow.
+- Acceptance: System prompt instructs the model to emit a tagged JSON payload for clarifications; a JSON schema exists for the payload; Dogent extracts and validates the payload, falling back to the legacy clarification sentinel on failures.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit tests for payload parsing/validation and system prompt updates; UAT PASS in dev/sprint_uat.md.
+
+### Story 2: Interactive Q&A Flow
+- User Value: Users answer clarification questions in a guided UI with recommended choices and optional free-form input.
+- Acceptance: Clarification questions display as a dedicated Q&A interface with progress, multiple-choice selection (defaulting to recommended/first), optional free-form entry, Esc abort, and per-question timeout based on API_TIMEOUT_MS.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit tests for Q&A selection logic and timeout/abort handling; UAT PASS in dev/sprint_uat.md.
+
+### Story 3: Session Continuity + History Recording
+- User Value: Clarification answers are recorded and the agent continues without losing context.
+- Acceptance: When clarifications are requested, the agent keeps the session open, sends a follow-up with the Q/A block, and history records the questions and answers.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit tests for session reuse and history entries; UAT PASS in dev/sprint_uat.md.

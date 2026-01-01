@@ -23,6 +23,12 @@ from rich.prompt import Prompt
 from rich.table import Table
 
 from .agent import AgentRunner
+from .clarification import (
+    ClarificationPayload,
+    ClarificationQuestion,
+    ClarificationOption,
+    recommended_index,
+)
 from .commands import CommandRegistry
 from .config import ConfigManager
 from .doc_templates import DocumentTemplateManager
@@ -62,6 +68,14 @@ except ImportError:  # pragma: no cover - optional dependency
 
 
 DOC_TEMPLATE_TOKEN = "@@"
+
+
+class ClarificationTimeout(Exception):
+    pass
+
+
+class ClarificationCancelled(Exception):
+    pass
 
 
 class DogentCompleter(Completer):
@@ -760,6 +774,266 @@ class DogentCLI:
             return False
         return default
 
+    def _clarification_timeout_s(self) -> float | None:
+        settings = self.config_manager.load_settings()
+        timeout_ms = settings.api_timeout_ms
+        if timeout_ms is None or timeout_ms <= 0:
+            return None
+        return timeout_ms / 1000.0
+
+    async def _collect_clarification_answers(
+        self, payload: ClarificationPayload
+    ) -> tuple[list[dict[str, str]] | None, str | None]:
+        total = len(payload.questions)
+        if total == 0:
+            return [], None
+        intro_lines = [payload.title]
+        if payload.preface:
+            intro_lines.extend(["", payload.preface])
+        self.console.print(
+            Panel("\n".join(intro_lines), title="Clarification", border_style="cyan")
+        )
+        answers: list[dict[str, str]] = []
+        timeout_s = self._clarification_timeout_s()
+        try:
+            for idx, question in enumerate(payload.questions, start=1):
+                result = await self._prompt_clarification_question(
+                    question,
+                    index=idx,
+                    total=total,
+                    timeout_s=timeout_s,
+                )
+                answers.append(result)
+        except ClarificationTimeout:
+            return None, "timeout"
+        except ClarificationCancelled:
+            return None, "cancelled"
+        return answers, None
+
+    async def _prompt_clarification_question(
+        self,
+        question: ClarificationQuestion,
+        *,
+        index: int,
+        total: int,
+        timeout_s: float | None,
+    ) -> dict[str, str]:
+        title = f"Question {index}/{total}"
+        options = list(question.options)
+        freeform_value = "__freeform__"
+        if question.allow_freeform:
+            options.append(
+                ClarificationOption(
+                    label="Other (free-form answer)",
+                    value=freeform_value,
+                )
+            )
+
+        async def _ask() -> dict[str, str]:
+            if not options and question.allow_freeform:
+                answer = await self._prompt_freeform_answer(question)
+                if answer is None:
+                    raise ClarificationCancelled
+                return {
+                    "id": question.question_id,
+                    "question": question.question,
+                    "answer": answer,
+                }
+            if not options:
+                raise ClarificationCancelled
+            selected = recommended_index(question)
+            if selected >= len(options):
+                selected = 0
+            if self._can_use_inline_choice():
+                selected = await self._prompt_clarification_choice_inline(
+                    title=title,
+                    question=question.question,
+                    options=options,
+                    selected=selected,
+                )
+            else:
+                selected = await self._prompt_clarification_choice_text(
+                    title=title,
+                    question=question.question,
+                    options=options,
+                    selected=selected,
+                )
+            if selected is None:
+                raise ClarificationCancelled
+            choice = options[selected]
+            if question.allow_freeform and choice.value == freeform_value:
+                answer = await self._prompt_freeform_answer(question)
+                if answer is None:
+                    raise ClarificationCancelled
+                return {
+                    "id": question.question_id,
+                    "question": question.question,
+                    "answer": answer,
+                }
+            answer_text = choice.label
+            if choice.value and choice.value != choice.label:
+                answer_text = f"{choice.label} ({choice.value})"
+            return {
+                "id": question.question_id,
+                "question": question.question,
+                "answer": answer_text,
+            }
+
+        if timeout_s is None:
+            return await _ask()
+        try:
+            return await asyncio.wait_for(_ask(), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            self.console.print(
+                Panel(
+                    "Clarification timed out. Aborting the task.",
+                    title="⏱️ Timeout",
+                    border_style="yellow",
+                )
+            )
+            raise ClarificationTimeout from None
+
+    async def _prompt_clarification_choice_inline(
+        self,
+        *,
+        title: str,
+        question: str,
+        options: list[ClarificationOption],
+        selected: int,
+    ) -> int | None:
+        selection = selected
+
+        def _fragments():
+            lines = [
+                ("class:prompt", f"{title}\n"),
+                ("class:prompt", f"{question}\n\n"),
+            ]
+            for idx, option in enumerate(options):
+                marker = ">" if idx == selection else " "
+                style = "class:selected" if idx == selection else "class:choice"
+                lines.append((style, f"{marker} {option.label}\n"))
+            lines.append(
+                (
+                    "class:prompt",
+                    "\nUse ↑/↓ to select, Enter to confirm, Esc to cancel.",
+                )
+            )
+            return lines
+
+        control = FormattedTextControl(_fragments, focusable=True, show_cursor=False)
+        window = Window(control, dont_extend_height=True)
+        layout = Layout(window, focused_element=window)
+        bindings = KeyBindings()
+
+        @bindings.add("up")
+        def _up(event) -> None:  # type: ignore[no-untyped-def]
+            nonlocal selection
+            selection = (selection - 1) % len(options)
+            event.app.invalidate()
+
+        @bindings.add("down")
+        def _down(event) -> None:  # type: ignore[no-untyped-def]
+            nonlocal selection
+            selection = (selection + 1) % len(options)
+            event.app.invalidate()
+
+        @bindings.add("enter")
+        def _accept(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=selection)
+
+        @bindings.add("escape")
+        def _cancel(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=None)
+
+        @bindings.add("c-c")
+        def _cancel_sigint(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=None)
+
+        style = Style.from_dict(
+            {
+                "prompt": "",
+                "choice": "",
+                "selected": "reverse",
+            }
+        )
+        app = Application(
+            layout=layout,
+            key_bindings=bindings,
+            mouse_support=True,
+            full_screen=False,
+            style=style,
+        )
+        return await app.run_async()
+
+    async def _prompt_clarification_choice_text(
+        self,
+        *,
+        title: str,
+        question: str,
+        options: list[ClarificationOption],
+        selected: int,
+    ) -> int | None:
+        lines = [title, question, ""]
+        for idx, option in enumerate(options, start=1):
+            marker = "*" if idx - 1 == selected else " "
+            lines.append(f"{marker} {idx}) {option.label}")
+        lines.append("")
+        lines.append("Enter a number to select, or press Enter for default.")
+        self.console.print(Panel("\n".join(lines), title="Clarification"))
+        try:
+            response_raw = await self._read_input(prompt="Choice: ")
+        except (EOFError, KeyboardInterrupt):
+            return None
+        response = (response_raw or "").strip()
+        if not response:
+            return selected
+        if response.lower() == "esc":
+            return None
+        if response.isdigit():
+            choice = int(response)
+            if 1 <= choice <= len(options):
+                return choice - 1
+        return selected
+
+    async def _prompt_freeform_answer(
+        self, question: ClarificationQuestion
+    ) -> str | None:
+        prompt = "Your answer: "
+        if question.placeholder:
+            prompt = f"Your answer ({question.placeholder}): "
+        try:
+            response_raw = await self._read_input(prompt=prompt)
+        except (EOFError, KeyboardInterrupt):
+            return None
+        response = (response_raw or "").strip()
+        return response or None
+
+    def _format_clarification_answers(
+        self, payload: ClarificationPayload, answers: list[dict[str, str]]
+    ) -> str:
+        lines = ["Clarification answers:"]
+        for answer in answers:
+            qid = answer.get("id", "")
+            question = answer.get("question", "")
+            response = answer.get("answer", "")
+            label = f"{qid}: {question}".strip(": ")
+            lines.append(f"- {label}")
+            lines.append(f"  Answer: {response}")
+        lines.append("")
+        lines.append("Please continue the original request.")
+        return "\n".join(lines).strip()
+
+    def _record_clarification_history(
+        self, payload: ClarificationPayload, answers_text: str
+    ) -> None:
+        summary = f"Clarification answers ({len(payload.questions)} questions)"
+        self.history_manager.append(
+            summary=summary,
+            status="clarification",
+            prompt=answers_text,
+            todos=self.todo_manager.export_items(),
+        )
+
     async def _cmd_learn(self, command: str) -> bool:
         parts = command.split(maxsplit=1)
         arg = parts[1].strip() if len(parts) > 1 else ""
@@ -1124,7 +1398,10 @@ class DogentCLI:
                 continue
             message, template_override = self._extract_template_override(text)
             template_override = self._normalize_template_override(template_override)
-            message, attachments = self._resolve_attachments(message)
+            _, attachments = self._resolve_attachments(text)
+            message = self._replace_file_references(message, attachments)
+            if template_override:
+                self._show_template_reference(template_override)
             if attachments:
                 self._show_attachments(attachments)
             if not message and not attachments:
@@ -1154,7 +1431,47 @@ class DogentCLI:
         *,
         config_override: dict[str, Any] | None = None,
     ) -> None:
-        """Run a task while listening for Esc without stealing future input."""
+        """Run a task while listening for Esc, then handle clarification if needed."""
+        next_message = message
+        next_attachments = attachments
+        while True:
+            await self._run_single_with_interrupt(
+                next_message,
+                next_attachments,
+                config_override=config_override,
+            )
+            outcome = getattr(self.agent, "last_outcome", None)
+            if outcome and str(getattr(outcome, "status", "")) in {
+                "interrupted",
+                "aborted",
+                "error",
+            }:
+                break
+            payload = self.agent.pop_clarification_payload()
+            if not payload:
+                break
+            answers, abort_reason = await self._collect_clarification_answers(payload)
+            if abort_reason == "timeout":
+                await self.agent.abort("Clarification timed out.")
+                return
+            if abort_reason == "cancelled":
+                await self.agent.interrupt("Clarification cancelled by user.")
+                return
+            answers = answers or []
+            answers_text = self._format_clarification_answers(payload, answers)
+            self._record_clarification_history(payload, answers_text)
+            next_message = answers_text
+            next_attachments = []
+        self._arm_lesson_capture_if_needed()
+
+    async def _run_single_with_interrupt(
+        self,
+        message: str,
+        attachments: list[FileAttachment],
+        *,
+        config_override: dict[str, Any] | None = None,
+    ) -> None:
+        """Run a single agent turn while listening for Esc."""
         stop_event = threading.Event()
         agent_task = asyncio.create_task(
             self.agent.send_message(message, attachments, config_override=config_override)
@@ -1193,7 +1510,6 @@ class DogentCLI:
         if agent_task.done() and not agent_task.cancelled():
             with suppress(Exception):
                 await agent_task
-        self._arm_lesson_capture_if_needed()
 
     async def _wait_for_escape(self, stop_event: threading.Event) -> bool:
         loop = asyncio.get_event_loop()
@@ -1323,14 +1639,21 @@ class DogentCLI:
         if not matches:
             return message, None
         template_key = None
-        for match in matches:
+
+        def replace(match: re.Match[str]) -> str:
+            nonlocal template_key
+            prefix = match.group(1)
             raw = match.group(2)
             cleaned = raw.rstrip(".,;:!?)]}")
+            suffix = raw[len(cleaned) :] if cleaned else ""
             if cleaned:
                 template_key = cleaned
-        cleaned_message = pattern.sub(" ", message)
-        cleaned_message = re.sub(r"[ \t]{2,}", " ", cleaned_message).strip()
-        return cleaned_message, template_key
+                return f"{prefix}[doc template]: {cleaned}{suffix}"
+            return match.group(0)
+
+        replaced_message = pattern.sub(replace, message)
+        replaced_message = re.sub(r"[ \t]{2,}", " ", replaced_message).strip()
+        return replaced_message, template_key
 
     def _normalize_template_override(self, template_key: str | None) -> str | None:
         if not template_key:
@@ -1366,6 +1689,29 @@ class DogentCLI:
     def _resolve_attachments(self, message: str) -> Tuple[str, list[FileAttachment]]:
         return self.file_resolver.extract(message)
 
+    def _replace_file_references(
+        self, message: str, attachments: list[FileAttachment]
+    ) -> str:
+        if not attachments:
+            return message
+        token_set: set[str] = set()
+        for attachment in attachments:
+            token = str(attachment.path)
+            if attachment.sheet:
+                token = f"{token}#{attachment.sheet}"
+            token_set.add(token)
+        pattern = re.compile(r"@([^\s]+)")
+
+        def replace(match: re.Match[str]) -> str:
+            raw = match.group(1)
+            cleaned = raw.rstrip(".,;:!?)]}")
+            suffix = raw[len(cleaned) :] if cleaned else ""
+            if cleaned in token_set:
+                return f"[local file]: {cleaned}{suffix}"
+            return match.group(0)
+
+        return pattern.sub(replace, message)
+
     async def _graceful_exit(self) -> None:
         if self._shutting_down:
             return
@@ -1392,6 +1738,14 @@ class DogentCLI:
                     title="📂 File Reference",
                 )
             )
+
+    def _show_template_reference(self, template_key: str) -> None:
+        self.console.print(
+            Panel(
+                f"Referenced @@{template_key}",
+                title="📂 Doc Template",
+            )
+        )
 
     def _vision_enabled(self) -> bool:
         config = self.config_manager.load_project_config()
@@ -1465,6 +1819,7 @@ class DogentCLI:
             "aborted": "🛑",
             "needs_clarification": "❓",
             "needs clarification": "❓",
+            "clarification": "❓",
         }
         return mapping.get(normalized, "•")
 

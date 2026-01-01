@@ -33,6 +33,8 @@ class TemplateRenderer:
 
         def replace(match: re.Match[str]) -> str:
             key = match.group(1).strip()
+            if "\"" in key:
+                return "{" + key + "}"
             value = resolver(key)
             if value is None or value == "":
                 if key in suppress:
@@ -101,26 +103,36 @@ class PromptBuilder:
         config_data = config or {}
         template_override = self._template_override_key(config_data)
         context = self._base_context(settings, config_data)
+        doc_template_block = ""
+        if template_override:
+            override_content = self._resolve_template_override_content(template_override)
+            doc_template_block = (
+                "\nDoc Template Reference:\n"
+                f"- {template_override}\n\n"
+                "Note:\n"
+                "- Workspace templates use plain names (e.g., `resume`).\n"
+                "- Global templates require `global:` prefix.\n"
+                "- Built-in templates require `built-in:` prefix.\n"
+                "- Templates are used to guide how to write and the format of output documents, not user content.\n\n"
+                "Doc Template Content (User-specified Override):\n"
+                "```markdown\n"
+                f"{override_content.strip() if override_content else ''}\n"
+                "```\n"
+            )
         context.update(
             {
                 "user_message": user_message.strip(),
                 "attachments": self._format_attachments(attachments),
+                "file_refs_block": self._format_file_refs_block(attachments),
+                "doc_template_block": doc_template_block,
             }
         )
         rendered = self.renderer.render(
             self._user_template,
             lambda key: self._resolve_value(key, context, config_data),
             template_name="user prompt",
+            suppress_empty_keys={"doc_template_block"},
         )
-        if template_override:
-            override_content = self._resolve_template_override_content(template_override)
-            if override_content:
-                rendered = (
-                    rendered.rstrip()
-                    + "\n\nTemplate Remark (User-specified Template Override):\n```markdown\n"
-                    + override_content.strip()
-                    + "\n```\n"
-                )
         return rendered
 
     def _base_context(self, settings, config: dict[str, Any]) -> dict[str, str]:
@@ -245,6 +257,16 @@ class PromptBuilder:
             item["type"] = suffix or "file"
             payloads.append(item)
         return json.dumps(payloads, ensure_ascii=False)
+
+    def _format_file_refs_block(self, attachments: Iterable[FileAttachment]) -> str:
+        attachments = list(attachments)
+        if not attachments:
+            return "None"
+        lines: list[str] = []
+        for attachment in attachments:
+            suffix = f"#{attachment.sheet}" if attachment.sheet else ""
+            lines.append(f"- {attachment.path}{suffix}")
+        return "\n".join(lines)
 
     def _load_template(self, name: str) -> str:
         base = resources.files("dogent").joinpath("prompts")

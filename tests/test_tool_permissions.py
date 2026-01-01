@@ -82,6 +82,17 @@ class ToolPermissionTests(unittest.TestCase):
         self.assertTrue(str(targets[0]).endswith("temp.txt"))
         self.assertTrue(str(targets[1]).endswith("other.txt"))
 
+    def test_delete_whitelist_skips_confirmation(self) -> None:
+        memory_path = self.cwd / ".dogent" / "memory.md"
+        needs, _ = should_confirm_tool_use(
+            "Bash",
+            {"command": f"rm -f {memory_path}"},
+            cwd=self.cwd,
+            allowed_roots=self.allowed,
+            delete_whitelist=[memory_path],
+        )
+        self.assertFalse(needs)
+
 
 if __name__ == "__main__":
     unittest.main()
