@@ -1,19 +1,25 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import mimetypes
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
+from importlib import resources
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import unquote, urlparse
 
 
 DEFAULT_MAX_CHARS = 15000
 DEFAULT_XLSX_MAX_ROWS = 50
 DEFAULT_XLSX_MAX_COLS = 20
+PDF_STYLE_FILENAME = "pdf_style.css"
 
 
 @dataclass(frozen=True)
@@ -56,14 +62,21 @@ def export_markdown(
     output_path: Path,
     format: str,
     title: str | None = None,
-) -> None:
+    workspace_root: Path | None = None,
+) -> list[str]:
     normalized = format.strip().lower()
     if normalized == "docx":
         _markdown_to_docx(md_path, output_path=output_path)
-        return
+        return []
     if normalized == "pdf":
-        _run_async(_markdown_to_pdf(md_path, output_path=output_path, title=title))
-        return
+        return _run_async(
+            _markdown_to_pdf(
+                md_path,
+                output_path=output_path,
+                title=title,
+                workspace_root=workspace_root,
+            )
+        )
     raise ValueError(f"Unsupported export format: {format}")
 
 
@@ -73,14 +86,19 @@ async def export_markdown_async(
     output_path: Path,
     format: str,
     title: str | None = None,
-) -> None:
+    workspace_root: Path | None = None,
+) -> list[str]:
     normalized = format.strip().lower()
     if normalized == "docx":
         _markdown_to_docx(md_path, output_path=output_path)
-        return
+        return []
     if normalized == "pdf":
-        await _markdown_to_pdf(md_path, output_path=output_path, title=title)
-        return
+        return await _markdown_to_pdf(
+            md_path,
+            output_path=output_path,
+            title=title,
+            workspace_root=workspace_root,
+        )
     raise ValueError(f"Unsupported export format: {format}")
 
 
@@ -89,6 +107,7 @@ async def convert_document_async(
     *,
     output_path: Path,
     extract_media_dir: Path | None = None,
+    workspace_root: Path | None = None,
 ) -> DocumentConvertResult:
     input_format = _detect_format(input_path)
     output_format = _detect_format(output_path)
@@ -115,13 +134,25 @@ async def convert_document_async(
     elif input_format == "md" and output_format == "docx":
         _markdown_to_docx(input_path, output_path=output_path)
     elif input_format == "md" and output_format == "pdf":
-        await _markdown_to_pdf(input_path, output_path=output_path, title=output_path.stem)
+        style_notes = await _markdown_to_pdf(
+            input_path,
+            output_path=output_path,
+            title=output_path.stem,
+            workspace_root=workspace_root,
+        )
+        notes.extend(style_notes)
     elif input_format == "docx" and output_format == "pdf":
         notes.append("Converted DOCX -> Markdown -> PDF; formatting may differ.")
         with tempfile.TemporaryDirectory() as tmp:
             tmp_md = Path(tmp) / "source.md"
             _docx_to_markdown(input_path, output_path=tmp_md, extract_media_dir=None)
-            await _markdown_to_pdf(tmp_md, output_path=output_path, title=output_path.stem)
+            style_notes = await _markdown_to_pdf(
+                tmp_md,
+                output_path=output_path,
+                title=output_path.stem,
+                workspace_root=workspace_root,
+            )
+            notes.extend(style_notes)
     elif input_format == "pdf" and output_format == "md":
         notes.append("PDF text extracted; layout and images are not preserved.")
         result = read_document(input_path, max_chars=0)
@@ -471,30 +502,101 @@ def _markdown_to_docx(md_path: Path, *, output_path: Path) -> None:
     )
 
 
-def _markdown_to_html(md_text: str, *, title: str) -> str:
+def _default_pdf_css() -> str:
+    try:
+        data = resources.files("dogent").joinpath("templates").joinpath(PDF_STYLE_FILENAME)
+        return data.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+
+
+def _resolve_pdf_style(
+    workspace_root: Path | None,
+    *,
+    global_root: Path | None = None,
+) -> tuple[str, list[str]]:
+    warnings: list[str] = []
+    if workspace_root:
+        workspace_style = workspace_root / ".dogent" / PDF_STYLE_FILENAME
+        if workspace_style.exists():
+            try:
+                return workspace_style.read_text(encoding="utf-8"), warnings
+            except Exception:
+                warnings.append(
+                    f"Could not read PDF style file: {workspace_style}. Using fallback."
+                )
+    resolved_global = (global_root or (Path.home() / ".dogent")) / PDF_STYLE_FILENAME
+    if resolved_global.exists():
+        try:
+            return resolved_global.read_text(encoding="utf-8"), warnings
+        except Exception:
+            warnings.append(
+                f"Could not read PDF style file: {resolved_global}. Using fallback."
+            )
+    return _default_pdf_css(), warnings
+
+
+def _build_pdf_header_footer(css_text: str) -> tuple[str | None, str | None]:
+    style = f"<style>{css_text}</style>"
+    footer = (
+        style
+        + "<div class=\"pdf-footer\">"
+        + "<span class=\"pageNumber\"></span> / <span class=\"totalPages\"></span>"
+        + "</div>"
+    )
+    return None, None
+
+
+def _markdown_to_html(
+    md_text: str,
+    *,
+    title: str,
+    css_text: str | None = None,
+    base_path: Path | None = None,
+    workspace_root: Path | None = None,
+) -> str:
     from markdown_it import MarkdownIt
 
-    mdi = MarkdownIt("commonmark")
+    mdi = MarkdownIt(
+        "commonmark",
+        {
+            "html": True,
+            "linkify": True,
+            "typographer": True,
+        },
+    ).enable("table").enable("strikethrough").enable("fence")
+    try:
+        from pygments import highlight  # type: ignore
+        from pygments.formatters import HtmlFormatter  # type: ignore
+        from pygments.lexers import TextLexer, get_lexer_by_name  # type: ignore
+
+        formatter = HtmlFormatter(nowrap=True)
+
+        def highlight_code(code: str, lang: str, _attrs: object | None = None) -> str:
+            try:
+                lexer = get_lexer_by_name(lang) if lang else TextLexer()
+            except Exception:
+                lexer = TextLexer()
+            return highlight(code, lexer, formatter)
+
+        mdi.options["highlight"] = highlight_code
+    except Exception:
+        pass
     body = mdi.render(md_text)
-    css = """
-    @page { size: A4; margin: 20mm; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-      font-size: 12pt;
-      line-height: 1.55;
-      color: #111;
-      word-wrap: break-word;
-    }
-    pre { background: #f6f8fa; padding: 10px; overflow-x: auto; }
-    code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-    h1, h2, h3 { page-break-after: avoid; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ddd; padding: 6px 8px; }
-    """
+    if base_path:
+        body = _inline_local_images(body, base_path, workspace_root)
+    css = css_text if css_text is not None else _default_pdf_css()
+    base_tag = ""
+    if base_path is not None:
+        base_href = base_path.resolve().as_uri()
+        if not base_href.endswith("/"):
+            base_href = f"{base_href}/"
+        base_tag = f"<base href=\"{base_href}\" />\n"
     return (
         "<!doctype html>\n"
         "<html>\n<head>\n"
         f"<meta charset=\"utf-8\" />\n<title>{title}</title>\n"
+        f"{base_tag}"
         f"<style>{css}</style>\n"
         "</head>\n<body>\n"
         f"{body}\n"
@@ -502,13 +604,93 @@ def _markdown_to_html(md_text: str, *, title: str) -> str:
     )
 
 
-async def _markdown_to_pdf(md_path: Path, *, output_path: Path, title: str | None) -> None:
+def _inline_local_images(
+    html: str,
+    base_dir: Path,
+    workspace_root: Path | None,
+) -> str:
+    img_pattern = re.compile(
+        r'(<img\b[^>]*\bsrc=)(["\']?)([^"\'>\s]+)\2',
+        re.IGNORECASE,
+    )
+
+    def replace(match: re.Match[str]) -> str:
+        prefix, quote, src = match.groups()
+        new_src = _to_data_uri(src, base_dir, workspace_root)
+        if not new_src:
+            return match.group(0)
+        q = quote or '"'
+        return f"{prefix}{q}{new_src}{q}"
+
+    return img_pattern.sub(replace, html)
+
+
+def _to_data_uri(
+    src: str,
+    base_dir: Path,
+    workspace_root: Path | None,
+) -> str | None:
+    parsed = urlparse(src)
+    if parsed.scheme in {"http", "https", "data", "file"}:
+        return None
+    raw_path = unquote(parsed.path)
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = (base_dir / path).resolve()
+    else:
+        path = path.resolve()
+    if workspace_root:
+        try:
+            path.relative_to(workspace_root.resolve())
+        except Exception:
+            return None
+    if not path.exists() or not path.is_file():
+        return None
+    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime};base64,{encoded}"
+
+
+
+
+async def _markdown_to_pdf(
+    md_path: Path,
+    *,
+    output_path: Path,
+    title: str | None,
+    workspace_root: Path | None = None,
+) -> list[str]:
     md_text = md_path.read_text(encoding="utf-8", errors="replace")
-    html = _markdown_to_html(md_text, title=title or "Document")
-    await _html_to_pdf(html, output_path=output_path)
+    css_text, warnings = _resolve_pdf_style(workspace_root)
+    header_template, footer_template = _build_pdf_header_footer(css_text)
+    html = _markdown_to_html(
+        md_text,
+        title=title or "Document",
+        css_text=css_text,
+        base_path=md_path.parent,
+        workspace_root=workspace_root,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        html_path = Path(tmp) / "document.html"
+        html_path.write_text(html, encoding="utf-8")
+        await _html_to_pdf(
+            html,
+            output_path=output_path,
+            header_template=header_template,
+            footer_template=footer_template,
+            source_url=html_path.resolve().as_uri(),
+        )
+    return warnings
 
 
-async def _html_to_pdf(html: str, *, output_path: Path) -> None:
+async def _html_to_pdf(
+    html: str,
+    *,
+    output_path: Path,
+    header_template: str | None = None,
+    footer_template: str | None = None,
+    source_url: str | None = None,
+) -> None:
     try:
         from playwright.async_api import async_playwright
     except Exception as exc:  # noqa: BLE001
@@ -517,16 +699,60 @@ async def _html_to_pdf(html: str, *, output_path: Path) -> None:
         async with async_playwright() as p:
             browser = await p.chromium.launch()
             page = await browser.new_page()
-            await page.set_content(html, wait_until="load")
-            await page.pdf(path=str(output_path), format="A4", print_background=True)
+            if source_url:
+                await page.goto(source_url, wait_until="load")
+            else:
+                await page.set_content(html, wait_until="load")
+            pdf_options = {
+                "path": str(output_path),
+                "format": "A4",
+                "print_background": True,
+            }
+            if header_template or footer_template:
+                pdf_options.update(
+                    {
+                        "display_header_footer": True,
+                        "header_template": header_template or "<span></span>",
+                        "footer_template": footer_template or "<span></span>",
+                        "margin": {
+                            "top": "18mm",
+                            "bottom": "18mm",
+                            "left": "18mm",
+                            "right": "18mm",
+                        },
+                    }
+                )
+            await page.pdf(**pdf_options)
             await browser.close()
     except Exception:
         await _ensure_playwright_chromium_installed_async()
         async with async_playwright() as p:
             browser = await p.chromium.launch()
             page = await browser.new_page()
-            await page.set_content(html, wait_until="load")
-            await page.pdf(path=str(output_path), format="A4", print_background=True)
+            if source_url:
+                await page.goto(source_url, wait_until="load")
+            else:
+                await page.set_content(html, wait_until="load")
+            pdf_options = {
+                "path": str(output_path),
+                "format": "A4",
+                "print_background": True,
+            }
+            if header_template or footer_template:
+                pdf_options.update(
+                    {
+                        "display_header_footer": True,
+                        "header_template": header_template or "<span></span>",
+                        "footer_template": footer_template or "<span></span>",
+                        "margin": {
+                            "top": "18mm",
+                            "bottom": "18mm",
+                            "left": "18mm",
+                            "right": "18mm",
+                        },
+                    }
+                )
+            await page.pdf(**pdf_options)
             await browser.close()
 
 
@@ -554,12 +780,11 @@ async def _ensure_playwright_chromium_installed_async() -> None:
     await asyncio.to_thread(_ensure_playwright_chromium_installed)
 
 
-def _run_async(coro: asyncio.Future | asyncio.Task) -> None:
+def _run_async(coro: asyncio.Future | asyncio.Task) -> Any:
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        asyncio.run(coro)
-        return
+        return asyncio.run(coro)
     if loop.is_running():
         raise RuntimeError("Cannot run async export from a running event loop.")
-    loop.run_until_complete(coro)
+    return loop.run_until_complete(coro)

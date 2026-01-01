@@ -22,6 +22,7 @@ Apply requirements in this order:
 ```markdown
 {doc_template}
 ```
+If the user prompt includes a "Template Remark" section, treat that template as authoritative and ignore conflicts in `.dogent/dogent.md` or the `doc_template` setting in `.dogent/dogent.json`.
 
 ## Project Constraints (.dogent/dogent.md)
 
@@ -31,14 +32,13 @@ Apply requirements in this order:
 
 ## Project Files and When to Use Them (Dynamic Access)
 
-- `.dogent/dogent.md`: project-specific writing constraints and preferences. ALWAYS read it when starting or clarifying requirements.
+- `.dogent/dogent.md`: project-specific writing constraints and preferences. ALWAYS read it when starting or clarifying requirements. If the user prompt includes a "Template Remark" section, treat that template as authoritative and ignore conflicts in `.dogent/dogent.md`.
 - `.dogent/dogent.json`: runtime config (including the settings of `doc_template` and `primary_language`)
 - `.dogent/history.json`: read-only work history for continuity. If it is large, read only recent entries when a request continues prior work.
 - `.dogent/lessons.md`: user-approved lessons from past failures. Consult at the start of each task to avoid repeating mistakes.
 - `.dogent/memory.md`: temporary working memory. Create only when needed for complex or long tasks; remove only after successful completion.
 - `.dogent/templates/`: workspace document templates. Load only if the user selects one from the workspace.
 - `.dogent/archives/`: archived history and lessons files. Read only if the user requests restoration of old records.
-- If the user uses `@@<template>` in the prompt, treat that template as authoritative for this request and ignore conflicting `doc_template` settings in `.dogent/dogent.json` or requirements in `dogent.md`.
 
 ## Tooling and Research
 

@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 from io import StringIO
 from pathlib import Path
 
@@ -457,11 +458,9 @@ class ConfigTests(unittest.TestCase):
             os.environ.pop("HOME", None)
 
     def test_global_config_warns_on_newer_version(self) -> None:
-        original_home = os.environ.get("HOME")
         buf = StringIO()
         console = Console(file=buf, force_terminal=False, color_system=None)
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
-            os.environ["HOME"] = tmp_home
             root = Path(tmp)
             home_dir = Path(tmp_home) / ".dogent"
             home_dir.mkdir(parents=True, exist_ok=True)
@@ -470,13 +469,12 @@ class ConfigTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            ConfigManager(DogentPaths(root), console=console)
-            output = buf.getvalue()
-            self.assertIn("newer than Dogent", output)
-        if original_home is not None:
-            os.environ["HOME"] = original_home
-        else:
-            os.environ.pop("HOME", None)
+            with mock.patch.dict(os.environ, {"HOME": tmp_home}, clear=False), mock.patch(
+                "pathlib.Path.home", return_value=Path(tmp_home)
+            ):
+                ConfigManager(DogentPaths(root), console=console)
+                output = " ".join(buf.getvalue().split())
+                self.assertIn("newer than Dogent", output)
 
 
 if __name__ == "__main__":

@@ -127,6 +127,35 @@ class PromptTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_template_override_moves_to_user_prompt(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.doc_preferences.write_text("prefs", encoding="utf-8")
+            templates_dir = paths.doc_templates_dir
+            templates_dir.mkdir(parents=True, exist_ok=True)
+            templates_dir.joinpath("override.md").write_text(
+                "# Override\n\n## Introduction\nOverride template.", encoding="utf-8"
+            )
+
+            todo_manager = TodoManager()
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo_manager, history)
+            config = {"doc_template": "general", "doc_template_override": "override"}
+            system_prompt = builder.build_system_prompt(config=config)
+            user_prompt = builder.build_user_prompt("msg", [], config=config)
+
+            self.assertNotIn("Override template.", system_prompt)
+            self.assertIn("Template Remark", user_prompt)
+            self.assertIn("Override template.", user_prompt)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
 
 if __name__ == "__main__":
     unittest.main()

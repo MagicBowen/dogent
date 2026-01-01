@@ -46,7 +46,7 @@ class TemplateOverrideTests(unittest.TestCase):
             self.assertIsNone(cli._normalize_template_override("missing"))
             self.assertEqual(
                 cli._build_prompt_override("demo"),
-                {"doc_template": "demo"},
+                {"doc_template_override": "demo"},
             )
             self.assertIsNone(cli._build_prompt_override(None))
         if original_home is not None:
