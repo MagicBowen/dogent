@@ -57,3 +57,32 @@ User Test Results: PASS
 4) Set `"version"` to a higher value (e.g., `"99.0.0"`) and restart `dogent`; confirm a warning about newer config version appears.
 
 User Test Results: PASS
+
+---
+
+## Release 0.9.9
+### Story 1 – Configurable PDF Style
+1) Start `dogent` once to ensure `~/.dogent/pdf_style.css` is created.
+2) Edit `~/.dogent/pdf_style.css` to apply a visible change (e.g., `body { font-size: 18pt; }`).
+3) In `sample/`, create a simple markdown file and request a PDF export (via prompt or tool). Confirm the PDF reflects the global style.
+4) Create `sample/.dogent/pdf_style.css` with a different visible style (e.g., `body { font-size: 10pt; }`).
+5) Export to PDF again; confirm the workspace style overrides the global style.
+6) Optional: make `sample/.dogent/pdf_style.css` unreadable and export again; confirm Dogent warns and falls back to the global style.
+
+User Test Results: PASS
+
+### Story 2 – Template Override in User Prompt
+1) In `sample/.dogent/templates/`, add a template `override.md` with a recognizable line (e.g., `## Introduction` content).
+2) Start `dogent` and submit a prompt like `@@override Draft a short report`.
+3) Confirm the system prompt does not include the override template content (optional: enable debug/logging if available).
+4) Confirm the user prompt includes a "Template Remark" section containing the override template content.
+5) Verify the response follows the override template even if `.dogent/dogent.json` or `.dogent/dogent.md` specify a different template.
+
+User Test Results: PASS
+
+### Story 3 – Graceful Exit Without Pipe Errors
+1) Start `dogent` and run `/exit`.
+2) Confirm the CLI exits without any `EPIPE` or write errors.
+3) Optional: run `dogent` in a piped environment (e.g., inside a wrapper/PTY) and repeat `/exit`.
+
+User Test Results: PASS

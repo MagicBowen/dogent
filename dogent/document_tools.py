@@ -141,26 +141,22 @@ def create_dogent_doc_tools(root: Path) -> list[SdkMcpTool]:
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            await export_markdown_async(
+            warnings = await export_markdown_async(
                 md_path,
                 output_path=output_path,
                 format=fmt,
                 title=title,
+                workspace_root=root,
             )
         except Exception as exc:  # noqa: BLE001
             return _error(f"Export failed: {exc}")
-
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": (
-                        f"Exported {_readable_path(root, md_path)} -> "
-                        f"{_readable_path(root, output_path)}"
-                    ),
-                }
-            ]
-        }
+        lines = [
+            f"Exported {_readable_path(root, md_path)} -> {_readable_path(root, output_path)}"
+        ]
+        if warnings:
+            lines.append("Warnings:")
+            lines.extend(f"- {warning}" for warning in warnings)
+        return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
     @tool(
         "convert_document",
@@ -197,6 +193,7 @@ def create_dogent_doc_tools(root: Path) -> list[SdkMcpTool]:
                 input_path,
                 output_path=output_path,
                 extract_media_dir=extract_dir,
+                workspace_root=root,
             )
         except Exception as exc:  # noqa: BLE001
             return _error(f"Conversion failed: {exc}")

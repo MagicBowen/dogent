@@ -546,6 +546,15 @@ class ConfigManager:
                     self.console.print(
                         f"[yellow]Cannot write {self.paths.global_schema_file}. Please create it manually.[/yellow]"
                     )
+        if not self.paths.global_pdf_style_file.exists():
+            css = self._read_home_template("pdf_style.css")
+            if css:
+                try:
+                    self.paths.global_pdf_style_file.write_text(css, encoding="utf-8")
+                except PermissionError:
+                    self.console.print(
+                        f"[yellow]Cannot write {self.paths.global_pdf_style_file}. Please create it manually.[/yellow]"
+                    )
 
     def _maybe_upgrade_global_config(self) -> None:
         data = self._read_json(self.paths.global_config_file)

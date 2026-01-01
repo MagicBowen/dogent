@@ -13,6 +13,13 @@
 
 ---
 
+## Release 0.9.9
+
+- Currently, the markdown to pdf conversion function generates pdfs with a default style. I hope to conduct research based on the current solution to find out the ways to specify styles for the generated pdfs. I hope there can be a style file, which is placed in the `~/.dogent` directory when dogent is started for the first time, serving as the global pdf style, and this style will be used by default when generating pdfs. Users can add and modify their own local style files under `.dogent` in the workspace, and such local style files should be used with priority.
+- If a user temporarily specifies a template for writing using `@@`, this template should not be injected into the system prompt (the system prompt doc template can be cleared). The template specified by the user must be injected into the user prompt as a separate remark segment. Update the system prompt to state that when a user prompt remarks a specific template, it takes priority over `.dogent.json` and any inconsistencies in `.dogent.md`.
+
+---
+
 ## Pending Requirements
 
 - Dogent supports configuring Claude's commands, subagents, and skills;

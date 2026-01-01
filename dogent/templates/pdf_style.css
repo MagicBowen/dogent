@@ -1,0 +1,216 @@
+/* ==========================================================================
+   Dogent PDF Style (global/workspace)
+   Purpose: Markdown -> HTML -> PDF (Playwright/Chromium print)
+   Goals: readable typography, clean headers/footers, code blocks with
+          syntax highlighting (via Pygments token classes).
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   0) Tuning knobs (adjust these first)
+   -------------------------------------------------------------------------- */
+:root {
+  --page-size: A4;
+  --page-margin: 18mm;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+               "Liberation Mono", "Courier New", monospace;
+
+  --font-size: 10pt;
+  --line-height: 1.62;
+
+  --text: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --bg-soft: #f8fafc;
+
+  --code-bg: #0b1020;
+  --code-fg: #e5e7eb;
+
+  --radius: 6px;
+  --gap: 10pt;
+
+  --link: #2563eb;
+}
+
+/* --------------------------------------------------------------------------
+   1) Page layout
+   -------------------------------------------------------------------------- */
+@page { size: var(--page-size); margin: var(--page-margin); }
+
+/* --------------------------------------------------------------------------
+   2) Global typography
+   -------------------------------------------------------------------------- */
+html, body {
+  font-family: var(--font-sans);
+  font-size: var(--font-size);
+  line-height: var(--line-height);
+  color: var(--text);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+body {
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+p { margin: 0 0 var(--gap); }
+
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* --------------------------------------------------------------------------
+   3) Headings
+   -------------------------------------------------------------------------- */
+h1, h2, h3, h4 {
+  page-break-after: avoid;
+  break-after: avoid-page;
+  margin: 18pt 0 10pt;
+  line-height: 1.25;
+}
+h1 { font-size: 20pt; letter-spacing: -0.2px; }
+h2 { font-size: 15pt; }
+h3 { font-size: 12pt; }
+h4 { font-size: 11pt; color: #111; }
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 14pt 0;
+}
+
+/* --------------------------------------------------------------------------
+   4) Lists
+   -------------------------------------------------------------------------- */
+ul, ol { margin: 0 0 var(--gap) 18pt; padding: 0; }
+li { margin: 4pt 0; }
+
+/* --------------------------------------------------------------------------
+   5) Blockquotes
+   -------------------------------------------------------------------------- */
+blockquote {
+  margin: 0 0 var(--gap);
+  padding: 8pt 10pt;
+  background: var(--bg-soft);
+  border-left: 3px solid #cbd5e1;
+  border-radius: var(--radius);
+  color: #334155;
+}
+
+/* --------------------------------------------------------------------------
+   6) Inline code & code blocks
+   -------------------------------------------------------------------------- */
+code {
+  font-family: var(--font-mono);
+  font-size: 1em;
+  background: #eef2ff;
+  color: #1f2937;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+pre {
+  margin: 0 0 var(--gap);
+  padding: 10pt 12pt;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  tab-size: 2;
+}
+
+pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  font-size: 0.9em;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+/* --------------------------------------------------------------------------
+   7) Syntax highlighting (Pygments + common classes)
+   -------------------------------------------------------------------------- */
+.highlight pre { background: var(--code-bg); }
+.hljs { background: var(--code-bg); color: var(--code-fg); }
+
+.c, .c1, .cm, .cp, .cs,
+.token.comment,
+.hljs-comment {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.k, .kc, .kd, .kn, .kp, .kr, .kt,
+.token.keyword,
+.hljs-keyword {
+  color: #93c5fd;
+}
+
+.s, .s1, .s2, .sa, .sb, .sc, .sd, .se, .sh, .si, .sr, .ss, .sx,
+.token.string,
+.hljs-string {
+  color: #a7f3d0;
+}
+
+.m, .mb, .mf, .mh, .mi, .mo,
+.token.number,
+.hljs-number {
+  color: #fcd34d;
+}
+
+.nf,
+.token.function,
+.hljs-title, .hljs-function {
+  color: #f9a8d4;
+}
+
+.nc, .nt,
+.token.class-name, .token.builtin,
+.hljs-type, .hljs-built_in {
+  color: #fdba74;
+}
+
+.o, .ow,
+.token.operator,
+.hljs-operator {
+  color: #e5e7eb;
+}
+
+.n, .na, .nb, .ni, .ne, .nl, .nn, .nx, .py,
+.token.variable,
+.hljs-name {
+  color: #e5e7eb;
+}
+
+/* --------------------------------------------------------------------------
+   8) Tables
+   -------------------------------------------------------------------------- */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 var(--gap);
+  font-size: 0.95em;
+}
+
+th, td {
+  border: 1px solid var(--border);
+  padding: 6pt 8pt;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+th {
+  background: var(--bg-soft);
+  text-align: left;
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------------------
+   9) Images
+   -------------------------------------------------------------------------- */
+img { max-width: 100%; height: auto; }

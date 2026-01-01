@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import asyncio
 import re
 import select
@@ -470,7 +471,7 @@ class DogentCLI:
         self.console.print(
             Panel(
                 Align.center(content),
-                title="Dogent",
+                title="🐶 Dogent",
                 subtitle=None,
                 expand=True,
                 padding=(1, 2),
@@ -1360,7 +1361,7 @@ class DogentCLI:
     def _build_prompt_override(self, template_key: str | None) -> dict[str, Any] | None:
         if not template_key:
             return None
-        return {"doc_template": template_key}
+        return {"doc_template_override": template_key}
 
     def _resolve_attachments(self, message: str) -> Tuple[str, list[FileAttachment]]:
         return self.file_resolver.extract(message)
@@ -1371,7 +1372,16 @@ class DogentCLI:
         self._shutting_down = True
         with suppress(Exception):
             await self.agent.reset()
-        self.console.print(Panel("Exiting Dogent. See you soon!", title="Goodbye", border_style="cyan"))
+        try:
+            self.console.print(
+                Panel("Exiting Dogent. See you soon!", title="Goodbye", border_style="cyan")
+            )
+        except BrokenPipeError:
+            return
+        except OSError as exc:
+            if exc.errno == errno.EPIPE:
+                return
+            raise
 
     def _show_attachments(self, attachments: Iterable[FileAttachment]) -> None:
         for attachment in attachments:
@@ -1561,7 +1571,14 @@ def main() -> None:
 
         print(f"dogent {__version__}")
         return
-    asyncio.run(DogentCLI().run())
+    try:
+        asyncio.run(DogentCLI().run())
+    except BrokenPipeError:
+        return
+    except OSError as exc:
+        if exc.errno == errno.EPIPE:
+            return
+        raise
 
 
 if __name__ == "__main__":

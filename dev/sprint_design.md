@@ -39,3 +39,35 @@
   - Template selector token: `@@`; strip the token from the user message before sending to the LLM.
   - Auto-create `~/.dogent/dogent.json` on first run; omit `llm_profile` unless the user sets it (env fallback remains).
   - If `vision_profile` is missing or `null` and the user references image/video attachments, block the request with a fail-fast error panel.
+
+---
+
+## Release 0.9.9
+- PDF style override support
+  - Introduce a `pdf_style.css` template file under `dogent/templates/` with the current default CSS.
+  - On first startup, bootstrap `~/.dogent/pdf_style.css` if missing (global default).
+  - Workspace override: use `.dogent/pdf_style.css` when it exists; otherwise fall back to global, then built-in.
+  - Do not auto-create workspace `pdf_style.css`; only use it when the user adds it.
+  - Expand the default CSS with readable comments, code block highlighting, and header/footer styling hooks.
+  - Enable header/footer + page numbers in PDF export via Playwright templates.
+
+- PDF rendering pipeline
+  - Update Markdown -> HTML to accept injected CSS text.
+  - Add a resolver to locate and read the style file in the priority order above.
+  - Apply the resolved CSS to all Markdown -> PDF conversions (including DOCX -> PDF via MD).
+  - If a style file is unreadable, fall back to the next source and surface a warning to the user.
+
+- Tests and docs
+  - Add unit tests for style precedence, missing styles fallback, and unreadable style warnings.
+  - Document CSS locations and precedence in README.
+
+- Template override in user prompt
+  - Keep `@@<template>` as the selector but do not inject the selected template into the system prompt.
+  - Clear the system prompt template content when an override is present (no template content in system prompt).
+  - Resolve the selected template content and append it to the user prompt as a distinct "Template Remark" section.
+  - Update system prompt instructions to prioritize the user prompt template remark over `.dogent.json`/`.dogent.md`.
+  - Add tests to ensure system prompt excludes the override template while the user prompt includes it.
+
+- Graceful exit handling
+  - Guard console output against `EPIPE`/broken pipe errors during `/exit`.
+  - Catch broken pipe errors at CLI entrypoint to avoid tracebacks on exit.

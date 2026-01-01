@@ -26,13 +26,17 @@ class TemplateRenderer:
         resolver: Callable[[str], str | None],
         *,
         template_name: str,
+        suppress_empty_keys: set[str] | None = None,
     ) -> str:
         missing: list[str] = []
+        suppress = suppress_empty_keys or set()
 
         def replace(match: re.Match[str]) -> str:
             key = match.group(1).strip()
             value = resolver(key)
             if value is None or value == "":
+                if key in suppress:
+                    return ""
                 missing.append(key)
                 return ""
             return str(value)
@@ -70,11 +74,17 @@ class PromptBuilder:
         self, settings=None, config: dict[str, Any] | None = None
     ) -> str:
         config_data = config or {}
+        template_override = self._template_override_key(config_data)
         context = self._base_context(settings, config_data)
+        suppress_empty_keys: set[str] | None = None
+        if template_override:
+            context["doc_template"] = ""
+            suppress_empty_keys = {"doc_template"}
         rendered = self.renderer.render(
             self._system_template,
             lambda key: self._resolve_value(key, context, config_data),
             template_name="system prompt",
+            suppress_empty_keys=suppress_empty_keys,
         )
         lessons = context.get("lessons", "")
         if lessons and "{lessons}" not in self._system_template:
@@ -89,6 +99,7 @@ class PromptBuilder:
         config: dict[str, Any] | None = None,
     ) -> str:
         config_data = config or {}
+        template_override = self._template_override_key(config_data)
         context = self._base_context(settings, config_data)
         context.update(
             {
@@ -96,11 +107,21 @@ class PromptBuilder:
                 "attachments": self._format_attachments(attachments),
             }
         )
-        return self.renderer.render(
+        rendered = self.renderer.render(
             self._user_template,
             lambda key: self._resolve_value(key, context, config_data),
             template_name="user prompt",
         )
+        if template_override:
+            override_content = self._resolve_template_override_content(template_override)
+            if override_content:
+                rendered = (
+                    rendered.rstrip()
+                    + "\n\nTemplate Remark (User-specified Template Override):\n```markdown\n"
+                    + override_content.strip()
+                    + "\n```\n"
+                )
+        return rendered
 
     def _base_context(self, settings, config: dict[str, Any]) -> dict[str, str]:
         preferences = self._read_preferences()
@@ -122,6 +143,22 @@ class PromptBuilder:
             "todo_list": todo_plain,
             "doc_template": doc_template,
         }
+
+    def _template_override_key(self, config: dict[str, Any]) -> str | None:
+        raw = (config or {}).get("doc_template_override")
+        if not isinstance(raw, str):
+            return None
+        cleaned = raw.strip()
+        return cleaned if cleaned else None
+
+    def _resolve_template_override_content(self, template_key: str) -> str:
+        resolved = self.doc_templates.resolve(template_key)
+        if not resolved:
+            self.console.print(
+                f"[yellow]Warning: doc_template override '{template_key}' not found. Skipping override content.[/yellow]"
+            )
+            return ""
+        return resolved.content.strip()
 
     def _resolve_value(
         self, key: str, context: dict[str, str], config: dict[str, Any]
