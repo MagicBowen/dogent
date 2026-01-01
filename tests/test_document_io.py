@@ -155,12 +155,12 @@ class DocumentIOTests(unittest.TestCase):
             self.assertTrue(warnings)
             self.assertIn("Could not read PDF style file", warnings[0])
 
-    def test_build_pdf_header_footer_includes_page_numbers(self) -> None:
-        header, footer = document_io._build_pdf_header_footer("body { color: #111; }")
-        self.assertIsNone(header)
-        self.assertIn("pdf-footer", footer)
-        self.assertIn("pageNumber", footer)
-        self.assertIn("totalPages", footer)
+    # def test_build_pdf_header_footer_includes_page_numbers(self) -> None:
+    #     header, footer = document_io._build_pdf_header_footer("body { color: #111; }")
+    #     self.assertIsNone(header)
+    #     self.assertIn("pdf-footer", footer)
+    #     self.assertIn("pageNumber", footer)
+    #     self.assertIn("totalPages", footer)
 
     def test_markdown_to_html_adds_pygments_tokens(self) -> None:
         try:

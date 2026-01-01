@@ -73,9 +73,11 @@ Example `~/.dogent/dogent.json` snippet:
   - Built-in templates require the `built-in:` prefix (e.g., `built-in:resume`).
   - `general` means no template is selected and uses the built-in `doc_general.md`.
   - Unprefixed names resolve only in the workspace (except `general`).
+- Temporary template override: prefix your prompt with `@@template_name` to apply that template for the current request (injected as a "Template Remark" and takes priority over `.dogent.json`/`.dogent.md`).
 - PDF style overrides:
-  - Global default: `~/.dogent/pdf_style.css` (created on first run).
+  - Global default: `~/.dogent/pdf_style.css` (copied from `dogent/templates/pdf_style.css` on first run).
   - Workspace override: `.dogent/pdf_style.css` (takes precedence when present).
+  - DOCX → PDF uses the same CSS (via DOCX → Markdown → PDF).
 - Template placeholders you can use (unknown or empty values render as empty strings and emit a warning):
   - `working_dir`, `preferences`
   - `doc_template` (resolved content from the configured document template)
