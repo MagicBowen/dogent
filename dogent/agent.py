@@ -38,6 +38,7 @@ from .clarification import (
     extract_clarification_payload,
     has_clarification_tag,
 )
+from .session_log import SessionLogger
 
 DOGENT_TOOL_DISPLAY_NAMES = {
     **DOGENT_WEB_TOOL_DISPLAY_NAMES,
@@ -68,6 +69,7 @@ class AgentRunner:
         console: Optional[Console] = None,
         *,
         permission_prompt: Optional[Callable[[str, str], Awaitable[bool]]] = None,
+        session_logger: SessionLogger | None = None,
     ) -> None:
         self.config = config
         self.prompt_builder = prompt_builder
@@ -81,16 +83,20 @@ class AgentRunner:
         self._last_summary: str | None = None
         self._clarification_text: str = ""
         self._needs_clarification = False
+        self._clarification_seen = False
         self._interrupted: bool = False
         self.last_outcome: RunOutcome | None = None
         self._wait_indicator: LLMWaitIndicator | None = None
         self._permission_prompt = permission_prompt
+        self._session_logger = session_logger
         self._aborted_reason: str | None = None
         self._abort_requested = False
         self._clarification_payload: ClarificationPayload | None = None
 
     async def reset(self) -> None:
         """Close current session so it can be re-created with new settings."""
+        with suppress(Exception):
+            await self._stop_wait_indicator()
         async with self._lock:
             if self._client:
                 await self._client.disconnect()
@@ -134,9 +140,13 @@ class AgentRunner:
             settings=settings,
             config=prompt_config,
         )
+        if self._session_logger:
+            self._session_logger.log_system_prompt("agent", system_prompt)
+            self._session_logger.log_user_prompt("agent", user_prompt)
         self._last_summary = None
         self._clarification_text = ""
         self._needs_clarification = False
+        self._clarification_seen = False
         self._interrupted = False
         self.last_outcome = None
         self._aborted_reason = None
@@ -225,24 +235,31 @@ class AgentRunner:
         if not self._client:
             return
         saw_result = False
+        drain_after_interrupt = False
         await self._start_wait_indicator()
         async for message in self._client.receive_response():
             if self._interrupted:
                 break
             await self._stop_wait_indicator()
+            if drain_after_interrupt:
+                if isinstance(message, ResultMessage):
+                    saw_result = True
+                    break
+                continue
             if isinstance(message, AssistantMessage):
                 if not self._abort_requested:
                     self._handle_assistant_message(message)
                 if self._needs_clarification and self._client:
                     with suppress(Exception):
                         await self._client.interrupt()
-                    break
+                    drain_after_interrupt = True
+                    continue
             elif isinstance(message, ResultMessage):
                 if not self._interrupted:
                     self._handle_result(message)
                 saw_result = True
                 break
-            if not self._interrupted:
+            if not self._interrupted and not drain_after_interrupt:
                 await self._start_wait_indicator()
         if not saw_result and self._aborted_reason and not self._interrupted:
             self._finalize_aborted()
@@ -314,13 +331,27 @@ class AgentRunner:
         for block in message.content:
             if isinstance(block, TextBlock):
                 if block.text:
+                    if self._session_logger:
+                        self._session_logger.log_assistant_text("agent", block.text)
                     text_blocks.append(block.text)
             elif isinstance(block, ThinkingBlock):
                 thinking_text = getattr(block, "thinking", "") or ""
-                self.console.print(Panel(thinking_text, title="🤔 Thinking"))
-                self.console.print()
+                if self._session_logger:
+                    self._session_logger.log_assistant_thinking("agent", thinking_text)
+                if has_clarification_tag(thinking_text):
+                    self._process_clarification_text(thinking_text, show_reply=False)
+                else:
+                    self.console.print(Panel(thinking_text, title="🤔 Thinking"))
+                    self.console.print()
             elif isinstance(block, ToolUseBlock):
                 self._tool_name_by_id[block.id] = block.name
+                if self._session_logger:
+                    self._session_logger.log_tool_use(
+                        "agent",
+                        name=block.name,
+                        tool_id=block.id,
+                        input_data=block.input,
+                    )
                 if block.name == "TodoWrite":
                     summary = self._summarize_todos(block.input)
                     self._log_tool_use(block, summary=summary)
@@ -335,6 +366,14 @@ class AgentRunner:
                         self._render_todos()
             elif isinstance(block, ToolResultBlock):
                 tool_name = self._tool_name_by_id.get(block.tool_use_id, "tool")
+                if self._session_logger:
+                    self._session_logger.log_tool_result(
+                        "agent",
+                        name=tool_name,
+                        tool_id=block.tool_use_id,
+                        content=block.content,
+                        is_error=getattr(block, "is_error", None),
+                    )
                 if tool_name == "TodoWrite":
                     summary = self._summarize_todos(block.content)
                     if self.todo_manager.update_from_payload(
@@ -361,6 +400,7 @@ class AgentRunner:
         if payload:
             self._clarification_payload = payload
             self._needs_clarification = True
+            self._clarification_seen = True
             note = payload.preface or payload.title or "Clarification required."
             self._clarification_text = note
             self.console.print(Panel(note, title="❓ Clarification Needed"))
@@ -384,6 +424,7 @@ class AgentRunner:
             self.console.print()
         if clarification_found:
             self._needs_clarification = True
+            self._clarification_seen = True
             if cleaned:
                 self._clarification_text = cleaned
         return clarification_found
@@ -399,6 +440,15 @@ class AgentRunner:
 
         result_text = message.result or ""
         self._last_summary = result_text or None
+        if self._session_logger:
+            self._session_logger.log_result(
+                "agent",
+                result=result_text or None,
+                is_error=bool(getattr(message, "is_error", False)),
+            )
+        if result_text and not self._needs_clarification and not self._clarification_seen:
+            if has_clarification_tag(result_text) or NEEDS_CLARIFICATION_SENTINEL in result_text:
+                self._process_clarification_text(result_text, show_reply=False)
 
         if self._aborted_reason:
             title = "🛑 Aborted"
@@ -412,19 +462,6 @@ class AgentRunner:
                 metrics,
             ]
             history_summary = self._aborted_reason
-        elif is_error:
-            title = "❌ Failed"
-            status = "error"
-            body_lines = [
-                "Result/Reason:",
-                result_text or "(no result returned)",
-                "",
-                "Remaining Todos:" if remaining else "Remaining Todos: (none)",
-                remaining,
-                "",
-                metrics,
-            ]
-            history_summary = result_text or "Task failed"
         elif self._needs_clarification:
             title = "❓ Needs clarification"
             status = "needs_clarification"
@@ -438,6 +475,19 @@ class AgentRunner:
                 metrics,
             ]
             history_summary = summary
+        elif is_error:
+            title = "❌ Failed"
+            status = "error"
+            body_lines = [
+                "Result/Reason:",
+                result_text or "(no result returned)",
+                "",
+                "Remaining Todos:" if remaining else "Remaining Todos: (none)",
+                remaining,
+                "",
+                metrics,
+            ]
+            history_summary = result_text or "Task failed"
         elif remaining:
             title = "❌ Failed"
             status = "error"

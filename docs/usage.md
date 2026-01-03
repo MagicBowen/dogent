@@ -8,7 +8,8 @@
 ## First Run
 1. Navigate to your project directory.
 2. Run `dogent` (or `dogent -h` for help) to enter the interactive shell; an ASCII banner and model/API info are shown.
-3. Use `/init` to generate `.dogent/dogent.md` and `.dogent/dogent.json` (template picker or wizard).
+3. If `.dogent/dogent.json` is missing, Dogent will prompt to initialize the workspace before handling requests.
+4. Use `/init` to generate `.dogent/dogent.md` and `.dogent/dogent.json` (template picker or wizard).
 
 ## Credentials & Profiles
 - Global config: `~/.dogent/dogent.json` (workspace defaults + profiles; auto-created on first run).
@@ -56,6 +57,12 @@
   ```
 
 - `llm_profile` can be set in `.dogent/dogent.json`; if missing, Dogent falls back to environment variables.
+- Debug logs are written when `.dogent/dogent.json` sets `"debug": true` (see Debug Logging below).
+
+## Debug Logging (Release 0.9.9)
+- Set `"debug": true` in `.dogent/dogent.json` to capture JSONL logs for every LLM call.
+- Log files are written to `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.json`.
+- Each entry includes `role`, `source`, `event`, and `content`. System prompts are logged once per source unless they change.
 
 ## Document Templates (Release 0.8.0)
 

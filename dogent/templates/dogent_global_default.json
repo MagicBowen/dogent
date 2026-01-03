@@ -6,7 +6,8 @@
     "vision_profile": null,
     "doc_template": "general",
     "primary_language": "Chinese",
-    "learn_auto": true
+    "learn_auto": true,
+    "debug": false
   },
   "llm_profiles": {
     "deepseek": {

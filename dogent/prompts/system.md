@@ -117,7 +117,7 @@ For long documents or tasks that may exceed context limits:
   1) A single line tag: [[DOGENT_CLARIFICATION_JSON]]
   2) A JSON object that matches the clarification schema (including response_type).
   The tag must be the first non-empty line of the reply, and the JSON must be the only content after it.
-  Prefer multiple-choice questions; allow free-form only when needed. Default the recommended choice to the best option.
+  Prefer multiple-choice questions and provide options whenever reasonable; allow free-form only when needed. Default the recommended choice to the best option.
 - Clarification JSON schema (must match exactly):
 ```json
 {

@@ -8,14 +8,17 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 - Todo panel synced to `TodoWrite` tool calls/results (no seeded todos)
 - @file references list core file metadata; the agent calls MCP tools to read content or analyze media on demand
 - Tool access confirmation for out-of-workspace reads/writes and delete commands (inline yes/no selector)
+- Clarification and confirmation prompts share a single selection UI with Esc-to-cancel and text fallback
 - Supports `.dogent/dogent.md` constraints, profiles in `~/.dogent/dogent.json`, and env fallbacks
+- Debug session logging to `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.json` when `debug` is enabled
 - Project-only lessons in `.dogent/lessons.md` (auto-captured after failures/interrupts; injected into prompt context)
 - Ready for packaging via `pyproject.toml` with Rich-based UI
 
 ## Quick Start
 1. Install: `pip install .` (Python 3.10+)
 2. Run: `dogent` (or `dogent -h/-v`) in your project directory — ASCII banner shows model/API.
-3. Commands:
+3. If `.dogent/dogent.json` is missing, Dogent will offer to initialize the workspace before the first request.
+4. Commands:
    - `/init` → create/update `.dogent/dogent.md` and `.dogent/dogent.json` (template picker or wizard)
    - `/show history` → show recent history entries and the latest todo snapshot
    - `/clean` → clean workspace state (`/clean [history|lesson|memory|all]`; defaults to `all`)
@@ -28,11 +31,12 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 4. Reference files with `@path/to/file` in your message; Dogent injects file metadata and uses MCP tools on demand to read/understand content. Tool results (e.g., WebFetch/WebSearch) show clear success/failure panels with reasons.
 
 ## Configuration
-- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `vision_profile`, `doc_template`, `learn_auto`)
+- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `vision_profile`, `doc_template`, `learn_auto`, `debug`)
 - Global config: `~/.dogent/dogent.json` with version, workspace defaults, and profiles (see `docs/usage.md` for JSON examples)
 - JSON schema: `~/.dogent/dogent.schema.json` (for editor validation)
 - Env fallback: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 - History is stored in `.dogent/history.json` (structured JSON, managed automatically); temporary scratch lives in `.dogent/memory.md` when created on demand.
+- Debug logs (when `debug: true`) are JSONL in `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.json` with `role`, `source`, `event`, and `content`.
 
 ## Web Search Setup (Release 0.6)
 

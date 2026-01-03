@@ -29,6 +29,9 @@
         "learn_auto": {
           "type": "boolean"
         },
+        "debug": {
+          "type": "boolean"
+        },
         "anthropic": {
           "type": "object",
           "additionalProperties": true

@@ -25,6 +25,17 @@ class ExitTests(unittest.IsolatedAsyncioTestCase):
                 with mock.patch.object(cli.console, "print", new=raise_broken_pipe):
                     await cli._graceful_exit()
 
+    async def test_run_marks_shutdown_on_eof(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {"HOME": tmp_home}, clear=False), mock.patch(
+                "pathlib.Path.home", return_value=Path(tmp_home)
+            ):
+                console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+                cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
+                cli._read_input = mock.AsyncMock(side_effect=EOFError)  # type: ignore[assignment]
+                await cli.run()
+                self.assertTrue(cli._shutting_down)
+
 
 if __name__ == "__main__":
     unittest.main()
