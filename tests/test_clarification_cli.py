@@ -7,7 +7,12 @@ from unittest import mock
 
 from rich.console import Console
 
-from dogent.cli import DogentCLI, ClarificationTimeout
+from dogent.cli import (
+    DogentCLI,
+    ClarificationTimeout,
+    CLARIFICATION_SKIP,
+    CLARIFICATION_SKIP_TEXT,
+)
 from dogent.clarification import (
     ClarificationOption,
     ClarificationPayload,
@@ -36,6 +41,75 @@ class ClarificationCliTests(unittest.IsolatedAsyncioTestCase):
                     selected=1,
                 )
             self.assertEqual(result, 1)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_choice_text_esc_skips(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
+            options = [
+                ClarificationOption(label="Alpha", value="alpha"),
+                ClarificationOption(label="Beta", value="beta"),
+            ]
+            with mock.patch.object(
+                cli, "_read_input", new=mock.AsyncMock(return_value="esc")
+            ):
+                result = await cli._prompt_clarification_choice_text(
+                    title="Question 1/1",
+                    question="Pick one",
+                    options=options,
+                    selected=0,
+                )
+            self.assertIs(result, CLARIFICATION_SKIP)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_freeform_text_esc_skips(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
+            with mock.patch.object(
+                cli, "_read_input", new=mock.AsyncMock(return_value="esc")
+            ):
+                result = await cli._prompt_freeform_answer_text("Your answer: ")
+            self.assertIs(result, CLARIFICATION_SKIP)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_prompt_question_skip_records_answer(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
+            question = ClarificationQuestion(
+                question_id="q1",
+                question="Question?",
+                options=[ClarificationOption(label="Yes", value="yes")],
+                recommended="yes",
+                allow_freeform=False,
+                placeholder=None,
+            )
+            with mock.patch.object(
+                cli,
+                "_prompt_clarification_choice_text",
+                new=mock.AsyncMock(return_value=CLARIFICATION_SKIP),
+            ):
+                answer = await cli._prompt_clarification_question(
+                    question, index=1, total=1, timeout_s=None
+                )
+            self.assertEqual(answer["answer"], CLARIFICATION_SKIP_TEXT)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

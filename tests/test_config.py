@@ -44,6 +44,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(data.get("doc_template"), "general")
             self.assertEqual(data.get("primary_language"), "Chinese")
             self.assertIsNone(data.get("vision_profile"))
+            self.assertFalse(data.get("debug"))
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

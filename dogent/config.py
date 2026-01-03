@@ -26,6 +26,7 @@ DEFAULT_PROJECT_CONFIG: Dict[str, Any] = {
     "doc_template": "general",
     "primary_language": "Chinese",
     "learn_auto": True,
+    "debug": False,
 }
 GLOBAL_DEFAULTS_KEY = "workspace_defaults"
 GLOBAL_LLM_PROFILES_KEY = "llm_profiles"
@@ -310,6 +311,13 @@ class ConfigManager:
 
         if raw_primary_language is None:
             normalized["primary_language"] = DEFAULT_PROJECT_CONFIG["primary_language"]
+        raw_debug = normalized.get("debug")
+        if raw_debug is None:
+            normalized["debug"] = DEFAULT_PROJECT_CONFIG["debug"]
+        elif isinstance(raw_debug, str):
+            normalized["debug"] = raw_debug.strip().lower() in {"1", "true", "yes", "y", "on"}
+        else:
+            normalized["debug"] = bool(raw_debug)
         raw_vision_profile = normalized.get("vision_profile")
         if raw_vision_profile is None:
             normalized["vision_profile"] = DEFAULT_PROJECT_CONFIG["vision_profile"]

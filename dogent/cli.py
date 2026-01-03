@@ -39,29 +39,34 @@ from .lesson_drafter import ClaudeLessonDrafter, LessonDrafter
 from .lessons import LessonIncident, LessonsManager
 from .paths import DogentPaths
 from .prompts import PromptBuilder
+from .session_log import SessionLogger
 from .todo import TodoManager
 from .vision import classify_media
 
 try:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.application import Application
+    from prompt_toolkit.buffer import Buffer
     from prompt_toolkit.completion import Completer, Completion
     from prompt_toolkit.document import Document
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.layout import Layout
-    from prompt_toolkit.layout.containers import Window
-    from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.layout.containers import Window, VSplit
+    from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
     from prompt_toolkit.styles import Style
     from prompt_toolkit.utils import get_cwidth
 except ImportError:  # pragma: no cover - optional dependency
     PromptSession = None  # type: ignore
     Application = None  # type: ignore
+    Buffer = None  # type: ignore
     Completer = object  # type: ignore
     Completion = object  # type: ignore
     Document = object  # type: ignore
     KeyBindings = None  # type: ignore
     Layout = None  # type: ignore
     Window = None  # type: ignore
+    VSplit = None  # type: ignore
+    BufferControl = None  # type: ignore
     FormattedTextControl = None  # type: ignore
     Style = None  # type: ignore
     get_cwidth = None  # type: ignore
@@ -76,6 +81,14 @@ class ClarificationTimeout(Exception):
 
 class ClarificationCancelled(Exception):
     pass
+
+
+class SelectionCancelled(Exception):
+    pass
+
+
+CLARIFICATION_SKIP = object()
+CLARIFICATION_SKIP_TEXT = "user chose not to answer this question"
 
 
 class DogentCompleter(Completer):
@@ -304,20 +317,24 @@ class DogentCLI:
         self.todo_manager = TodoManager(console=self.console)
         self.config_manager = ConfigManager(self.paths, console=self.console)
         self.doc_templates = DocumentTemplateManager(self.paths)
+        self.file_resolver = FileReferenceResolver(self.root)
+        self.history_manager = HistoryManager(self.paths)
+        project_cfg = self.config_manager.load_project_config()
+        self.session_logger = SessionLogger(
+            self.paths, enabled=bool(project_cfg.get("debug", False))
+        )
         self.init_wizard = InitWizard(
             config=self.config_manager,
             paths=self.paths,
             templates=self.doc_templates,
             console=self.console,
+            session_logger=self.session_logger,
         )
-        self.file_resolver = FileReferenceResolver(self.root)
-        self.history_manager = HistoryManager(self.paths)
-        project_cfg = self.config_manager.load_project_config()
         self.lessons_manager = LessonsManager(self.paths, console=self.console)
         self.prompt_builder = PromptBuilder(
             self.paths, self.todo_manager, self.history_manager, console=self.console
         )
-        self._permission_prompt_active = threading.Event()
+        self._selection_prompt_active = threading.Event()
         self._interactive_prompts = interactive_prompts
         self.agent = AgentRunner(
             config=self.config_manager,
@@ -326,11 +343,13 @@ class DogentCLI:
             history=self.history_manager,
             console=self.console,
             permission_prompt=self._prompt_tool_permission,
+            session_logger=self.session_logger,
         )
         self.lesson_drafter: LessonDrafter = lesson_drafter or ClaudeLessonDrafter(
             config=self.config_manager,
             paths=self.paths,
             console=self.console,
+            session_logger=self.session_logger,
         )
         self.auto_learn_enabled: bool = bool(project_cfg.get("learn_auto", True))
         self._armed_incident: LessonIncident | None = None
@@ -495,14 +514,17 @@ class DogentCLI:
     async def _cmd_init(self, command: str) -> bool:
         return await self._run_init(command_text=command)
 
-    async def _run_init(self, command_text: str) -> bool:
+    async def _run_init(self, command_text: str, *, force_wizard: bool = False) -> bool:
         parts = command_text.split(maxsplit=1)
         arg = parts[1].strip() if len(parts) > 1 else ""
         doc_template_key = "general"
         content = ""
         mode_label = "default"
+        wizard_prompt = ""
 
-        if not arg or arg.lower() == "general":
+        if force_wizard:
+            mode_label = "wizard"
+        elif not arg or arg.lower() == "general":
             content = self.config_manager.render_template(
                 "dogent_default.md", {"doc_template": doc_template_key}
             )
@@ -546,22 +568,23 @@ class DogentCLI:
                     return True
                 doc_template_key = "general"
                 mode_label = "wizard"
-                self.console.print(
-                    Panel(
-                        "Running init wizard to draft dogent.md...",
-                        title="Init Wizard",
-                        border_style="cyan",
-                    )
+
+        if mode_label == "wizard":
+            self.console.print(
+                Panel(
+                    "Running init wizard to draft dogent.md...",
+                    title="Init Wizard",
+                    border_style="cyan",
                 )
-                wizard_result = await self.init_wizard.generate(arg)
-                content = wizard_result.dogent_md
-                if wizard_result.doc_template:
-                    doc_template_key = wizard_result.doc_template
-                if wizard_result.primary_language:
-                    self.config_manager.set_primary_language(
-                        wizard_result.primary_language
-                    )
-                self._warn_if_missing_doc_template(doc_template_key)
+            )
+            wizard_prompt = arg
+            wizard_result = await self.init_wizard.generate(arg)
+            content = wizard_result.dogent_md
+            if wizard_result.doc_template:
+                doc_template_key = wizard_result.doc_template
+            if wizard_result.primary_language:
+                self.config_manager.set_primary_language(wizard_result.primary_language)
+            self._warn_if_missing_doc_template(doc_template_key)
 
         if not content.strip():
             self.console.print(
@@ -583,10 +606,16 @@ class DogentCLI:
         wrote_doc = False
         overwritten = False
         if doc_path.exists():
-            if await self._confirm_overwrite(doc_path):
-                doc_path.write_text(content.rstrip() + "\n", encoding="utf-8")
-                wrote_doc = True
-                overwritten = True
+            try:
+                if await self._confirm_overwrite(doc_path):
+                    doc_path.write_text(content.rstrip() + "\n", encoding="utf-8")
+                    wrote_doc = True
+                    overwritten = True
+            except SelectionCancelled:
+                self.console.print(
+                    Panel("Init cancelled.", title="Init", border_style="yellow")
+                )
+                return True
         else:
             doc_path.write_text(content.rstrip() + "\n", encoding="utf-8")
             wrote_doc = True
@@ -611,6 +640,8 @@ class DogentCLI:
         self.console.print(
             Panel("\n".join(summary_lines), title="Init", border_style="green")
         )
+        if mode_label == "wizard" and wizard_prompt:
+            await self._maybe_start_writing_from_init(wizard_prompt)
         return True
 
     def _warn_if_missing_doc_template(self, doc_template_key: str) -> None:
@@ -628,19 +659,49 @@ class DogentCLI:
     async def _confirm_overwrite(self, path: Path) -> bool:
         rel = path.relative_to(self.root)
         prompt = f"{rel} exists. Overwrite? [y/N] "
-        response = (await self._read_input(prompt=prompt)).strip().lower()
-        if not response:
-            return False
-        return response in {"y", "yes"}
+        return await self._prompt_yes_no(
+            title="Init",
+            message="",
+            prompt=prompt,
+            default=False,
+            show_panel=False,
+        )
 
     async def _prompt_tool_permission(self, title: str, message: str) -> bool:
-        return await self._prompt_yes_no(
-            title=title,
-            message=message,
-            prompt="Allow? [y/N] ",
-            default=False,
-            show_panel=True,
+        try:
+            return await self._prompt_yes_no(
+                title=title,
+                message=message,
+                prompt="Allow? [y/N] ",
+                default=False,
+                show_panel=True,
+            )
+        except SelectionCancelled:
+            return False
+
+    def _build_start_writing_prompt(self, init_prompt: str) -> str:
+        cleaned = init_prompt.strip().replace("\n", " ").strip()
+        return (
+            "The user has initialized the current dogent project, and the user's "
+            f'initialization prompt is "{cleaned}". Please continue to fulfill the '
+            "user's needs."
         )
+
+    async def _maybe_start_writing_from_init(self, init_prompt: str) -> None:
+        try:
+            should_start = await self._prompt_yes_no(
+                title="Init",
+                message="Start writing now?",
+                prompt="Start writing now? [y/N] ",
+                default=False,
+                show_panel=True,
+            )
+        except SelectionCancelled:
+            return
+        if not should_start:
+            return
+        message = self._build_start_writing_prompt(init_prompt)
+        await self._run_with_interrupt(message, [])
 
     async def _prompt_yes_no(
         self,
@@ -651,25 +712,32 @@ class DogentCLI:
         default: bool,
         show_panel: bool,
     ) -> bool:
-        self._permission_prompt_active.set()
+        self._selection_prompt_active.set()
         try:
             if show_panel and message:
                 self.console.print(Panel(message, title=title, border_style="yellow"))
             if self._can_use_inline_choice():
                 prompt_text = self._clean_yes_no_prompt(prompt)
-                return await self._prompt_yes_no_inline(prompt_text, default)
-            return await self._prompt_yes_no_text(prompt, default)
+                result = await self._prompt_yes_no_inline(prompt_text, default)
+            else:
+                result = await self._prompt_yes_no_text(prompt, default)
+            if result is None:
+                raise SelectionCancelled
+            return result
         finally:
-            self._permission_prompt_active.clear()
+            self._selection_prompt_active.clear()
 
     def _can_use_inline_choice(self) -> bool:
         if not self._interactive_prompts:
             return False
         if (
             Application is None
+            or Buffer is None
+            or BufferControl is None
             or FormattedTextControl is None
             or Layout is None
             or Window is None
+            or VSplit is None
             or KeyBindings is None
             or Style is None
         ):
@@ -681,54 +749,52 @@ class DogentCLI:
         cleaned = cleaned.replace("[Y/N]", "").replace("[y/n]", "")
         return cleaned.strip()
 
-    async def _prompt_yes_no_inline(self, prompt_text: str, default: bool) -> bool:
-        selection = "yes" if default else "no"
-        prefix = "dogent> "
-        spacing = "   "
+    async def _prompt_yes_no_inline(
+        self, prompt_text: str, default: bool
+    ) -> bool | None:
+        selection = 0 if default else 1
+        options = ["yes", "no"]
 
         def _fragments():
-            yes_style = "class:selected" if selection == "yes" else "class:choice"
-            no_style = "class:selected" if selection == "no" else "class:choice"
-            text_parts = [
-                ("class:prompt", prefix),
-            ]
+            lines = []
             if prompt_text:
-                text_parts.append(("class:prompt", f"{prompt_text} "))
-            text_parts.extend(
-                [
-                    (yes_style, "yes"),
-                    ("", spacing),
-                    (no_style, "no"),
-                ]
+                lines.append(("class:prompt", f"{prompt_text}\n\n"))
+            for idx, option in enumerate(options):
+                marker = ">" if idx == selection else " "
+                style = "class:selected" if idx == selection else "class:choice"
+                lines.append((style, f"{marker} {option}\n"))
+            lines.append(
+                (
+                    "class:prompt",
+                    "\nUse ↑/↓ to select, Enter to confirm, Esc to cancel.",
+                )
             )
-            return text_parts
+            return lines
 
         control = FormattedTextControl(_fragments, focusable=True, show_cursor=False)
-        window = Window(control, height=1, dont_extend_height=True)
+        window = Window(control, dont_extend_height=True)
         layout = Layout(window, focused_element=window)
         bindings = KeyBindings()
 
-        @bindings.add("left")
         @bindings.add("up")
-        def _select_yes(event) -> None:  # type: ignore[no-untyped-def]
+        def _up(event) -> None:  # type: ignore[no-untyped-def]
             nonlocal selection
-            selection = "yes"
+            selection = (selection - 1) % len(options)
             event.app.invalidate()
 
-        @bindings.add("right")
         @bindings.add("down")
-        def _select_no(event) -> None:  # type: ignore[no-untyped-def]
+        def _down(event) -> None:  # type: ignore[no-untyped-def]
             nonlocal selection
-            selection = "no"
+            selection = (selection + 1) % len(options)
             event.app.invalidate()
 
         @bindings.add("enter")
         def _accept(event) -> None:  # type: ignore[no-untyped-def]
-            event.app.exit(result=selection)
+            event.app.exit(result=options[selection])
 
         @bindings.add("escape")
         def _cancel(event) -> None:  # type: ignore[no-untyped-def]
-            event.app.exit(result="yes" if default else "no")
+            event.app.exit(result=None)
 
         @bindings.add("y")
         @bindings.add("Y")
@@ -741,13 +807,13 @@ class DogentCLI:
 
         @bindings.add("c-c")
         def _cancel_sigint(event) -> None:  # type: ignore[no-untyped-def]
-            event.app.exit(result="yes" if default else "no")
+            event.app.exit(result=None)
 
         style = Style.from_dict(
             {
                 "prompt": "",
                 "choice": "",
-                "selected": "underline",
+                "selected": "reverse",
             }
         )
         app = Application(
@@ -758,14 +824,18 @@ class DogentCLI:
             style=style,
         )
         result = await app.run_async()
+        if result is None:
+            return None
         return result == "yes"
 
-    async def _prompt_yes_no_text(self, prompt: str, default: bool) -> bool:
+    async def _prompt_yes_no_text(self, prompt: str, default: bool) -> bool | None:
         try:
             response_raw = await self._read_input(prompt=prompt)
         except (EOFError, KeyboardInterrupt):
-            return default
+            return None
         response = (response_raw or "").strip().lower()
+        if response in {"esc", "escape", "cancel"}:
+            return None
         if not response:
             return default
         if response.startswith("y"):
@@ -830,15 +900,27 @@ class DogentCLI:
             )
 
         async def _ask() -> dict[str, str]:
-            if not options and question.allow_freeform:
-                answer = await self._prompt_freeform_answer(question)
-                if answer is None:
-                    raise ClarificationCancelled
+            def _skip_answer() -> dict[str, str]:
                 return {
                     "id": question.question_id,
                     "question": question.question,
-                    "answer": answer,
+                    "answer": CLARIFICATION_SKIP_TEXT,
                 }
+
+            def _freeform_answer_payload(answer: object | None) -> dict[str, str]:
+                if answer is None:
+                    raise ClarificationCancelled
+                if answer is CLARIFICATION_SKIP:
+                    return _skip_answer()
+                return {
+                    "id": question.question_id,
+                    "question": question.question,
+                    "answer": str(answer),
+                }
+
+            if not options and question.allow_freeform:
+                answer = await self._prompt_freeform_answer(question)
+                return _freeform_answer_payload(answer)
             if not options:
                 raise ClarificationCancelled
             selected = recommended_index(question)
@@ -860,16 +942,14 @@ class DogentCLI:
                 )
             if selected is None:
                 raise ClarificationCancelled
+            if selected is CLARIFICATION_SKIP:
+                return _skip_answer()
             choice = options[selected]
             if question.allow_freeform and choice.value == freeform_value:
-                answer = await self._prompt_freeform_answer(question)
-                if answer is None:
-                    raise ClarificationCancelled
-                return {
-                    "id": question.question_id,
-                    "question": question.question,
-                    "answer": answer,
-                }
+                answer = await self._prompt_freeform_answer(
+                    question, label="Other (free-form answer)"
+                )
+                return _freeform_answer_payload(answer)
             answer_text = choice.label
             if choice.value and choice.value != choice.label:
                 answer_text = f"{choice.label} ({choice.value})"
@@ -879,19 +959,23 @@ class DogentCLI:
                 "answer": answer_text,
             }
 
-        if timeout_s is None:
-            return await _ask()
+        self._selection_prompt_active.set()
         try:
-            return await asyncio.wait_for(_ask(), timeout=timeout_s)
-        except asyncio.TimeoutError:
-            self.console.print(
-                Panel(
-                    "Clarification timed out. Aborting the task.",
-                    title="⏱️ Timeout",
-                    border_style="yellow",
+            if timeout_s is None:
+                return await _ask()
+            try:
+                return await asyncio.wait_for(_ask(), timeout=timeout_s)
+            except asyncio.TimeoutError:
+                self.console.print(
+                    Panel(
+                        "Clarification timed out. Aborting the task.",
+                        title="⏱️ Timeout",
+                        border_style="yellow",
+                    )
                 )
-            )
-            raise ClarificationTimeout from None
+                raise ClarificationTimeout from None
+        finally:
+            self._selection_prompt_active.clear()
 
     async def _prompt_clarification_choice_inline(
         self,
@@ -900,7 +984,7 @@ class DogentCLI:
         question: str,
         options: list[ClarificationOption],
         selected: int,
-    ) -> int | None:
+    ) -> int | object | None:
         selection = selected
 
         def _fragments():
@@ -915,7 +999,7 @@ class DogentCLI:
             lines.append(
                 (
                     "class:prompt",
-                    "\nUse ↑/↓ to select, Enter to confirm, Esc to cancel.",
+                    "\nUse ↑/↓ to select, Enter to confirm, Esc to skip, Ctrl+C to cancel.",
                 )
             )
             return lines
@@ -942,8 +1026,8 @@ class DogentCLI:
             event.app.exit(result=selection)
 
         @bindings.add("escape")
-        def _cancel(event) -> None:  # type: ignore[no-untyped-def]
-            event.app.exit(result=None)
+        def _skip(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=CLARIFICATION_SKIP)
 
         @bindings.add("c-c")
         def _cancel_sigint(event) -> None:  # type: ignore[no-untyped-def]
@@ -972,13 +1056,16 @@ class DogentCLI:
         question: str,
         options: list[ClarificationOption],
         selected: int,
-    ) -> int | None:
+    ) -> int | object | None:
         lines = [title, question, ""]
         for idx, option in enumerate(options, start=1):
             marker = "*" if idx - 1 == selected else " "
             lines.append(f"{marker} {idx}) {option.label}")
         lines.append("")
-        lines.append("Enter a number to select, or press Enter for default.")
+        lines.append(
+            "Enter a number to select, type esc to skip, or press Enter for default."
+        )
+        lines.append("Press Ctrl+C to cancel all questions.")
         self.console.print(Panel("\n".join(lines), title="Clarification"))
         try:
             response_raw = await self._read_input(prompt="Choice: ")
@@ -988,7 +1075,7 @@ class DogentCLI:
         if not response:
             return selected
         if response.lower() == "esc":
-            return None
+            return CLARIFICATION_SKIP
         if response.isdigit():
             choice = int(response)
             if 1 <= choice <= len(options):
@@ -996,17 +1083,66 @@ class DogentCLI:
         return selected
 
     async def _prompt_freeform_answer(
-        self, question: ClarificationQuestion
-    ) -> str | None:
-        prompt = "Your answer: "
-        if question.placeholder:
+        self, question: ClarificationQuestion, *, label: str | None = None
+    ) -> str | object | None:
+        prompt = f"{label}: " if label else "Your answer: "
+        if question.placeholder and not label:
             prompt = f"Your answer ({question.placeholder}): "
+        if self._can_use_inline_choice():
+            result = await self._prompt_freeform_answer_inline(prompt)
+        else:
+            result = await self._prompt_freeform_answer_text(prompt)
+        if result is None:
+            return None
+        if result is CLARIFICATION_SKIP:
+            return CLARIFICATION_SKIP
+        response = str(result).strip()
+        if not response:
+            return CLARIFICATION_SKIP
+        return response
+
+    async def _prompt_freeform_answer_text(self, prompt: str) -> str | object | None:
         try:
             response_raw = await self._read_input(prompt=prompt)
         except (EOFError, KeyboardInterrupt):
             return None
         response = (response_raw or "").strip()
-        return response or None
+        if response.lower() in {"esc", "escape", "cancel"}:
+            return CLARIFICATION_SKIP
+        if not response:
+            return CLARIFICATION_SKIP
+        return response
+
+    async def _prompt_freeform_answer_inline(self, prompt: str) -> str | object | None:
+        buffer = Buffer()
+        control = BufferControl(buffer=buffer)
+        prompt_control = FormattedTextControl([("class:prompt", prompt)])
+        prompt_window = Window(prompt_control, dont_extend_width=True, height=1)
+        input_window = Window(control, height=1, dont_extend_height=True)
+        layout = Layout(VSplit([prompt_window, input_window]), focused_element=input_window)
+        bindings = KeyBindings()
+
+        @bindings.add("enter")
+        def _accept(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=buffer.text)
+
+        @bindings.add("escape")
+        def _skip(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=CLARIFICATION_SKIP)
+
+        @bindings.add("c-c")
+        def _cancel(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=None)
+
+        style = Style.from_dict({"prompt": ""})
+        app = Application(
+            layout=layout,
+            key_bindings=bindings,
+            mouse_support=True,
+            full_screen=False,
+            style=style,
+        )
+        return await app.run_async()
 
     def _format_clarification_answers(
         self, payload: ClarificationPayload, answers: list[dict[str, str]]
@@ -1379,50 +1515,61 @@ class DogentCLI:
     async def run(self) -> None:
         settings = self.config_manager.load_settings()
         self._print_banner(settings)
-        while True:
-            try:
-                raw = await self._read_input()
-            except (EOFError, KeyboardInterrupt):
-                await self._graceful_exit()
-                break
-            if not raw:
-                continue
-            if raw.startswith("!"):
-                await self._run_shell_command(raw)
-                continue
-            text = raw.strip()
-            if text.startswith("/"):
-                should_continue = await self._handle_command(text)
-                if not should_continue:
+        try:
+            while True:
+                try:
+                    raw = await self._read_input()
+                except (EOFError, KeyboardInterrupt):
+                    await self._graceful_exit()
                     break
-                continue
-            message, template_override = self._extract_template_override(text)
-            template_override = self._normalize_template_override(template_override)
-            _, attachments = self._resolve_attachments(text)
-            message = self._replace_file_references(message, attachments)
-            if template_override:
-                self._show_template_reference(template_override)
-            if attachments:
-                self._show_attachments(attachments)
-            if not message and not attachments:
-                continue
-            blocked = self._blocked_media_attachments(attachments)
-            if blocked:
-                self._show_vision_disabled_error(blocked)
-                continue
-            if self._armed_incident and self.auto_learn_enabled:
-                if await self._confirm_save_lesson():
-                    await self._save_lesson_from_incident(self._armed_incident, message)
-                self._armed_incident = None
-            try:
-                await self._run_with_interrupt(
-                    message,
-                    attachments,
-                    config_override=self._build_prompt_override(template_override),
-                )
-            except KeyboardInterrupt:
-                await self._graceful_exit()
-                break
+                if not raw:
+                    continue
+                if raw.startswith("!"):
+                    await self._run_shell_command(raw)
+                    continue
+                text = raw.strip()
+                if text.startswith("/"):
+                    should_continue = await self._handle_command(text)
+                    if not should_continue:
+                        break
+                    continue
+                message, template_override = self._extract_template_override(text)
+                template_override = self._normalize_template_override(template_override)
+                _, attachments = self._resolve_attachments(text)
+                message = self._replace_file_references(message, attachments)
+                if template_override:
+                    self._show_template_reference(template_override)
+                if attachments:
+                    self._show_attachments(attachments)
+                if not message and not attachments:
+                    continue
+                if not await self._maybe_auto_init_for_request(message):
+                    continue
+                blocked = self._blocked_media_attachments(attachments)
+                if blocked:
+                    self._show_vision_disabled_error(blocked)
+                    continue
+                if self._armed_incident and self.auto_learn_enabled:
+                    try:
+                        if await self._confirm_save_lesson():
+                            await self._save_lesson_from_incident(
+                                self._armed_incident, message
+                            )
+                    except SelectionCancelled:
+                        self._armed_incident = None
+                        continue
+                    self._armed_incident = None
+                try:
+                    await self._run_with_interrupt(
+                        message,
+                        attachments,
+                        config_override=self._build_prompt_override(template_override),
+                    )
+                except KeyboardInterrupt:
+                    await self._graceful_exit()
+                    break
+        finally:
+            await self._graceful_exit()
 
     async def _run_with_interrupt(
         self,
@@ -1463,6 +1610,24 @@ class DogentCLI:
             next_message = answers_text
             next_attachments = []
         self._arm_lesson_capture_if_needed()
+
+    async def _maybe_auto_init_for_request(self, message: str) -> bool:
+        if self.paths.config_file.exists():
+            return True
+        try:
+            should_init = await self._prompt_yes_no(
+                title="Init",
+                message="This workspace is not initialized. Initialize now?",
+                prompt="Initialize now? [Y/n] ",
+                default=True,
+                show_panel=True,
+            )
+        except SelectionCancelled:
+            return False
+        if not should_init:
+            return True
+        await self._run_init(command_text=f"/init {message}", force_wizard=True)
+        return False
 
     async def _run_single_with_interrupt(
         self,
@@ -1524,13 +1689,21 @@ class DogentCLI:
             return False
         try:
             while not stop_event.is_set():
-                if self._permission_prompt_active.is_set():
-                    time.sleep(0.05)
+                if self._selection_prompt_active.is_set():
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                    while self._selection_prompt_active.is_set() and not stop_event.is_set():
+                        time.sleep(0.05)
+                    if stop_event.is_set():
+                        break
+                    try:
+                        tty.setcbreak(fd)
+                    except Exception:
+                        return False
                     continue
                 rlist, _, _ = select.select([fd], [], [], 0.2)
                 if not rlist:
                     continue
-                if self._permission_prompt_active.is_set():
+                if self._selection_prompt_active.is_set():
                     continue
                 ch = sys.stdin.read(1)
                 if ch == "\x1b":
@@ -1718,6 +1891,8 @@ class DogentCLI:
         self._shutting_down = True
         with suppress(Exception):
             await self.agent.reset()
+        with suppress(Exception):
+            self.session_logger.close()
         try:
             self.console.print(
                 Panel("Exiting Dogent. See you soon!", title="Goodbye", border_style="cyan")

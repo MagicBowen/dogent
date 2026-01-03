@@ -13,6 +13,7 @@ from .config import ConfigManager
 from .lessons import LessonIncident
 from .paths import DogentPaths
 from .prompts import TemplateRenderer
+from .session_log import SessionLogger
 from .wait_indicator import LLMWaitIndicator
 
 
@@ -35,10 +36,12 @@ class ClaudeLessonDrafter:
         config: ConfigManager,
         paths: DogentPaths,
         console: Optional[Console] = None,
+        session_logger: SessionLogger | None = None,
     ) -> None:
         self.config = config
         self.paths = paths
         self.console = console or Console()
+        self._session_logger = session_logger
         self.renderer = TemplateRenderer(console=self.console)
         self._template = self._load_template("lesson_draft.md")
 
@@ -101,6 +104,9 @@ class ClaudeLessonDrafter:
             "Be brief: prefer bullets; avoid long prose.\n"
             "The Correct Approach MUST include the user's correction verbatim as a short quote block.\n"
         )
+        if self._session_logger:
+            self._session_logger.log_system_prompt("lesson_drafter", system_prompt)
+            self._session_logger.log_user_prompt("lesson_drafter", user_prompt)
         options = self._build_options(system_prompt)
         client = ClaudeSDKClient(options=options)
         await client.connect()
@@ -114,9 +120,19 @@ class ClaudeLessonDrafter:
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
                         if isinstance(block, TextBlock) and block.text:
+                            if self._session_logger:
+                                self._session_logger.log_assistant_text(
+                                    "lesson_drafter", block.text
+                                )
                             parts.append(block.text)
                 elif isinstance(message, ResultMessage):
                     last_result = message.result or None
+                    if self._session_logger:
+                        self._session_logger.log_result(
+                            "lesson_drafter",
+                            result=last_result,
+                            is_error=bool(getattr(message, "is_error", False)),
+                        )
                     break
             text = "\n".join(part.strip("\n") for part in parts if part.strip())
             if not text:

@@ -143,7 +143,7 @@ class ClarificationAgentTests(unittest.IsolatedAsyncioTestCase):
         else:
             os.environ.pop("HOME", None)
 
-    async def test_thinking_block_does_not_trigger_clarification(self) -> None:
+    async def test_thinking_block_triggers_clarification(self) -> None:
         class DummyClient:
             def __init__(self) -> None:
                 self.options = SimpleNamespace(system_prompt="")
@@ -200,8 +200,79 @@ class ClarificationAgentTests(unittest.IsolatedAsyncioTestCase):
 
             runner._client.receive_response = fake_receive  # type: ignore[assignment]
             await runner._stream_responses()
-            self.assertFalse(client.interrupted)
-            self.assertIsNone(runner._clarification_payload)
+            self.assertTrue(client.interrupted)
+            self.assertIsNotNone(runner._clarification_payload)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_interrupt_drains_result_after_clarification(self) -> None:
+        class DummyClient:
+            def __init__(self) -> None:
+                self.options = SimpleNamespace(system_prompt="")
+                self.interrupted = False
+
+            async def query(self, _prompt: str) -> None:
+                return None
+
+            async def interrupt(self) -> None:
+                self.interrupted = True
+
+            async def receive_response(self):
+                from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+                from dogent.clarification import CLARIFICATION_JSON_TAG
+
+                payload = {
+                    "response_type": "clarification",
+                    "title": "Need details",
+                    "questions": [
+                        {
+                            "id": "info",
+                            "question": "Provide info",
+                            "options": [{"label": "A", "value": "a"}],
+                            "allow_freeform": False,
+                        }
+                    ],
+                }
+                text = f"{CLARIFICATION_JSON_TAG}\n{json.dumps(payload)}"
+                yield AssistantMessage(content=[TextBlock(text)], model="test")
+                yield ResultMessage(
+                    subtype="result",
+                    duration_ms=1,
+                    duration_api_ms=1,
+                    is_error=False,
+                    num_turns=1,
+                    session_id="session",
+                    total_cost_usd=0.0,
+                    result="ignored",
+                )
+
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console()
+            todo = TodoManager(console=console)
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo, history)
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=builder,
+                todo_manager=todo,
+                history=history,
+                console=console,
+            )
+            client = DummyClient()
+            runner._client = client
+
+            with mock.patch.object(runner, "_handle_result") as handle_result:
+                await runner._stream_responses()
+                handle_result.assert_not_called()
+            self.assertTrue(client.interrupted)
+            self.assertTrue(runner._needs_clarification)
+
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

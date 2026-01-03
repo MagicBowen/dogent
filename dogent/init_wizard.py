@@ -13,6 +13,7 @@ from claude_agent_sdk.types import ClaudeAgentOptions
 from .config import ConfigManager
 from .doc_templates import DocumentTemplateManager
 from .paths import DogentPaths
+from .session_log import SessionLogger
 from .wait_indicator import LLMWaitIndicator
 
 
@@ -32,11 +33,13 @@ class InitWizard:
         paths: DogentPaths,
         templates: DocumentTemplateManager,
         console: Optional[Console] = None,
+        session_logger: SessionLogger | None = None,
     ) -> None:
         self.config = config
         self.paths = paths
         self.templates = templates
         self.console = console or Console()
+        self._session_logger = session_logger
         wizard_template = self._load_template_file("dogent_default.md")
         if wizard_template:
             wizard_template = wizard_template.replace("{doc_template}", "general")
@@ -52,22 +55,37 @@ class InitWizard:
 
     async def generate(self, user_prompt: str) -> WizardResult:
         system_prompt = self._system_prompt
+        if self._session_logger:
+            self._session_logger.log_system_prompt("init_wizard", system_prompt)
         options = self._build_options(system_prompt)
         client = ClaudeSDKClient(options=options)
         await client.connect()
         indicator = LLMWaitIndicator(self.console, label="Waiting for init wizard")
         await indicator.start()
         try:
-            await client.query(self._build_user_prompt(user_prompt))
+            built_prompt = self._build_user_prompt(user_prompt)
+            if self._session_logger:
+                self._session_logger.log_user_prompt("init_wizard", built_prompt)
+            await client.query(built_prompt)
             parts: list[str] = []
             last_result: str | None = None
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
                         if isinstance(block, TextBlock) and block.text:
+                            if self._session_logger:
+                                self._session_logger.log_assistant_text(
+                                    "init_wizard", block.text
+                                )
                             parts.append(block.text)
                 elif isinstance(message, ResultMessage):
                     last_result = message.result or None
+                    if self._session_logger:
+                        self._session_logger.log_result(
+                            "init_wizard",
+                            result=last_result,
+                            is_error=bool(getattr(message, "is_error", False)),
+                        )
                     break
             text = "\n".join(part.strip("\n") for part in parts if part.strip())
             if not text:
