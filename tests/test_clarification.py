@@ -95,6 +95,48 @@ class ClarificationPayloadTests(unittest.TestCase):
         self.assertEqual(payload.questions[0].options[1].value, "Casual")
         self.assertEqual(payload.questions[0].recommended, "Casual")
 
+    def test_extract_accepts_fenced_payload(self) -> None:
+        text = (
+            "```\n"
+            f"{CLARIFICATION_JSON_TAG}\n"
+            "{"
+            "\"response_type\": \"clarification\","
+            "\"title\": \"Need info\","
+            "\"questions\": ["
+            "  {"
+            "    \"id\": \"role\","
+            "    \"question\": \"Preferred role?\","
+            "    \"options\": []"
+            "  }"
+            "]"
+            "}\n"
+            "```"
+        )
+        payload, errors = extract_clarification_payload(text)
+        self.assertEqual(errors, [])
+        self.assertIsNotNone(payload)
+
+    def test_extract_accepts_tag_then_fenced_json(self) -> None:
+        text = (
+            f"{CLARIFICATION_JSON_TAG}\n"
+            "```json\n"
+            "{"
+            "\"response_type\": \"clarification\","
+            "\"title\": \"Need info\","
+            "\"questions\": ["
+            "  {"
+            "    \"id\": \"role\","
+            "    \"question\": \"Preferred role?\","
+            "    \"options\": []"
+            "  }"
+            "]"
+            "}\n"
+            "```"
+        )
+        payload, errors = extract_clarification_payload(text)
+        self.assertEqual(errors, [])
+        self.assertIsNotNone(payload)
+
     def test_recommended_index_falls_back(self) -> None:
         text = (
             f"{CLARIFICATION_JSON_TAG}\n"

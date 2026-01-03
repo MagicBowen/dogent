@@ -85,16 +85,32 @@ def has_clarification_tag(text: str) -> bool:
 
 def _split_tagged_payload_text(text: str, tag: str) -> tuple[bool, str]:
     lines = text.splitlines()
-    first_line = ""
-    first_index = -1
-    for idx, line in enumerate(lines):
-        if line.strip():
-            first_line = line.strip()
-            first_index = idx
-            break
-    if first_line != tag:
+
+    def _first_non_empty(source: list[str]) -> tuple[int, str]:
+        for idx, line in enumerate(source):
+            if line.strip():
+                return idx, line.strip()
+        return -1, ""
+
+    def _strip_outer_fence(source: list[str]) -> tuple[list[str], bool]:
+        idx, line = _first_non_empty(source)
+        if idx == -1 or not line.startswith("```"):
+            return source, False
+        end = None
+        for j in range(idx + 1, len(source)):
+            if source[j].strip() == "```":
+                end = j
+                break
+        inner = source[idx + 1 : end] if end is not None else source[idx + 1 :]
+        return inner, True
+
+    content_lines, _ = _strip_outer_fence(lines)
+    first_index, first_line = _first_non_empty(content_lines)
+    if first_index == -1 or first_line != tag:
         return False, ""
-    remainder = "\n".join(lines[first_index + 1 :]).strip()
+    remainder_lines = content_lines[first_index + 1 :]
+    remainder_lines, _ = _strip_outer_fence(remainder_lines)
+    remainder = "\n".join(remainder_lines).strip()
     return True, remainder
 
 

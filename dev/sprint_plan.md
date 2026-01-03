@@ -15,32 +15,11 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
  
 ---
 
-## Release 0.9.9
+## Release 0.9.10
 
-### Story 1: Unified Confirmation UX and Safe Interrupts
-- User Value: Every confirmation prompt looks and behaves the same, with consistent cancel/skip behavior.
-- Acceptance: All yes/no confirmations use the up/down selection UI; Esc cancels the flow; non-interactive mode keeps y/n input; selection prompts do not interrupt an active agent loop; Esc listener is paused while prompts are open and restarted after exit. Clarification prompts use up/down selection, Esc skips a single question (answer recorded as `user chose not to answer this question`), Ctrl+C cancels all clarifications; "Other (free-form answer)" immediately prompts for input; clarification JSON in thinking blocks is parsed for QA and the thinking panel is suppressed.
+### Story 1: Multiline Markdown Editor for Inputs
+- User Value: Users can comfortably author and edit multi-line Markdown prompts and free-form answers.
+- Acceptance: Single-line input remains default. Pressing Ctrl+E opens a multiline editor for the main prompt and free-form clarification answers; selecting "Other (free-form answer)" opens the editor directly. The editor uses live Markdown highlighting in the edit view, and Ctrl+P toggles a read-only full preview. Enter inserts new lines; Ctrl+Enter submits (fallback shown in footer). Ctrl+Q returns; Esc does not exit the editor. On return with dirty content, prompt to Discard/Submit/Save/Cancel (save prompts for path, confirms overwrite). Footer lists prominent actions and fallback shortcuts. Esc listener is paused while the editor is open.
 - Dev Status: Done
-- Acceptance Status: Accepted
-- Verification: Manual CLI checks covering overwrite, lesson save, tool permissions, start writing, and initialize prompts.
-
-### Story 2: Debug Session Logging
-- User Value: Users can inspect LLM interactions for debugging when enabled.
-- Acceptance: `debug: true` creates `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.json` JSONL logs; entries include `role`; logs capture all LLM calls (main agent, init wizard, lesson drafter); system prompt recorded once if unchanged; no log file when `debug` is false or missing.
-- Dev Status: Done
-- Acceptance Status: Accepted
-- Verification: Manual CLI run and log inspection.
-
-### Story 3: /init Prompt Can Start Writing
-- User Value: Users can begin writing immediately after initializing via `/init prompt`.
-- Acceptance: `/init prompt` completes init (including overwrite choice) then asks whether to start writing; Yes runs the writing agent with the constructed prompt; No or Esc returns to CLI without starting the agent; other `/init` paths remain unchanged.
-- Dev Status: Done
-- Acceptance Status: Accepted
-- Verification: Manual CLI flow for `/init prompt`.
-
-### Story 4: Auto-Init When dogent.json Missing
-- User Value: New projects can initialize seamlessly before the first request.
-- Acceptance: If `.dogent/dogent.json` is missing on a user request, the CLI asks to initialize; Yes runs the init wizard with the user request, then offers the start-writing choice; No continues default handling; Esc cancels and returns to CLI; if the file exists, no init prompt is shown.
-- Dev Status: Done
-- Acceptance Status: Accepted
-- Verification: Manual CLI flow in a fresh workspace.
+- Acceptance Status: Pending
+- Verification: Manual CLI tests for prompt input and free-form clarification answers with Ctrl+E, preview toggle, submit/cancel behavior.

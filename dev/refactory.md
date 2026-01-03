@@ -14,3 +14,5 @@
             "The Correct Approach MUST include the user's correction verbatim as a short quote block.\n"
         )
 ```
+
+- CLI 中的 markdown editor 的功能独立一个文件
