@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import errno
 import asyncio
+import base64
 import re
 import select
 import shutil
@@ -398,6 +399,24 @@ def _write_system_clipboard(text: str) -> bool:
             )
             return True
     return False
+
+
+def _emit_osc52_clipboard(app: Application, text: str) -> None:
+    if not text:
+        return
+    payload = base64.b64encode(text.encode("utf-8")).decode("ascii")
+    osc = f"\033]52;c;{payload}\a"
+    output = getattr(app, "output", None)
+    if output is None:
+        return
+    writer = getattr(output, "write_raw", None) or getattr(output, "write", None)
+    if writer is None:
+        return
+    with suppress(Exception):
+        writer(osc)
+        flush = getattr(output, "flush", None)
+        if flush is not None:
+            flush()
 
 
 if Clipboard is not None and ClipboardData is not None:
@@ -1155,13 +1174,11 @@ class DogentCLI:
         try:
             editor_title = f"Markdown editor - {title}"
             preview_title = "Markdown preview (read-only)"
-            search_toolbar = SearchToolbar()
             editor = TextArea(
                 text=initial_text,
                 multiline=True,
                 wrap_lines=True,
                 scrollbar=True,
-                search_field=search_toolbar,
                 lexer=SimpleMarkdownLexer(),
             )
             preview_text = ""
@@ -1215,13 +1232,10 @@ class DogentCLI:
                 line1 = (
                     f"Submit: {submit_hint} | Return: Ctrl+Q | Preview: Ctrl+P"
                 )
-                line2 = (
-                    "Find: Ctrl+F | Line: Cmd+Left/Right (Ctrl+A/E) | "
-                    "Word: Option+Left/Right (Alt+B/F)"
-                )
+                line2 = "Line: Ctrl+A/E | Word: Option+Left/Right (Alt+B/F)"
                 line3 = (
-                    "Select: Shift+Arrows/Shift+Home/End | Word-select: "
-                    "Option+Shift+Left/Right | Copy/Cut/Paste: Ctrl+C/X/V"
+                    "Select: Shift+Arrows | Word select: Ctrl+W | Clear: Ctrl+G | "
+                    "Copy/Cut/Paste: Ctrl+C/X/V"
                 )
                 return f"{line1}\n{line2}\n{line3}"
 
@@ -1282,6 +1296,7 @@ class DogentCLI:
                     return
                 data = ClipboardData(text)
                 _write_system_clipboard(text)
+                _emit_osc52_clipboard(app, text)
                 app.clipboard.set_data(data)
 
             def _preview_width(app: Application) -> int:
@@ -1386,7 +1401,6 @@ class DogentCLI:
             edit_root = HSplit(
                 [
                     editor_frame,
-                    search_toolbar,
                     Window(
                         height=1,
                         content=FormattedTextControl(status_text),
@@ -1406,7 +1420,7 @@ class DogentCLI:
             )
             preview_footer = Window(
                 height=1,
-                content=FormattedTextControl("Preview mode • Esc/Ctrl+P return"),
+                content=FormattedTextControl("Preview mode • Esc return"),
                 style="class:preview_footer",
                 wrap_lines=True,
             )
@@ -1522,10 +1536,6 @@ class DogentCLI:
                     event.app.layout.focus(preview_window)
                 event.app.invalidate()
 
-            @bindings.add("c-f", filter=edit_active, eager=True)
-            def _focus_search(event) -> None:  # type: ignore[no-untyped-def]
-                event.app.layout.focus(search_toolbar.control)
-
             @bindings.add("c-w", filter=edit_active, eager=True)
             def _select_word(event) -> None:  # type: ignore[no-untyped-def]
                 buffer = event.current_buffer
@@ -1601,6 +1611,7 @@ class DogentCLI:
             def _copy_selection(event) -> None:  # type: ignore[no-untyped-def]
                 data = event.current_buffer.copy_selection()
                 _write_system_clipboard(data.text)
+                _emit_osc52_clipboard(event.app, data.text)
                 event.app.clipboard.set_data(data)
 
             @bindings.add("c-c", filter=edit_active, eager=True)
@@ -1611,6 +1622,7 @@ class DogentCLI:
             def _cut_selection(event) -> None:  # type: ignore[no-untyped-def]
                 data = event.current_buffer.cut_selection()
                 _write_system_clipboard(data.text)
+                _emit_osc52_clipboard(event.app, data.text)
                 event.app.clipboard.set_data(data)
 
             @bindings.add("c-v", filter=edit_active, eager=True)
@@ -1634,12 +1646,20 @@ class DogentCLI:
             @bindings.add("escape", "left", filter=edit_active, eager=True)
             @bindings.add("escape", "b", filter=edit_active, eager=True)
             def _word_left(event) -> None:  # type: ignore[no-untyped-def]
-                _move_word(event.current_buffer, direction="left", select=False)
+                _move_word(
+                    event.current_buffer,
+                    direction="left",
+                    select=event.current_buffer.selection_state is not None,
+                )
 
             @bindings.add("escape", "right", filter=edit_active, eager=True)
             @bindings.add("escape", "f", filter=edit_active, eager=True)
             def _word_right(event) -> None:  # type: ignore[no-untyped-def]
-                _move_word(event.current_buffer, direction="right", select=False)
+                _move_word(
+                    event.current_buffer,
+                    direction="right",
+                    select=event.current_buffer.selection_state is not None,
+                )
 
             @bindings.add("c-left", filter=edit_active, eager=True)
             def _ctrl_word_left(event) -> None:  # type: ignore[no-untyped-def]
@@ -1648,22 +1668,6 @@ class DogentCLI:
             @bindings.add("c-right", filter=edit_active, eager=True)
             def _ctrl_word_right(event) -> None:  # type: ignore[no-untyped-def]
                 _move_word(event.current_buffer, direction="right", select=False)
-
-            @bindings.add("escape", "s-left", filter=edit_active, eager=True)
-            def _select_word_left_alt(event) -> None:  # type: ignore[no-untyped-def]
-                _move_word(event.current_buffer, direction="left", select=True)
-
-            @bindings.add("escape", "s-right", filter=edit_active, eager=True)
-            def _select_word_right_alt(event) -> None:  # type: ignore[no-untyped-def]
-                _move_word(event.current_buffer, direction="right", select=True)
-
-            @bindings.add("c-s-left", filter=edit_active, eager=True)
-            def _select_word_left_ctrl(event) -> None:  # type: ignore[no-untyped-def]
-                _move_word(event.current_buffer, direction="left", select=True)
-
-            @bindings.add("c-s-right", filter=edit_active, eager=True)
-            def _select_word_right_ctrl(event) -> None:  # type: ignore[no-untyped-def]
-                _move_word(event.current_buffer, direction="right", select=True)
 
             @bindings.add("home", filter=edit_active, eager=True)
             def _line_start(event) -> None:  # type: ignore[no-untyped-def]
@@ -1974,6 +1978,9 @@ class DogentCLI:
                     value=freeform_value,
                 )
             )
+        label_text = question.question.rstrip()
+        if label_text.endswith((".", "。")):
+            label_text = label_text[:-1].rstrip()
 
         async def _ask() -> dict[str, str]:
             def _skip_answer() -> dict[str, str]:
@@ -1997,7 +2004,7 @@ class DogentCLI:
             if not options and question.allow_freeform:
                 answer = await self._prompt_freeform_answer(
                     question,
-                    label=question.question,
+                    label=label_text,
                     skip_on_editor_cancel=True,
                 )
                 return _freeform_answer_payload(answer)
@@ -2028,7 +2035,7 @@ class DogentCLI:
             if question.allow_freeform and choice.value == freeform_value:
                 answer = await self._prompt_freeform_answer(
                     question,
-                    label=question.question,
+                    label=label_text,
                     skip_on_editor_cancel=True,
                 )
                 return _freeform_answer_payload(answer)

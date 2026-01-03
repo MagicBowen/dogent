@@ -9,6 +9,7 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 - @file references list core file metadata; the agent calls MCP tools to read content or analyze media on demand
 - Tool access confirmation for out-of-workspace reads/writes and delete commands (inline yes/no selector)
 - Clarification and confirmation prompts share a single selection UI with Esc-to-cancel and text fallback
+- Multiline Markdown editor for prompts and free-form clarification answers (Ctrl+E) with live highlighting, full preview toggle, Ctrl+Enter submit, and Ctrl+Q return/save
 - Supports `.dogent/dogent.md` constraints, profiles in `~/.dogent/dogent.json`, and env fallbacks
 - Debug session logging to `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.json` when `debug` is enabled
 - Project-only lessons in `.dogent/lessons.md` (auto-captured after failures/interrupts; injected into prompt context)
@@ -28,6 +29,7 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
    - `/show lessons` → show recent lessons and where to edit `.dogent/lessons.md`
    - `/exit` → quit
    - Typing `/` shows command suggestions; typing `@` offers file completions; `!<command>` runs a shell command; press Esc during a task to interrupt and save progress
+   - Press Ctrl+E to open the Markdown editor for multi-line input; Ctrl+P toggles preview, Ctrl+Enter submits, and Ctrl+Q returns (dirty content prompts to discard/submit/save).
 4. Reference files with `@path/to/file` in your message; Dogent injects file metadata and uses MCP tools on demand to read/understand content. Tool results (e.g., WebFetch/WebSearch) show clear success/failure panels with reasons.
 
 ## Configuration
