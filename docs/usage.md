@@ -197,6 +197,13 @@ Example `~/.dogent/dogent.json` snippet:
 - Typing `/` shows live command suggestions; typing `@` offers file completions; typing `@@` offers template completions; `!<command>` runs a shell command.
 - Press `Esc` during an in-progress task to interrupt; progress is saved to `.dogent/history.json`.
 
+## Markdown Editor (Release 0.9.10)
+- Default input stays single-line for the main prompt and free-form clarification answers.
+- Press Ctrl+E to open the multiline Markdown editor (also opens automatically for "Other (free-form answer)").
+- In the editor: Enter inserts new lines; Ctrl+Enter submits (fallback Ctrl+J shown in the footer); Ctrl+Q returns.
+- Ctrl+P toggles a read-only full preview; press Esc to return to edit mode.
+- If you return with dirty content, Dogent prompts to Discard/Submit/Save/Cancel; Save accepts relative or absolute paths and confirms overwrite.
+
 ## Safety & Permissions (Release 0.9.7)
 - Dogent prompts for confirmation before any built-in `Read`/`Write`/`Edit` tool accesses paths outside the workspace.
 - Delete commands (`rm`, `rmdir`, `del`) require confirmation before execution.

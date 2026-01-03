@@ -24,12 +24,4 @@ User Test Results Status: Pending | Accepted | Rejected
 4) Press Ctrl+Q to return from the editor with dirty content. Confirm the dialog offers Discard/Submit/Save/Cancel. Choose Save, enter a relative path, and confirm the file is written. Repeat with an existing path and verify overwrite confirmation.
 5) Trigger a clarification flow with "Other (free-form answer)". Select it and verify the editor opens immediately. Press Ctrl+Q and choose Discard to return to the single-line free-form input without submitting.
 
-User Test Results: Pending (fixes applied; please retest)
-- the HOME and END key (CMD + lef/right) doesn't work, delete them in the footer of markdown editor (just use  Ctrl+A/E)
-- The option+shift+Left/Right only move the cursor jump between words not select words one by one , please fix it（maybe ctrl+W as a backup way）in markdown editor.
--  the "Select: Shift+Arrows/Shift+Home/End"
-- remove the indicated text of `ctrl+Q` in the markdown preview UI (only support ESC now)
-- when user choose free-form answer, display the `{question}: ` for waitting user input, please remove the period (if existed) at the end in the question text;
-- remove the Find function and `ctrl+F` in markdown editor mode;
-- shift + left/right should be used as charactor select not the whole line select in markdown editor mode;
-- should show `ctrl + G` as the selection clear in the footer of  markdown editor; 
+User Test Results: Accepted
