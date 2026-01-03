@@ -176,6 +176,40 @@ class ClarificationCliTests(unittest.IsolatedAsyncioTestCase):
         else:
             os.environ.pop("HOME", None)
 
+    async def test_other_choice_uses_freeform_prompt(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
+            question = ClarificationQuestion(
+                question_id="q1",
+                question="Question?",
+                options=[ClarificationOption(label="Alpha", value="alpha")],
+                recommended="alpha",
+                allow_freeform=True,
+                placeholder=None,
+            )
+            cli._prompt_freeform_answer = mock.AsyncMock(return_value="details")  # type: ignore[assignment]
+            with mock.patch.object(
+                cli,
+                "_prompt_clarification_choice_text",
+                new=mock.AsyncMock(return_value=1),
+            ):
+                answer = await cli._prompt_clarification_question(
+                    question, index=1, total=1, timeout_s=None
+                )
+            self.assertEqual(answer["answer"], "details")
+            cli._prompt_freeform_answer.assert_awaited_once_with(  # type: ignore[union-attr]
+                question,
+                label="Question?",
+                skip_on_editor_cancel=True,
+            )
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
 
 if __name__ == "__main__":
     unittest.main()

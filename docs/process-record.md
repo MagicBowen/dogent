@@ -1,5 +1,9 @@
 ## issues
 
+claude code 比 n8n 等流编排的好处？
+
+让 code review agent 等都好做了...
+
 claude code 不如 agent sdk的不足：
 - system prompt 不能定制
 - Agent loop 不能定制：例如 打断，打断的处理...

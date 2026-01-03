@@ -5,12 +5,15 @@ import errno
 import asyncio
 import re
 import select
+import shutil
+import subprocess
 import sys
 import termios
 import threading
 import time
 import tty
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable, Tuple
@@ -18,9 +21,11 @@ from typing import Any, Callable, Iterable, Tuple
 from rich import box
 from rich.align import Align
 from rich.console import Console, Group
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
+from rich.theme import Theme
 
 from .agent import AgentRunner
 from .clarification import (
@@ -47,29 +52,77 @@ try:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.application import Application
     from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.clipboard import Clipboard, ClipboardData, InMemoryClipboard
+    try:
+        from prompt_toolkit.clipboard.pyperclip import PyperclipClipboard
+    except Exception:  # pragma: no cover - optional system clipboard
+        PyperclipClipboard = None  # type: ignore
     from prompt_toolkit.completion import Completer, Completion
     from prompt_toolkit.document import Document
+    from prompt_toolkit.enums import EditingMode
+    from prompt_toolkit.filters import Condition
+    from prompt_toolkit.formatted_text import ANSI
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.layout import Layout
-    from prompt_toolkit.layout.containers import Window, VSplit
+    from prompt_toolkit.layout.containers import (
+        ConditionalContainer,
+        DynamicContainer,
+        HSplit,
+        Window,
+        VSplit,
+    )
     from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+    from prompt_toolkit.layout.margins import ScrollbarMargin
+    from prompt_toolkit.lexers import Lexer
+    from prompt_toolkit.selection import SelectionState, SelectionType
     from prompt_toolkit.styles import Style
     from prompt_toolkit.utils import get_cwidth
+    from prompt_toolkit.widgets import Frame, SearchToolbar, TextArea
+    from prompt_toolkit.shortcuts.dialogs import (
+        button_dialog,
+        input_dialog,
+        yes_no_dialog,
+    )
 except ImportError:  # pragma: no cover - optional dependency
     PromptSession = None  # type: ignore
     Application = None  # type: ignore
     Buffer = None  # type: ignore
+    Clipboard = None  # type: ignore
+    ClipboardData = None  # type: ignore
+    InMemoryClipboard = None  # type: ignore
+    PyperclipClipboard = None  # type: ignore
     Completer = object  # type: ignore
     Completion = object  # type: ignore
     Document = object  # type: ignore
+    EditingMode = None  # type: ignore
+    Condition = None  # type: ignore
+    ANSI = None  # type: ignore
     KeyBindings = None  # type: ignore
     Layout = None  # type: ignore
     Window = None  # type: ignore
     VSplit = None  # type: ignore
+    HSplit = None  # type: ignore
+    ConditionalContainer = None  # type: ignore
+    DynamicContainer = None  # type: ignore
     BufferControl = None  # type: ignore
     FormattedTextControl = None  # type: ignore
+    ScrollbarMargin = None  # type: ignore
+    Lexer = object  # type: ignore
+    SelectionState = None  # type: ignore
+    SelectionType = None  # type: ignore
     Style = None  # type: ignore
     get_cwidth = None  # type: ignore
+    TextArea = None  # type: ignore
+    Frame = None  # type: ignore
+    SearchToolbar = None  # type: ignore
+    button_dialog = None  # type: ignore
+    input_dialog = None  # type: ignore
+    yes_no_dialog = None  # type: ignore
+
+try:
+    import pyperclip
+except Exception:  # pragma: no cover - optional system clipboard
+    pyperclip = None  # type: ignore
 
 
 DOC_TEMPLATE_TOKEN = "@@"
@@ -89,6 +142,280 @@ class SelectionCancelled(Exception):
 
 CLARIFICATION_SKIP = object()
 CLARIFICATION_SKIP_TEXT = "user chose not to answer this question"
+
+
+_MATH_BLOCK_RE = re.compile(r"(?s)\$\$(.+?)\$\$")
+_MATH_INLINE_RE = re.compile(r"(?s)(?<!\$)\$[^$\n]+\$(?!\$)")
+
+
+def mark_math_for_preview(text: str) -> str:
+    def block_sub(match: re.Match[str]) -> str:
+        inner = match.group(1).strip()
+        return f"\\n\\n```math\\n{inner}\\n```\\n\\n"
+
+    text = _MATH_BLOCK_RE.sub(block_sub, text)
+    parts = re.split(r"(`[^`]*`)", text)
+    for idx in range(0, len(parts), 2):
+        parts[idx] = _MATH_INLINE_RE.sub(
+            lambda m: f"`[math] {m.group(0)[1:-1].strip()} [/math]`",
+            parts[idx],
+        )
+    return "".join(parts)
+
+
+def resolve_save_path(root: Path, path_text: str) -> Path:
+    candidate = Path(path_text).expanduser()
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    return candidate
+
+
+class SimpleMarkdownLexer(Lexer):
+    RE_INLINE_CODE = re.compile(r"`[^`]+`")
+    RE_INLINE_MATH = re.compile(r"(?<!\$)\$[^$\n]+\$(?!\$)")
+    RE_STRONG = re.compile(r"\*\*[^*]+\*\*")
+    RE_EM = re.compile(r"(?<!\*)\*[^*]+\*(?!\*)")
+    RE_TASK = re.compile(r"^(\s*[-*]\s+)(\[(?: |x|X)\])(\s+)(.*)$")
+    RE_HEADING = re.compile(r"^(#{1,6})\s+.*$")
+    RE_QUOTE = re.compile(r"^\s*>\s+.*$")
+    RE_RULE = re.compile(r"^(?:-{3,}|_{3,}|\*{3,})$")
+
+    def lex_document(self, document: Document) -> Callable[[int], list[tuple[str, str]]]:
+        lines = document.lines
+        styled: list[list[tuple[str, str]]] = []
+        in_fence = False
+        in_math_block = False
+
+        def apply_regex(
+            segments: list[tuple[str, str]],
+            regex: re.Pattern[str],
+            style: str,
+            *,
+            allowed_style: str = "class:md.text",
+        ) -> list[tuple[str, str]]:
+            out: list[tuple[str, str]] = []
+            for seg_style, text in segments:
+                if seg_style != allowed_style:
+                    out.append((seg_style, text))
+                    continue
+                last = 0
+                for match in regex.finditer(text):
+                    start, end = match.span()
+                    if start > last:
+                        out.append((seg_style, text[last:start]))
+                    out.append((style, text[start:end]))
+                    last = end
+                if last < len(text):
+                    out.append((seg_style, text[last:]))
+            return out
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                in_fence = not in_fence
+                styled.append([("class:md.fence", line)])
+                continue
+            if stripped.startswith("$$") and stripped.endswith("$$") and len(stripped) > 4:
+                styled.append([("class:md.mathblock", line)])
+                continue
+            if stripped == "$$":
+                in_math_block = not in_math_block
+                styled.append([("class:md.mathblock", line)])
+                continue
+            if in_math_block:
+                styled.append([("class:md.mathblock", line)])
+                continue
+            if in_fence:
+                styled.append([("class:md.codeblock", line)])
+                continue
+            if self.RE_HEADING.match(line):
+                styled.append([("class:md.heading", line)])
+                continue
+            if self.RE_RULE.match(stripped):
+                styled.append([("class:md.rule", line)])
+                continue
+            if self.RE_QUOTE.match(line):
+                styled.append([("class:md.quote", line)])
+                continue
+
+            task_match = self.RE_TASK.match(line)
+            if task_match:
+                prefix, box, space, rest = task_match.groups()
+                styled.append(
+                    [
+                        ("class:md.text", prefix),
+                        ("class:md.task", box),
+                        ("class:md.text", space),
+                        ("class:md.text", rest),
+                    ]
+                )
+                continue
+
+            if "|" in line:
+                segments = [
+                    ("class:md.pipe" if ch == "|" else "class:md.text", ch)
+                    for ch in line
+                ]
+            else:
+                segments = [("class:md.text", line)]
+
+            segments = apply_regex(segments, self.RE_INLINE_CODE, "class:md.inlinecode")
+            segments = apply_regex(segments, self.RE_INLINE_MATH, "class:md.inlinemath")
+            segments = apply_regex(segments, self.RE_STRONG, "class:md.strong")
+            segments = apply_regex(segments, self.RE_EM, "class:md.em")
+            styled.append(segments)
+
+        def lex_line(i: int) -> list[tuple[str, str]]:
+            if i < len(styled):
+                return styled[i]
+            return [("class:md.text", "")]
+
+        return lex_line
+
+
+@dataclass(frozen=True)
+class MultilineEditRequest:
+    text: str
+
+
+def _system_clipboard_supported() -> bool:
+    if pyperclip is not None:
+        return True
+    if sys.platform == "darwin":
+        return bool(_darwin_clipboard_cmd("pbcopy")) and bool(
+            _darwin_clipboard_cmd("pbpaste")
+        )
+    if sys.platform.startswith("linux"):
+        return bool(shutil.which("wl-copy") and shutil.which("wl-paste")) or bool(
+            shutil.which("xclip") or shutil.which("xsel")
+        )
+    if sys.platform.startswith("win"):
+        return bool(shutil.which("powershell"))
+    return False
+
+
+def _darwin_clipboard_cmd(name: str) -> str | None:
+    path = Path("/usr/bin") / name
+    if path.exists():
+        return str(path)
+    return shutil.which(name)
+
+
+def _read_system_clipboard() -> str | None:
+    if sys.platform == "darwin":
+        cmd = _darwin_clipboard_cmd("pbpaste")
+        if cmd:
+            with suppress(Exception):
+                proc = subprocess.run(
+                    [cmd], stdout=subprocess.PIPE, check=True
+                )
+                return proc.stdout.decode("utf-8", errors="replace")
+    if pyperclip is not None:
+        with suppress(Exception):
+            return pyperclip.paste()
+    if sys.platform.startswith("linux"):
+        if shutil.which("wl-paste"):
+            with suppress(Exception):
+                proc = subprocess.run(
+                    ["wl-paste"], stdout=subprocess.PIPE, check=True
+                )
+                return proc.stdout.decode("utf-8", errors="replace")
+        if shutil.which("xclip"):
+            with suppress(Exception):
+                proc = subprocess.run(
+                    ["xclip", "-selection", "clipboard", "-o"],
+                    stdout=subprocess.PIPE,
+                    check=True,
+                )
+                return proc.stdout.decode("utf-8", errors="replace")
+        if shutil.which("xsel"):
+            with suppress(Exception):
+                proc = subprocess.run(
+                    ["xsel", "--clipboard", "--output"],
+                    stdout=subprocess.PIPE,
+                    check=True,
+                )
+                return proc.stdout.decode("utf-8", errors="replace")
+    if sys.platform.startswith("win") and shutil.which("powershell"):
+        with suppress(Exception):
+            proc = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
+                stdout=subprocess.PIPE,
+                check=True,
+            )
+            return proc.stdout.decode("utf-8", errors="replace")
+    return None
+
+
+def _write_system_clipboard(text: str) -> bool:
+    if sys.platform == "darwin":
+        cmd = _darwin_clipboard_cmd("pbcopy")
+        if cmd:
+            with suppress(Exception):
+                subprocess.run(
+                    [cmd], input=text.encode("utf-8"), check=True
+                )
+                return True
+    if pyperclip is not None:
+        with suppress(Exception):
+            pyperclip.copy(text)
+            return True
+    if sys.platform.startswith("linux"):
+        if shutil.which("wl-copy"):
+            with suppress(Exception):
+                subprocess.run(
+                    ["wl-copy"], input=text.encode("utf-8"), check=True
+                )
+                return True
+        if shutil.which("xclip"):
+            with suppress(Exception):
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=text.encode("utf-8"),
+                    check=True,
+                )
+                return True
+        if shutil.which("xsel"):
+            with suppress(Exception):
+                subprocess.run(
+                    ["xsel", "--clipboard", "--input"],
+                    input=text.encode("utf-8"),
+                    check=True,
+                )
+                return True
+    if sys.platform.startswith("win") and shutil.which("powershell"):
+        with suppress(Exception):
+            subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    "Set-Clipboard -Value @'\n"
+                    + text
+                    + "\n'@",
+                ],
+                check=True,
+            )
+            return True
+    return False
+
+
+if Clipboard is not None and ClipboardData is not None:
+    class SystemClipboard(Clipboard):
+        def __init__(self, fallback: Clipboard) -> None:
+            self._fallback = fallback
+
+        def get_data(self) -> ClipboardData:
+            text = _read_system_clipboard()
+            if text is None:
+                return self._fallback.get_data()
+            return ClipboardData(text)
+
+        def set_data(self, data: ClipboardData) -> None:
+            _write_system_clipboard(data.text)
+            self._fallback.set_data(data)
+else:  # pragma: no cover - prompt_toolkit unavailable
+    SystemClipboard = None  # type: ignore
 
 
 class DogentCompleter(Completer):
@@ -335,6 +662,7 @@ class DogentCLI:
             self.paths, self.todo_manager, self.history_manager, console=self.console
         )
         self._selection_prompt_active = threading.Event()
+        self._multiline_editor_allowed = threading.Event()
         self._interactive_prompts = interactive_prompts
         self.agent = AgentRunner(
             config=self.config_manager,
@@ -380,6 +708,13 @@ class DogentCLI:
                 if count > 0:
                     buf.delete_before_cursor(count)
                 buf.selection_state = None
+
+            @bindings.add("c-e", eager=True)
+            def _(event):  # type: ignore
+                if not self._multiline_editor_allowed.is_set():
+                    event.current_buffer.cursor_position = len(event.current_buffer.text)
+                    return
+                event.app.exit(result=MultilineEditRequest(event.current_buffer.text))
 
             @bindings.add("up", eager=True)
             def _(event):  # type: ignore
@@ -495,7 +830,7 @@ class DogentCLI:
             f"Web Profile: {web_label}",
             f"Vision Profile: {vision_profile}",
             f"Commands: {commands}",
-            "Shortcuts: Esc interrupt • Alt/Option+Enter newline • Alt/Option+Backspace delete word",
+            "Shortcuts: Esc interrupt • Ctrl+E editor (Ctrl+P preview, Ctrl+Q return) • Alt/Option+Enter newline",
             "Ctrl+C exit • !<command> run shell command in workspace",
         ]
         body = Align.center(art.strip("\n"))
@@ -744,6 +1079,745 @@ class DogentCLI:
             return False
         return sys.stdin.isatty() and sys.stdout.isatty()
 
+    def _can_use_multiline_editor(self) -> bool:
+        if not self._can_use_inline_choice():
+            return False
+        if (
+            ANSI is None
+            or Condition is None
+            or ConditionalContainer is None
+            or DynamicContainer is None
+            or HSplit is None
+            or Lexer is None
+            or Frame is None
+            or SearchToolbar is None
+            or SelectionState is None
+            or SelectionType is None
+            or TextArea is None
+            or EditingMode is None
+            or button_dialog is None
+            or input_dialog is None
+            or yes_no_dialog is None
+            or (InMemoryClipboard is None and PyperclipClipboard is None)
+        ):
+            return False
+        return True
+
+    def _render_markdown_preview(self, text: str, width: int) -> str:
+        theme = Theme(
+            {
+                "markdown.h1": "bold #003366",
+                "markdown.h2": "bold #2a4d8f",
+                "markdown.h3": "bold #3a5ea8",
+                "markdown.code_block": "bold #e6e6e6 on #2d2d2d",
+                "markdown.code": "bold #e6e6e6 on #2d2d2d",
+            }
+        )
+        preview_console = Console(
+            width=width,
+            record=True,
+            force_terminal=True,
+            color_system=self.console.color_system or "truecolor",
+            theme=theme,
+            legacy_windows=False,
+        )
+        preview_text = mark_math_for_preview(text or "")
+        preview_text = self._pad_preview_code_blocks(preview_text, width)
+        preview_console.print(
+            Markdown(preview_text, code_theme="monokai", hyperlinks=False)
+        )
+        return preview_console.export_text(styles=True)
+
+    def _pad_preview_code_blocks(self, text: str, width: int) -> str:
+        lines = text.splitlines()
+        in_fence = False
+        padded: list[str] = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("```"):
+                in_fence = not in_fence
+                padded.append(line)
+                continue
+            if in_fence:
+                display_width = sum(get_cwidth(ch) for ch in line) if get_cwidth else len(line)
+                pad_len = max(0, width - display_width)
+                if pad_len:
+                    line = line + (" " * pad_len)
+            padded.append(line)
+        return "\n".join(padded)
+
+    async def _open_multiline_editor(self, initial_text: str, *, title: str) -> str | None:
+        if not self._can_use_multiline_editor():
+            return initial_text
+        was_active = self._selection_prompt_active.is_set()
+        if not was_active:
+            self._selection_prompt_active.set()
+        try:
+            editor_title = f"Markdown editor - {title}"
+            preview_title = "Markdown preview (read-only)"
+            search_toolbar = SearchToolbar()
+            editor = TextArea(
+                text=initial_text,
+                multiline=True,
+                wrap_lines=True,
+                scrollbar=True,
+                search_field=search_toolbar,
+                lexer=SimpleMarkdownLexer(),
+            )
+            preview_text = ""
+            mode = "edit"
+            submit_hint = "Ctrl+Enter"
+            submit_bound = False
+            def _build_clipboard() -> object:
+                fallback = InMemoryClipboard()
+                if SystemClipboard is not None and _system_clipboard_supported():
+                    return SystemClipboard(fallback)
+                if PyperclipClipboard is not None:
+                    with suppress(Exception):
+                        return PyperclipClipboard()
+                return fallback
+
+            clipboard = _build_clipboard()
+            selection_active = Condition(
+                lambda: editor.buffer.selection_state is not None
+            )
+            return_prompt_active = False
+            return_selection = 0
+            return_future: asyncio.Future[str] | None = None
+            save_prompt_active = False
+            save_selection = 0
+            save_future: asyncio.Future[str] | None = None
+            overwrite_prompt_active = False
+            overwrite_selection = 0
+            overwrite_future: asyncio.Future[str] | None = None
+            overwrite_path: Path | None = None
+            edit_active = Condition(
+                lambda: mode == "edit"
+                and not return_prompt_active
+                and not save_prompt_active
+                and not overwrite_prompt_active
+            )
+            preview_active = Condition(lambda: mode == "preview")
+            return_prompt_filter = Condition(lambda: return_prompt_active)
+            save_prompt_filter = Condition(lambda: save_prompt_active)
+            overwrite_prompt_filter = Condition(lambda: overwrite_prompt_active)
+
+            def is_dirty() -> bool:
+                return editor.text != initial_text
+
+            def status_text() -> str:
+                row = editor.document.cursor_position_row + 1
+                col = editor.document.cursor_position_col + 1
+                dirty_mark = "*" if is_dirty() else ""
+                return f"{mode.upper()} {dirty_mark} {title} | Ln {row}, Col {col}"
+
+            def footer_text() -> str:
+                line1 = (
+                    f"Submit: {submit_hint} | Return: Ctrl+Q | Preview: Ctrl+P"
+                )
+                line2 = (
+                    "Find: Ctrl+F | Line: Cmd+Left/Right (Ctrl+A/E) | "
+                    "Word: Option+Left/Right (Alt+B/F)"
+                )
+                line3 = (
+                    "Select: Shift+Arrows/Shift+Home/End | Word-select: "
+                    "Option+Shift+Left/Right | Copy/Cut/Paste: Ctrl+C/X/V"
+                )
+                return f"{line1}\n{line2}\n{line3}"
+
+            def _ensure_selection(buffer: Buffer) -> None:
+                if buffer.selection_state is None:
+                    buffer.selection_state = SelectionState(
+                        original_cursor_position=buffer.cursor_position,
+                        type=SelectionType.CHARACTERS,
+                    )
+
+            def _extend_selection(buffer: Buffer, new_position: int) -> None:
+                _ensure_selection(buffer)
+                buffer.cursor_position = max(0, min(len(buffer.text), new_position))
+
+            def _line_start_position(doc: Document) -> int:
+                row = doc.cursor_position_row
+                return doc.translate_row_col_to_index(row, 0)
+
+            def _line_end_position(doc: Document) -> int:
+                row = doc.cursor_position_row
+                line = doc.lines[row] if row < len(doc.lines) else ""
+                return doc.translate_row_col_to_index(row, len(line))
+
+            def _move_word(buffer: Buffer, *, direction: str, select: bool) -> None:
+                doc = buffer.document
+                if direction == "left":
+                    offset = doc.find_previous_word_beginning(count=1)
+                else:
+                    offset = doc.find_next_word_beginning(count=1)
+                if offset:
+                    new_pos = buffer.cursor_position + offset
+                    if select:
+                        _extend_selection(buffer, new_pos)
+                    else:
+                        buffer.cursor_position = new_pos
+
+            last_selection_range: tuple[int, int] | None = None
+            last_selection_text = ""
+
+            def _sync_selection_clipboard(app: Application) -> None:
+                nonlocal last_selection_range, last_selection_text
+                buffer = editor.buffer
+                if buffer.selection_state is None:
+                    last_selection_range = None
+                    last_selection_text = ""
+                    return
+                start, end = editor.document.selection_range()
+                if start == end:
+                    last_selection_range = None
+                    last_selection_text = ""
+                    return
+                text = editor.text[start:end]
+                if last_selection_range == (start, end) and text == last_selection_text:
+                    return
+                last_selection_range = (start, end)
+                last_selection_text = text
+                if not text:
+                    return
+                data = ClipboardData(text)
+                _write_system_clipboard(text)
+                app.clipboard.set_data(data)
+
+            def _preview_width(app: Application) -> int:
+                columns = None
+                with suppress(Exception):
+                    columns = app.output.get_size().columns
+                if not columns:
+                    columns = self.console.width or 80
+                scrollbar_width = 1 if ScrollbarMargin else 0
+                return max(20, columns - 4 - scrollbar_width)
+
+            preview_control = FormattedTextControl(
+                lambda: ANSI(preview_text), focusable=False, show_cursor=False
+            )
+            preview_margins = [ScrollbarMargin()] if ScrollbarMargin else None
+            try:
+                preview_window = Window(
+                    content=preview_control,
+                    wrap_lines=True,
+                    right_margins=preview_margins,
+                    style="class:preview",
+                )
+            except TypeError:
+                preview_window = Window(
+                    content=preview_control, wrap_lines=True, style="class:preview"
+                )
+            editor_frame = Frame(editor, title=editor_title)
+            preview_frame = Frame(preview_window, title=preview_title, style="class:preview")
+
+            def _return_prompt_text() -> str:
+                options = ["Discard", "Submit", "Save to file", "Cancel"]
+                lines = ["Unsaved changes. Choose an action:"]
+                for idx, option in enumerate(options):
+                    marker = ">" if idx == return_selection else " "
+                    lines.append(f"{marker} {option}")
+                lines.append("Use ↑/↓ to select, Enter to confirm, Esc to cancel.")
+                return "\n".join(lines)
+
+            return_prompt_window = Window(
+                content=FormattedTextControl(_return_prompt_text),
+                height=4,
+                style="class:return_prompt",
+                wrap_lines=True,
+            )
+            return_prompt_container = ConditionalContainer(
+                return_prompt_window, filter=return_prompt_filter
+            )
+
+            save_buffer = Buffer(document=Document(text=""))
+            save_prompt_label = Window(
+                content=FormattedTextControl("Save to file: "),
+                height=1,
+                dont_extend_width=True,
+                style="class:save_prompt",
+            )
+            save_input_window = Window(
+                BufferControl(buffer=save_buffer),
+                height=1,
+                style="class:save_prompt",
+            )
+
+            def _save_options_text() -> str:
+                options = ["OK", "Cancel"]
+                lines: list[str] = []
+                for idx, option in enumerate(options):
+                    marker = ">" if idx == save_selection else " "
+                    lines.append(f"{marker} {option}")
+                lines.append("Use ↑/↓ to select, Enter to confirm, Esc to cancel.")
+                return "\n".join(lines)
+
+            save_options_window = Window(
+                content=FormattedTextControl(_save_options_text),
+                height=3,
+                style="class:save_prompt",
+                wrap_lines=True,
+            )
+            save_prompt_container = ConditionalContainer(
+                HSplit([VSplit([save_prompt_label, save_input_window]), save_options_window]),
+                filter=save_prompt_filter,
+            )
+
+            def _overwrite_prompt_text() -> str:
+                options = ["Overwrite", "Cancel"]
+                target = str(overwrite_path) if overwrite_path else "File"
+                lines = [f"{target} exists. Overwrite?"]
+                for idx, option in enumerate(options):
+                    marker = ">" if idx == overwrite_selection else " "
+                    lines.append(f"{marker} {option}")
+                lines.append("Use ↑/↓ to select, Enter to confirm, Esc to cancel.")
+                return "\n".join(lines)
+
+            overwrite_prompt_window = Window(
+                content=FormattedTextControl(_overwrite_prompt_text),
+                height=4,
+                style="class:save_prompt",
+                wrap_lines=True,
+            )
+            overwrite_prompt_container = ConditionalContainer(
+                overwrite_prompt_window, filter=overwrite_prompt_filter
+            )
+
+            edit_root = HSplit(
+                [
+                    editor_frame,
+                    search_toolbar,
+                    Window(
+                        height=1,
+                        content=FormattedTextControl(status_text),
+                        style="class:status",
+                        wrap_lines=True,
+                    ),
+                    Window(
+                        content=FormattedTextControl(footer_text),
+                        style="class:footer",
+                        wrap_lines=True,
+                        dont_extend_height=True,
+                    ),
+                    return_prompt_container,
+                    save_prompt_container,
+                    overwrite_prompt_container,
+                ]
+            )
+            preview_footer = Window(
+                height=1,
+                content=FormattedTextControl("Preview mode • Esc/Ctrl+P return"),
+                style="class:preview_footer",
+                wrap_lines=True,
+            )
+            preview_root = HSplit([preview_frame, preview_footer])
+
+            def current_root() -> object:
+                return preview_root if mode == "preview" else edit_root
+
+            body = DynamicContainer(current_root)
+            layout = Layout(
+                body,
+                focused_element=editor,
+            )
+            bindings = KeyBindings()
+
+            def _accept(event) -> None:  # type: ignore[no-untyped-def]
+                event.app.exit(result=editor.text)
+
+            for key, hint in (("c-enter", "Ctrl+Enter"), ("c-j", "Ctrl+J")):
+                try:
+                    bindings.add(key)(_accept)
+                except ValueError:
+                    continue
+                submit_bound = True
+                submit_hint = hint
+                break
+            if not submit_bound:
+                submit_hint = "Ctrl+Enter"
+
+            async def _prompt_save_path(app: Application) -> str | None:
+                nonlocal save_prompt_active, save_selection, save_future
+                save_prompt_active = True
+                save_selection = 0
+                save_buffer.text = ""
+                save_future = asyncio.get_event_loop().create_future()
+                app.layout.focus(save_input_window)
+                app.invalidate()
+                result = await save_future
+                save_prompt_active = False
+                save_future = None
+                app.layout.focus(editor)
+                app.invalidate()
+                if result != "ok":
+                    return None
+                path_text = save_buffer.text.strip()
+                if not path_text:
+                    return None
+                return path_text
+
+            async def _confirm_overwrite(app: Application, path: Path) -> bool:
+                nonlocal overwrite_prompt_active, overwrite_selection, overwrite_future, overwrite_path
+                overwrite_prompt_active = True
+                overwrite_selection = 0
+                overwrite_path = path
+                overwrite_future = asyncio.get_event_loop().create_future()
+                app.invalidate()
+                result = await overwrite_future
+                overwrite_prompt_active = False
+                overwrite_future = None
+                overwrite_path = None
+                app.layout.focus(editor)
+                app.invalidate()
+                return result == "overwrite"
+
+            async def _return_flow(app: Application) -> None:
+                if not is_dirty():
+                    app.exit(result=None)
+                    return
+                nonlocal return_prompt_active, return_selection, return_future
+                return_prompt_active = True
+                return_selection = 0
+                return_future = asyncio.get_event_loop().create_future()
+                app.invalidate()
+                result = await return_future
+                return_prompt_active = False
+                return_future = None
+                app.invalidate()
+                if result == "discard":
+                    app.exit(result=None)
+                    return
+                if result == "submit":
+                    app.exit(result=editor.text)
+                    return
+                if result == "save":
+                    path_text = await _prompt_save_path(app)
+                    if not path_text:
+                        return
+                    save_path = resolve_save_path(self.root, path_text)
+                    if save_path.exists():
+                        if not await _confirm_overwrite(app, save_path):
+                            return
+                    save_path.parent.mkdir(parents=True, exist_ok=True)
+                    save_path.write_text(editor.text, encoding="utf-8")
+                    app.exit(result=None)
+                    return
+
+            @bindings.add("c-q", filter=edit_active, eager=True)
+            def _return(event) -> None:  # type: ignore[no-untyped-def]
+                if return_prompt_active:
+                    return
+                event.app.create_background_task(_return_flow(event.app))
+
+            @bindings.add("c-p", filter=edit_active, eager=True)
+            def _toggle_preview(event) -> None:  # type: ignore[no-untyped-def]
+                nonlocal preview_text, mode
+                if mode == "preview":
+                    mode = "edit"
+                    event.app.layout.focus(editor)
+                else:
+                    mode = "preview"
+                    width = _preview_width(event.app)
+                    preview_text = self._render_markdown_preview(editor.text, width)
+                    event.app.layout.focus(preview_window)
+                event.app.invalidate()
+
+            @bindings.add("c-f", filter=edit_active, eager=True)
+            def _focus_search(event) -> None:  # type: ignore[no-untyped-def]
+                event.app.layout.focus(search_toolbar.control)
+
+            @bindings.add("c-w", filter=edit_active, eager=True)
+            def _select_word(event) -> None:  # type: ignore[no-untyped-def]
+                buffer = event.current_buffer
+                doc = buffer.document
+                start_offset = doc.find_previous_word_beginning(count=1)
+                end_offset = doc.find_next_word_ending(count=1)
+                start_pos = doc.cursor_position + (start_offset or 0)
+                end_pos = doc.cursor_position + (end_offset or 0)
+                buffer.cursor_position = end_pos
+                buffer.selection_state = SelectionState(
+                    original_cursor_position=start_pos,
+                    type=SelectionType.CHARACTERS,
+                )
+
+            @bindings.add("c-l", filter=edit_active, eager=True)
+            def _select_line(event) -> None:  # type: ignore[no-untyped-def]
+                buffer = event.current_buffer
+                text = buffer.document.text
+                pos = buffer.cursor_position
+                start = text.rfind("\n", 0, pos) + 1
+                end = text.find("\n", pos)
+                if end == -1:
+                    end = len(text)
+                buffer.cursor_position = end
+                buffer.selection_state = SelectionState(
+                    original_cursor_position=start,
+                    type=SelectionType.CHARACTERS,
+                )
+
+            @bindings.add("s-left", filter=edit_active, eager=True)
+            def _select_left(event) -> None:  # type: ignore[no-untyped-def]
+                buffer = event.current_buffer
+                doc = buffer.document
+                _extend_selection(buffer, doc.get_cursor_left_position())
+
+            @bindings.add("s-right", filter=edit_active, eager=True)
+            def _select_right(event) -> None:  # type: ignore[no-untyped-def]
+                buffer = event.current_buffer
+                doc = buffer.document
+                _extend_selection(buffer, doc.get_cursor_right_position())
+
+            @bindings.add("s-up", filter=edit_active, eager=True)
+            def _select_up(event) -> None:  # type: ignore[no-untyped-def]
+                buffer = event.current_buffer
+                doc = buffer.document
+                _extend_selection(buffer, doc.get_cursor_up_position())
+
+            @bindings.add("s-down", filter=edit_active, eager=True)
+            def _select_down(event) -> None:  # type: ignore[no-untyped-def]
+                buffer = event.current_buffer
+                doc = buffer.document
+                _extend_selection(buffer, doc.get_cursor_down_position())
+
+            @bindings.add("s-home", filter=edit_active, eager=True)
+            def _select_home(event) -> None:  # type: ignore[no-untyped-def]
+                buffer = event.current_buffer
+                _extend_selection(buffer, _line_start_position(buffer.document))
+
+            @bindings.add("s-end", filter=edit_active, eager=True)
+            def _select_end(event) -> None:  # type: ignore[no-untyped-def]
+                buffer = event.current_buffer
+                _extend_selection(buffer, _line_end_position(buffer.document))
+
+            @bindings.add("c-g", filter=edit_active, eager=True)
+            def _clear_selection(event) -> None:  # type: ignore[no-untyped-def]
+                event.current_buffer.exit_selection()
+
+            @bindings.add("escape", filter=selection_active, eager=True)
+            def _clear_selection_esc(event) -> None:  # type: ignore[no-untyped-def]
+                event.current_buffer.exit_selection()
+
+            @bindings.add("c-c", filter=selection_active, eager=True)
+            def _copy_selection(event) -> None:  # type: ignore[no-untyped-def]
+                data = event.current_buffer.copy_selection()
+                _write_system_clipboard(data.text)
+                event.app.clipboard.set_data(data)
+
+            @bindings.add("c-c", filter=edit_active, eager=True)
+            def _copy_no_selection(event) -> None:  # type: ignore[no-untyped-def]
+                event.current_buffer.exit_selection()
+
+            @bindings.add("c-x", filter=selection_active, eager=True)
+            def _cut_selection(event) -> None:  # type: ignore[no-untyped-def]
+                data = event.current_buffer.cut_selection()
+                _write_system_clipboard(data.text)
+                event.app.clipboard.set_data(data)
+
+            @bindings.add("c-v", filter=edit_active, eager=True)
+            def _paste(event) -> None:  # type: ignore[no-untyped-def]
+                text = _read_system_clipboard()
+                if text is not None:
+                    event.current_buffer.insert_text(text)
+                else:
+                    data = event.app.clipboard.get_data()
+                    event.current_buffer.paste_clipboard_data(data)
+
+            @bindings.add("s-insert", filter=edit_active, eager=True)
+            def _paste_shift_insert(event) -> None:  # type: ignore[no-untyped-def]
+                text = _read_system_clipboard()
+                if text is not None:
+                    event.current_buffer.insert_text(text)
+                else:
+                    data = event.app.clipboard.get_data()
+                    event.current_buffer.paste_clipboard_data(data)
+
+            @bindings.add("escape", "left", filter=edit_active, eager=True)
+            @bindings.add("escape", "b", filter=edit_active, eager=True)
+            def _word_left(event) -> None:  # type: ignore[no-untyped-def]
+                _move_word(event.current_buffer, direction="left", select=False)
+
+            @bindings.add("escape", "right", filter=edit_active, eager=True)
+            @bindings.add("escape", "f", filter=edit_active, eager=True)
+            def _word_right(event) -> None:  # type: ignore[no-untyped-def]
+                _move_word(event.current_buffer, direction="right", select=False)
+
+            @bindings.add("c-left", filter=edit_active, eager=True)
+            def _ctrl_word_left(event) -> None:  # type: ignore[no-untyped-def]
+                _move_word(event.current_buffer, direction="left", select=False)
+
+            @bindings.add("c-right", filter=edit_active, eager=True)
+            def _ctrl_word_right(event) -> None:  # type: ignore[no-untyped-def]
+                _move_word(event.current_buffer, direction="right", select=False)
+
+            @bindings.add("escape", "s-left", filter=edit_active, eager=True)
+            def _select_word_left_alt(event) -> None:  # type: ignore[no-untyped-def]
+                _move_word(event.current_buffer, direction="left", select=True)
+
+            @bindings.add("escape", "s-right", filter=edit_active, eager=True)
+            def _select_word_right_alt(event) -> None:  # type: ignore[no-untyped-def]
+                _move_word(event.current_buffer, direction="right", select=True)
+
+            @bindings.add("c-s-left", filter=edit_active, eager=True)
+            def _select_word_left_ctrl(event) -> None:  # type: ignore[no-untyped-def]
+                _move_word(event.current_buffer, direction="left", select=True)
+
+            @bindings.add("c-s-right", filter=edit_active, eager=True)
+            def _select_word_right_ctrl(event) -> None:  # type: ignore[no-untyped-def]
+                _move_word(event.current_buffer, direction="right", select=True)
+
+            @bindings.add("home", filter=edit_active, eager=True)
+            def _line_start(event) -> None:  # type: ignore[no-untyped-def]
+                buffer = event.current_buffer
+                buffer.cursor_position = _line_start_position(buffer.document)
+
+            @bindings.add("end", filter=edit_active, eager=True)
+            def _line_end(event) -> None:  # type: ignore[no-untyped-def]
+                buffer = event.current_buffer
+                buffer.cursor_position = _line_end_position(buffer.document)
+
+            @bindings.add("escape", "backspace", filter=edit_active, eager=True)
+            def _delete_prev_word(event) -> None:  # type: ignore[no-untyped-def]
+                buffer = event.current_buffer
+                offset = buffer.document.find_previous_word_beginning(count=1)
+                if offset:
+                    buffer.delete_before_cursor(count=-offset)
+
+            @bindings.add("escape", "d", filter=edit_active, eager=True)
+            def _delete_next_word(event) -> None:  # type: ignore[no-untyped-def]
+                buffer = event.current_buffer
+                offset = buffer.document.find_next_word_ending(count=1)
+                if offset:
+                    buffer.delete(count=offset)
+
+            @bindings.add("backspace", filter=selection_active, eager=True)
+            @bindings.add("delete", filter=selection_active, eager=True)
+            def _delete_selection(event) -> None:  # type: ignore[no-untyped-def]
+                event.current_buffer.cut_selection()
+
+            @bindings.add("tab", filter=edit_active, eager=True)
+            def _insert_tab(event) -> None:  # type: ignore[no-untyped-def]
+                event.current_buffer.insert_text("    ")
+
+            @bindings.add("escape", filter=preview_active, eager=True)
+            def _preview_escape(event) -> None:  # type: ignore[no-untyped-def]
+                nonlocal mode
+                mode = "edit"
+                event.app.layout.focus(editor)
+                event.app.invalidate()
+
+            @bindings.add("up", filter=return_prompt_filter, eager=True)
+            def _return_up(event) -> None:  # type: ignore[no-untyped-def]
+                nonlocal return_selection
+                return_selection = (return_selection - 1) % 4
+                event.app.invalidate()
+
+            @bindings.add("down", filter=return_prompt_filter, eager=True)
+            def _return_down(event) -> None:  # type: ignore[no-untyped-def]
+                nonlocal return_selection
+                return_selection = (return_selection + 1) % 4
+                event.app.invalidate()
+
+            @bindings.add("enter", filter=return_prompt_filter, eager=True)
+            def _return_enter(event) -> None:  # type: ignore[no-untyped-def]
+                if return_future and not return_future.done():
+                    options = ["discard", "submit", "save", "cancel"]
+                    return_future.set_result(options[return_selection])
+
+            @bindings.add("escape", filter=return_prompt_filter, eager=True)
+            def _return_cancel(event) -> None:  # type: ignore[no-untyped-def]
+                if return_future and not return_future.done():
+                    return_future.set_result("cancel")
+
+            @bindings.add("up", filter=save_prompt_filter, eager=True)
+            def _save_up(event) -> None:  # type: ignore[no-untyped-def]
+                nonlocal save_selection
+                save_selection = (save_selection - 1) % 2
+                event.app.invalidate()
+
+            @bindings.add("down", filter=save_prompt_filter, eager=True)
+            def _save_down(event) -> None:  # type: ignore[no-untyped-def]
+                nonlocal save_selection
+                save_selection = (save_selection + 1) % 2
+                event.app.invalidate()
+
+            @bindings.add("enter", filter=save_prompt_filter, eager=True)
+            def _save_enter(event) -> None:  # type: ignore[no-untyped-def]
+                if save_future and not save_future.done():
+                    save_future.set_result("ok" if save_selection == 0 else "cancel")
+
+            @bindings.add("escape", filter=save_prompt_filter, eager=True)
+            @bindings.add("c-c", filter=save_prompt_filter, eager=True)
+            def _save_cancel(event) -> None:  # type: ignore[no-untyped-def]
+                if save_future and not save_future.done():
+                    save_future.set_result("cancel")
+
+            @bindings.add("up", filter=overwrite_prompt_filter, eager=True)
+            def _overwrite_up(event) -> None:  # type: ignore[no-untyped-def]
+                nonlocal overwrite_selection
+                overwrite_selection = (overwrite_selection - 1) % 2
+                event.app.invalidate()
+
+            @bindings.add("down", filter=overwrite_prompt_filter, eager=True)
+            def _overwrite_down(event) -> None:  # type: ignore[no-untyped-def]
+                nonlocal overwrite_selection
+                overwrite_selection = (overwrite_selection + 1) % 2
+                event.app.invalidate()
+
+            @bindings.add("enter", filter=overwrite_prompt_filter, eager=True)
+            def _overwrite_enter(event) -> None:  # type: ignore[no-untyped-def]
+                if overwrite_future and not overwrite_future.done():
+                    overwrite_future.set_result(
+                        "overwrite" if overwrite_selection == 0 else "cancel"
+                    )
+
+            @bindings.add("escape", filter=overwrite_prompt_filter, eager=True)
+            @bindings.add("c-c", filter=overwrite_prompt_filter, eager=True)
+            def _overwrite_cancel(event) -> None:  # type: ignore[no-untyped-def]
+                if overwrite_future and not overwrite_future.done():
+                    overwrite_future.set_result("cancel")
+
+            style = Style.from_dict(
+                {
+                    "": "bg:#1e1e1e #d4d4d4",
+                    "frame.border": "#3a3a3a",
+                    "frame.label": "bold #c5c5c5",
+                    "status": "bg:#262626 #d4d4d4",
+                    "footer": "bg:#232323 #b5b5b5",
+                    "preview": "bg:#f7f7f2 #1b1b1b",
+                    "preview_footer": "bg:#e6e6e6 #1b1b1b",
+                    "return_prompt": "bg:#2a2a2a #d4d4d4",
+                    "save_prompt": "bg:#2a2a2a #d4d4d4",
+                    "md.text": "#d4d4d4",
+                    "md.heading": "bold #61afef",
+                    "md.strong": "bold #e5c07b",
+                    "md.em": "italic #c678dd",
+                    "md.inlinecode": "bg:#2d2d2d #98c379",
+                    "md.codeblock": "bg:#2d2d2d #98c379",
+                    "md.fence": "bg:#2d2d2d #5c6370",
+                    "md.mathblock": "bg:#2b2b44 #d7d7ff",
+                    "md.inlinemath": "bg:#2b2b44 #d7d7ff",
+                    "md.quote": "italic #abb2bf",
+                    "md.task": "bold #56b6c2",
+                    "md.pipe": "#5c6370",
+                    "md.rule": "#5c6370",
+                }
+            )
+
+            app = Application(
+                layout=layout,
+                key_bindings=bindings,
+                mouse_support=True,
+                full_screen=True,
+                style=style,
+                clipboard=clipboard,
+                editing_mode=EditingMode.EMACS,
+                after_render=_sync_selection_clipboard,
+            )
+            return await app.run_async()
+        finally:
+            if not was_active:
+                self._selection_prompt_active.clear()
+
     def _clean_yes_no_prompt(self, prompt: str) -> str:
         cleaned = prompt.replace("[y/N]", "").replace("[Y/n]", "")
         cleaned = cleaned.replace("[Y/N]", "").replace("[y/n]", "")
@@ -830,7 +1904,9 @@ class DogentCLI:
 
     async def _prompt_yes_no_text(self, prompt: str, default: bool) -> bool | None:
         try:
-            response_raw = await self._read_input(prompt=prompt)
+            response_raw = await self._read_input(
+                prompt=prompt, allow_multiline_editor=False
+            )
         except (EOFError, KeyboardInterrupt):
             return None
         response = (response_raw or "").strip().lower()
@@ -919,7 +1995,11 @@ class DogentCLI:
                 }
 
             if not options and question.allow_freeform:
-                answer = await self._prompt_freeform_answer(question)
+                answer = await self._prompt_freeform_answer(
+                    question,
+                    label=question.question,
+                    skip_on_editor_cancel=True,
+                )
                 return _freeform_answer_payload(answer)
             if not options:
                 raise ClarificationCancelled
@@ -947,7 +2027,9 @@ class DogentCLI:
             choice = options[selected]
             if question.allow_freeform and choice.value == freeform_value:
                 answer = await self._prompt_freeform_answer(
-                    question, label="Other (free-form answer)"
+                    question,
+                    label=question.question,
+                    skip_on_editor_cancel=True,
                 )
                 return _freeform_answer_payload(answer)
             answer_text = choice.label
@@ -1068,7 +2150,9 @@ class DogentCLI:
         lines.append("Press Ctrl+C to cancel all questions.")
         self.console.print(Panel("\n".join(lines), title="Clarification"))
         try:
-            response_raw = await self._read_input(prompt="Choice: ")
+            response_raw = await self._read_input(
+                prompt="Choice: ", allow_multiline_editor=False
+            )
         except (EOFError, KeyboardInterrupt):
             return None
         response = (response_raw or "").strip()
@@ -1083,13 +2167,27 @@ class DogentCLI:
         return selected
 
     async def _prompt_freeform_answer(
-        self, question: ClarificationQuestion, *, label: str | None = None
+        self,
+        question: ClarificationQuestion,
+        *,
+        label: str | None = None,
+        force_editor: bool = False,
+        skip_on_editor_cancel: bool = False,
     ) -> str | object | None:
         prompt = f"{label}: " if label else "Your answer: "
         if question.placeholder and not label:
             prompt = f"Your answer ({question.placeholder}): "
+        if force_editor and self._can_use_multiline_editor():
+            title = question.question.strip() or label or "Your answer"
+            editor_result = await self._open_multiline_editor("", title=title)
+            if editor_result is None:
+                return CLARIFICATION_SKIP if skip_on_editor_cancel else None
+            response = str(editor_result).strip()
+            return response or CLARIFICATION_SKIP
         if self._can_use_inline_choice():
-            result = await self._prompt_freeform_answer_inline(prompt)
+            result = await self._prompt_freeform_answer_inline(
+                prompt, skip_on_editor_cancel=skip_on_editor_cancel
+            )
         else:
             result = await self._prompt_freeform_answer_text(prompt)
         if result is None:
@@ -1103,7 +2201,9 @@ class DogentCLI:
 
     async def _prompt_freeform_answer_text(self, prompt: str) -> str | object | None:
         try:
-            response_raw = await self._read_input(prompt=prompt)
+            response_raw = await self._read_input(
+                prompt=prompt, allow_multiline_editor=True
+            )
         except (EOFError, KeyboardInterrupt):
             return None
         response = (response_raw or "").strip()
@@ -1113,8 +2213,10 @@ class DogentCLI:
             return CLARIFICATION_SKIP
         return response
 
-    async def _prompt_freeform_answer_inline(self, prompt: str) -> str | object | None:
-        buffer = Buffer()
+    async def _run_freeform_inline_app(
+        self, prompt: str, initial_text: str
+    ) -> str | object | None:
+        buffer = Buffer(document=Document(text=initial_text))
         control = BufferControl(buffer=buffer)
         prompt_control = FormattedTextControl([("class:prompt", prompt)])
         prompt_window = Window(prompt_control, dont_extend_width=True, height=1)
@@ -1134,6 +2236,12 @@ class DogentCLI:
         def _cancel(event) -> None:  # type: ignore[no-untyped-def]
             event.app.exit(result=None)
 
+        @bindings.add("c-e", eager=True)
+        def _open_editor(event) -> None:  # type: ignore[no-untyped-def]
+            if not self._can_use_multiline_editor():
+                return
+            event.app.exit(result=MultilineEditRequest(buffer.text))
+
         style = Style.from_dict({"prompt": ""})
         app = Application(
             layout=layout,
@@ -1143,6 +2251,27 @@ class DogentCLI:
             style=style,
         )
         return await app.run_async()
+
+    async def _prompt_freeform_answer_inline(
+        self, prompt: str, *, skip_on_editor_cancel: bool = False
+    ) -> str | object | None:
+        initial_text = ""
+        title = prompt.strip() or "Answer"
+        while True:
+            result = await self._run_freeform_inline_app(prompt, initial_text)
+            if isinstance(result, MultilineEditRequest):
+                if not self._can_use_multiline_editor():
+                    return result.text
+                editor_result = await self._open_multiline_editor(
+                    result.text, title=title
+                )
+                if editor_result is None:
+                    if skip_on_editor_cancel:
+                        return CLARIFICATION_SKIP
+                    initial_text = result.text
+                    continue
+                return editor_result
+            return result
 
     def _format_clarification_answers(
         self, payload: ClarificationPayload, answers: list[dict[str, str]]
@@ -1503,6 +2632,7 @@ class DogentCLI:
                 "",
                 "Shortcuts:",
                 "- Esc: interrupt current task",
+                "- Ctrl+E: open markdown editor (Ctrl+P preview, Ctrl+Enter submit, Ctrl+Q return)",
                 "- Alt/Option+Enter: insert newline",
                 "- Alt/Option+Backspace: delete word",
                 "- Ctrl+C: exit gracefully",
@@ -1518,7 +2648,7 @@ class DogentCLI:
         try:
             while True:
                 try:
-                    raw = await self._read_input()
+                    raw = await self._read_input(allow_multiline_editor=True)
                 except (EOFError, KeyboardInterrupt):
                     await self._graceful_exit()
                     break
@@ -1792,19 +2922,48 @@ class DogentCLI:
             Panel("\n".join(body_lines), title="ᯓ➤ Shell Result", border_style=style)
         )
 
-    async def _read_input(self, prompt: str = "dogent> ") -> str:
+    async def _read_input(
+        self, prompt: str = "dogent> ", *, allow_multiline_editor: bool = False
+    ) -> str:
         loop = asyncio.get_event_loop()
-        if self.session:
-            prompt_callable = getattr(self.session, "prompt_async", None)
-            if callable(prompt_callable):
-                return await prompt_callable(prompt)
-            return await loop.run_in_executor(None, lambda: self.session.prompt(prompt))
-        return await loop.run_in_executor(
-            None,
-            lambda: Prompt.ask(
-                "[bold cyan]dogent>[/bold cyan]" if prompt == "dogent> " else prompt
-            ),
-        )
+        default_text = ""
+        while True:
+            if self.session:
+                prompt_callable = getattr(self.session, "prompt_async", None)
+                prompt_kwargs = {}
+                if default_text:
+                    prompt_kwargs["default"] = default_text
+                if allow_multiline_editor and self._can_use_multiline_editor():
+                    self._multiline_editor_allowed.set()
+                else:
+                    self._multiline_editor_allowed.clear()
+                try:
+                    if callable(prompt_callable):
+                        result = await prompt_callable(prompt, **prompt_kwargs)
+                    else:
+                        result = await loop.run_in_executor(
+                            None, lambda: self.session.prompt(prompt, **prompt_kwargs)
+                        )
+                finally:
+                    self._multiline_editor_allowed.clear()
+                if isinstance(result, MultilineEditRequest):
+                    if not allow_multiline_editor or not self._can_use_multiline_editor():
+                        return result.text
+                    title = prompt.strip() or "Prompt"
+                    editor_result = await self._open_multiline_editor(
+                        result.text, title=title
+                    )
+                    if editor_result is None:
+                        default_text = result.text
+                        continue
+                    return editor_result
+                return result
+            return await loop.run_in_executor(
+                None,
+                lambda: Prompt.ask(
+                    "[bold cyan]dogent>[/bold cyan]" if prompt == "dogent> " else prompt
+                ),
+            )
 
     def _extract_template_override(self, message: str) -> Tuple[str, str | None]:
         pattern = re.compile(r"(^|\s)" + re.escape(DOC_TEMPLATE_TOKEN) + r"([^\s]+)")

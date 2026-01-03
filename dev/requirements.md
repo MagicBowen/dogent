@@ -2,19 +2,23 @@
 
 ---
 
-## Release 0.9.9
+## Release 0.9.10
 
-- All scenarios that require user selection and confirmation (overwrite dogent.md after /init, save lesson, authorize file access/deletion, start writing now, initialize now) must use the same CLI UI as clarification: options selected via up/down with Enter to confirm and Esc to cancel. Non-interactive fallback keeps y/n input. When allowing the user to make a selection, if the agent client itself has not ended, the current agent loop should not be interrupted. The Esc listener should be paused/stopped while a selection prompt is open and restarted after it exits.
-- Clarification questions: prefer multiple-choice options whenever reasonable (but do not force options if not appropriate). When answering, Esc skips the current question and the answer is recorded as `user chose not to answer this question`; Ctrl+C cancels the entire clarification flow and aborts the current task. For "Other (free-form answer)", immediately prompt the user to enter the free-form answer after selection using `Other (free-form answer): `. If clarification JSON appears in a thinking block, it should still be parsed and used to enter the QA UI, and the thinking panel should be suppressed for that block.
-- Add `debug: false` to dogent.json. When enabled, save each finalized prompt and raw streaming content returned by the LLM in chronological order to `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.json` in JSONL format. Each entry includes a role field (`system`, `user`, `assistant`, `tool`) and the log captures all LLM calls (main agent, init wizard, lesson drafter). If the system prompt has not changed, record it only once per session.
-- Update /init prompt flow: no changes to init_wizard system prompt. After initialization finishes (including the overwrite prompt), ask whether to start writing directly. If Yes, construct the prompt: `The user has initialized the current dogent project, and the user's initialization prompt is "<prompt>". Please continue to fulfill the user's needs.` and start the writing agent. If No or Esc, exit the init flow and return to the CLI.
-- New requirement: when a user makes a request and `.dogent/dogent.json` does not exist, first ask whether to initialize. If Yes, run the same /init prompt wizard flow using the user's request as the init prompt, then ask whether to start writing (same as above). If No, proceed with the current default processing. If Esc, cancel and return to the CLI. The default selection for this initialize prompt should be Yes.
+- Improve CLI prompt and free-form clarification UX: keep single-line input by default, but provide a dedicated multiline Markdown editor when the user presses Ctrl+E (for main prompt input and free-form answers). Selecting "Other (free-form answer)" in clarification should open the editor directly. The editor must support multiline editing with Enter inserting new lines, common shortcuts, and Markdown-friendly writing. Provide a Markdown preview toggle inside the editor, and allow Ctrl+Enter to submit and Esc to cancel and return to single-line input. Pause the Esc listener while the editor is open.
+
+- The markdown editor must combine editing with lightweight real-time rendering in a single view. It should also offer a full preview toggle (Ctrl+P) that is read-only and returns to editing. The UI must be beautiful with a dark theme. Use Ctrl+Enter to submit (fallback like Ctrl+J shown in the footer), and Ctrl+Q to return (Esc should no longer exit the editor). The editor should provide common GUI-like shortcuts (select word/line, skip words, jump to line start/end) and list fallback shortcuts in the footer when terminal limitations apply. Provide prominent labeled actions in the footer. On return, if the buffer is dirty, prompt to discard, submit, or save to file; saving prompts for a file path (relative or absolute) and confirms overwrite if the file exists. Only save-on-return (no explicit save key).
+
+## Release 0.9.11
+
+- The setting of debug mode should not appear in dogent.json default (It is a background function)
+- After the debug mode is turned on, the output log will no longer use the jsonl format, but will become a structured md file. The structure and content organization should be easy for humans to read. In addition, the log should be comprehensive. All kinds of exceptions should also be recorded, including the original exception content and the location where the code occurred. The entire log is organized in the form of an event stream.
+- When users enter prompts and answer free-form questions, they enter the editor mode, which supports configuration by users in dogent.json. The current editor mode is considered as dogent editor mode (default mode)，should also supports user config the editor to `vi`; for implementation details, refer to some research schemes in dev/spikes/cli-markdown-vi.md (you need to conduct an overall design based on other requirements of dogent)
 
 ---
 
 ## Pending Requirements
 
-- Dogent supports more excellent file templates;
+- Dogent supports more excellent file templates (technical blog);
 - Dogent supports configuring Claude's commands, subagents, and skills;
 - Dogent supports loading Claude's plugins;
 - Dogent supports mdbook's skill (using the capability of external skill configuration);
