@@ -155,6 +155,16 @@ class DocumentIOTests(unittest.TestCase):
             self.assertTrue(warnings)
             self.assertIn("Could not read PDF style file", warnings[0])
 
+    def test_markdown_to_html_includes_page_break_css(self) -> None:
+        md = "Page 1\n\n<div class=\"page-break\"></div>\n\nPage 2"
+        html = document_io._markdown_to_html(
+            md,
+            title="Page Break",
+            css_text="body { color: #111; }",
+        )
+        self.assertIn(".page-break", html)
+        self.assertIn("page-break-after", html)
+
     # def test_build_pdf_header_footer_includes_page_numbers(self) -> None:
     #     header, footer = document_io._build_pdf_header_footer("body { color: #111; }")
     #     self.assertIsNone(header)

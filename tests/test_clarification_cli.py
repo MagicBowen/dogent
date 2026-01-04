@@ -176,6 +176,42 @@ class ClarificationCliTests(unittest.IsolatedAsyncioTestCase):
         else:
             os.environ.pop("HOME", None)
 
+    async def test_format_clarification_answers_wraps_editor_text(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
+            payload = ClarificationPayload(
+                title="Need info",
+                preface=None,
+                questions=[
+                    ClarificationQuestion(
+                        question_id="q1",
+                        question="Question?",
+                        options=[ClarificationOption(label="Yes", value="yes")],
+                        recommended="yes",
+                        allow_freeform=True,
+                        placeholder=None,
+                    )
+                ],
+            )
+            answers = [
+                {
+                    "id": "q1",
+                    "question": "Question?",
+                    "answer": "Line1\nLine2",
+                    "editor": "true",
+                }
+            ]
+            text = cli._format_clarification_answers(payload, answers)
+            self.assertIn("```markdown", text)
+            self.assertIn("Line1", text)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
     async def test_other_choice_uses_freeform_prompt(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:

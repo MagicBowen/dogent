@@ -3,15 +3,16 @@
 CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans, researches, drafts, validates, and polishes long-form documents from the terminal.
 
 ## Features
-- Interactive CLI (`dogent`) with `/init`, `/show`, `/clean`, `/archive`, `/help`, `/learn`, `/exit` (plus `!` for shell commands)
+- Interactive CLI (`dogent`) with `/init`, `/show`, `/clean`, `/archive`, `/help`, `/learn`, `/edit`, `/exit` (plus `!` for shell commands)
 - System prompt + per-turn user prompt templates under `dogent/prompts/`
 - Todo panel synced to `TodoWrite` tool calls/results (no seeded todos)
 - @file references list core file metadata; the agent calls MCP tools to read content or analyze media on demand
 - Tool access confirmation for out-of-workspace reads/writes and delete commands (inline yes/no selector)
 - Clarification and confirmation prompts share a single selection UI with Esc-to-cancel and text fallback
-- Multiline Markdown editor for prompts and free-form clarification answers (Ctrl+E) with live highlighting, full preview toggle, Ctrl+Enter submit, and Ctrl+Q return/save
+- Multiline Markdown editor for prompts, outlines, and free-form clarification answers (Ctrl+E) with live highlighting, full preview toggle, Ctrl+Enter submit, and Ctrl+Q return/save
+- Configurable vi editor mode (`editor_mode: "vi"`) with command hints and outline review options in a scrollable panel
 - Supports `.dogent/dogent.md` constraints, profiles in `~/.dogent/dogent.json`, and env fallbacks
-- Debug session logging to `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.json` when `debug` is enabled
+- Debug session logging to `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md` when `debug` is enabled
 - Project-only lessons in `.dogent/lessons.md` (auto-captured after failures/interrupts; injected into prompt context)
 - Ready for packaging via `pyproject.toml` with Rich-based UI
 
@@ -27,18 +28,19 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
    - `/help` → display current model/API/LLM profile/web profile plus available commands and shortcuts
    - `/learn` → save a lesson (`/learn <text>`) or toggle auto prompt (`/learn on|off`)
    - `/show lessons` → show recent lessons and where to edit `.dogent/lessons.md`
+   - `/edit` → open a workspace text file in the Markdown editor; Save/Submit/Save As are supported
    - `/exit` → quit
    - Typing `/` shows command suggestions; typing `@` offers file completions; `!<command>` runs a shell command; press Esc during a task to interrupt and save progress
    - Press Ctrl+E to open the Markdown editor for multi-line input; Ctrl+P toggles preview, Ctrl+Enter submits, and Ctrl+Q returns (dirty content prompts to discard/submit/save).
 4. Reference files with `@path/to/file` in your message; Dogent injects file metadata and uses MCP tools on demand to read/understand content. Tool results (e.g., WebFetch/WebSearch) show clear success/failure panels with reasons.
 
 ## Configuration
-- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `vision_profile`, `doc_template`, `learn_auto`, `debug`)
+- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `vision_profile`, `doc_template`, `learn_auto`, `debug`, `editor_mode`)
 - Global config: `~/.dogent/dogent.json` with version, workspace defaults, and profiles (see `docs/usage.md` for JSON examples)
 - JSON schema: `~/.dogent/dogent.schema.json` (for editor validation)
 - Env fallback: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 - History is stored in `.dogent/history.json` (structured JSON, managed automatically); temporary scratch lives in `.dogent/memory.md` when created on demand.
-- Debug logs (when `debug: true`) are JSONL in `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.json` with `role`, `source`, `event`, and `content`.
+- Debug logs (when `debug: true`) are Markdown in `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md` with `role`, `source`, `event`, and `content`.
 
 ## Web Search Setup (Release 0.6)
 
@@ -84,6 +86,7 @@ Example `~/.dogent/dogent.json` snippet:
   - Global default: `~/.dogent/pdf_style.css` (copied from `dogent/templates/pdf_style.css` on first run).
   - Workspace override: `.dogent/pdf_style.css` (takes precedence when present).
   - DOCX → PDF uses the same CSS (via DOCX → Markdown → PDF).
+  - Use `<div class="page-break"></div>` in Markdown/HTML to force a PDF page break.
 - Template placeholders you can use (unknown or empty values render as empty strings and emit a warning):
   - `working_dir`, `preferences`
   - `doc_template` (resolved content from the configured document template)

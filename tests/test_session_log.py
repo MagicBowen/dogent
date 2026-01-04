@@ -1,4 +1,3 @@
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,28 +23,25 @@ class SessionLoggerTests(unittest.TestCase):
             logger.log_system_prompt("agent", "system text")
             logger.close()
             logs_dir = paths.dogent_dir / "logs"
-            files = list(logs_dir.glob("dogent_session_*.json"))
+            files = list(logs_dir.glob("dogent_session_*.md"))
             self.assertEqual(len(files), 1)
-            lines = files[0].read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(lines), 1)
-            payload = json.loads(lines[0])
-            self.assertEqual(payload["role"], "system")
-            self.assertEqual(payload["event"], "prompt.system")
-            self.assertEqual(payload["content"], "system text")
+            text = files[0].read_text(encoding="utf-8")
+            self.assertIn("# Dogent Session Log", text)
+            self.assertEqual(text.count("prompt.system"), 1)
+            self.assertIn("system text", text)
 
-    def test_log_user_prompt_writes_jsonl(self) -> None:
+    def test_log_user_prompt_writes_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = DogentPaths(Path(tmp))
             logger = SessionLogger(paths, enabled=True)
             logger.log_user_prompt("agent", "hello")
             logger.close()
             logs_dir = paths.dogent_dir / "logs"
-            files = list(logs_dir.glob("dogent_session_*.json"))
+            files = list(logs_dir.glob("dogent_session_*.md"))
             self.assertEqual(len(files), 1)
-            payload = json.loads(files[0].read_text(encoding="utf-8").strip())
-            self.assertEqual(payload["role"], "user")
-            self.assertEqual(payload["event"], "prompt.user")
-            self.assertEqual(payload["content"], "hello")
+            text = files[0].read_text(encoding="utf-8")
+            self.assertIn("prompt.user", text)
+            self.assertIn("hello", text)
 
     def test_log_block_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -60,15 +56,30 @@ class SessionLoggerTests(unittest.TestCase):
             logger.log_result("agent", result="done", is_error=False)
             logger.close()
             logs_dir = paths.dogent_dir / "logs"
-            files = list(logs_dir.glob("dogent_session_*.json"))
+            files = list(logs_dir.glob("dogent_session_*.md"))
             self.assertEqual(len(files), 1)
-            lines = files[0].read_text(encoding="utf-8").splitlines()
-            events = [json.loads(line)["event"] for line in lines]
-            self.assertIn("assistant.text", events)
-            self.assertIn("assistant.thinking", events)
-            self.assertIn("assistant.tool_use", events)
-            self.assertIn("assistant.tool_result", events)
-            self.assertIn("assistant.result", events)
+            text = files[0].read_text(encoding="utf-8")
+            self.assertIn("assistant.text", text)
+            self.assertIn("assistant.thinking", text)
+            self.assertIn("assistant.tool_use", text)
+            self.assertIn("assistant.tool_result", text)
+            self.assertIn("assistant.result", text)
+
+    def test_log_exception(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = DogentPaths(Path(tmp))
+            logger = SessionLogger(paths, enabled=True)
+            try:
+                raise ValueError("boom")
+            except Exception as exc:  # noqa: BLE001
+                logger.log_exception("agent", exc)
+            logger.close()
+            logs_dir = paths.dogent_dir / "logs"
+            files = list(logs_dir.glob("dogent_session_*.md"))
+            self.assertEqual(len(files), 1)
+            text = files[0].read_text(encoding="utf-8")
+            self.assertIn("exception", text)
+            self.assertIn("ValueError", text)
 
 
 if __name__ == "__main__":

@@ -75,6 +75,19 @@ class DogentCompleterTests(unittest.TestCase):
             texts = [c.text for c in comps]
             self.assertIn("context.txt", texts)
 
+    def test_edit_completion_filters_text_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "note.md").write_text("hi", encoding="utf-8")
+            (root / "data.csv").write_text("1,2", encoding="utf-8")
+            (root / "docs").mkdir()
+            completer = DogentCompleter(root, ["/edit"])
+            comps = list(completer.get_completions(Document("/edit "), None))
+            texts = [c.text for c in comps]
+            self.assertIn("note.md", texts)
+            self.assertIn("docs/", texts)
+            self.assertNotIn("data.csv", texts)
+
 
 if __name__ == "__main__":
     unittest.main()

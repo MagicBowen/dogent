@@ -52,6 +52,7 @@ class HistoryCommandTests(unittest.IsolatedAsyncioTestCase):
             cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
             self.assertEqual("🟢", cli._status_icon("started"))  # type: ignore[attr-defined]
             self.assertEqual("❓", cli._status_icon("needs_clarification"))  # type: ignore[attr-defined]
+            self.assertEqual("🕓", cli._status_icon("awaiting_input"))  # type: ignore[attr-defined]
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

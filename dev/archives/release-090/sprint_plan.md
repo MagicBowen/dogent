@@ -634,3 +634,42 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: Manual CLI flow in a fresh workspace.
+
+## Release 0.9.10
+
+### Story 1: Multiline Markdown Editor for Inputs
+- User Value: Users can comfortably author and edit multi-line Markdown prompts and free-form answers.
+- Acceptance: Single-line input remains default. Pressing Ctrl+E opens a multiline editor for the main prompt and free-form clarification answers; selecting "Other (free-form answer)" opens the editor directly. The editor uses live Markdown highlighting in the edit view, and Ctrl+P toggles a read-only full preview. Enter inserts new lines; Ctrl+Enter submits (fallback shown in footer). Ctrl+Q returns; Esc does not exit the editor. On return with dirty content, prompt to Discard/Submit/Save/Cancel (save prompts for path, confirms overwrite). Footer lists prominent actions and fallback shortcuts. Esc listener is paused while the editor is open.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: UAT passed in dev/sprint_uat.md.
+
+## Release 0.9.11
+
+### Story 1: Markdown Debug Logs + Hidden Debug Default
+- User Value: Debug logs are readable and comprehensive without cluttering default configs.
+- Acceptance: `debug` is removed from default templates; runtime default stays false. When debug is enabled, logs are written to `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md` in chronological order and include system/user prompts, streaming blocks, tool use/results, final result, and exceptions with traceback/location. System prompts are logged once per source if unchanged.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `python -m unittest discover -s tests -v`
+
+### Story 2: Editor Mode Config (default|vi) + Return Dialog Semantics
+- User Value: Users can choose vi editing while retaining the same editor flow for prompts, clarifications, and outline edits.
+- Acceptance: `editor_mode` is supported in `dogent.json` and schema. When set to `vi`, editor uses vi mode and shows vi state in the status line. Return dialog options match scenario-specific behavior (prompt input, clarification answers, outline editing) with save/submit/abandon logic as designed. Editor-submitted content is wrapped in fenced `markdown` code blocks for both CLI display and LLM messages.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `python -m unittest discover -s tests -v`
+
+### Story 3: Outline Editing in Editor (In-Loop)
+- User Value: Users can edit and confirm LLM-generated outlines without losing agent context.
+- Acceptance: New outline-edit JSON tag/payload is recognized. The editor opens with the outline text; Submit/Save sends edited outline to the LLM (Save includes file path note), Discard keeps original, Abandon interrupts, Cancel stays in editor. Uses configured editor mode.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `python -m unittest discover -s tests -v`
+
+### Story 4: /edit Command for Local Files
+- User Value: Users can open and edit workspace text files in the markdown editor, optionally sending saved content to the LLM.
+- Acceptance: `/edit <path>` opens an existing or newly created text file (prompting on missing). Only plain-text extensions are allowed. Return dialog offers Save/Submit/Save As/Save As + Submit/Discard/Cancel. Submit saves first, prompts for a message, and sends `<prompt> @<saved_path>` to the LLM. Works for relative paths, subdirectories, and absolute paths inside the workspace.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `python -m unittest discover -s tests -v`

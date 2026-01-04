@@ -260,7 +260,7 @@
   - Default option selection: `recommended`, else first option.
   - Answer payload sent to the LLM: plain text Q/A block.
 
-  ---
+---
 
 ## Release 0.9.9
 
@@ -298,3 +298,138 @@
 - If No, proceed with current default processing (send the request to the agent without init).
 - If Esc, cancel the flow and return to the CLI prompt.
 
+---
+
+## Release 0.9.10
+
+### Multiline Markdown editor for prompts and free-form answers
+- Default input stays single-line for the main CLI prompt and free-form clarification answers.
+- Add Ctrl+E to open a dedicated multiline editor (prompt_toolkit TextArea) for:
+  - Main CLI prompt input (pre-filled with current buffer text).
+  - Free-form clarification answers (including "Other (free-form answer)" and freeform-only questions).
+- Selecting "Other (free-form answer)" in the clarification choice list opens the editor immediately.
+- Editor UX:
+  - Single editor view with lightweight, real-time Markdown rendering (syntax highlighting only; no layout changes).
+  - Full preview toggle with Ctrl+P (read-only; toggle back to edit).
+  - Multiline editing with standard prompt_toolkit shortcuts plus GUI-like bindings:
+    - Word skip (Alt+Left/Right, Alt+B/F), line start/end (Ctrl+A/E), undo/redo (Ctrl+Z/Y).
+    - Select word/line with Ctrl+W/Ctrl+L (footer lists fallback shortcuts).
+  - Enter inserts new lines; Ctrl+Enter submits the editor content (fallback Ctrl+J shown in footer).
+  - Ctrl+Q returns from the editor (Esc does not exit the editor).
+  - Return behavior (dirty only): prompt to Discard / Submit / Save to file / Cancel.
+    - Save prompts for a path (relative or absolute) and confirms overwrite when the file exists.
+  - Footer shows prominent action labels and shortcut hints.
+  - Dark theme with styled headings, code blocks, inline code, math spans, tasks, quotes, and table pipes.
+  - Only save-on-return; no explicit save keybinding.
+- While the editor is open, pause the Esc interrupt listener (reuse the same guard as selection prompts).
+- Non-interactive fallback remains single-line text input with no editor.
+
+## Release 0.9.11
+
+### Debug logging to Markdown
+- Remove `debug` from project/global default templates so new configs do not include it by default.
+- Add `llm_profile: "default"` to project/global default templates to make ENV-backed behavior explicit.
+- Keep runtime default `debug=false` in config normalization; only persist if user sets it.
+- Session logs move to `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md`.
+- Log events in chronological order. Each event includes timestamp, role, source, event name, and content in fenced blocks.
+- System prompts are logged once per source if unchanged; user prompts logged per call.
+- Capture streaming blocks (assistant text/thinking/tool use/tool result) as separate events.
+- Add exception logging with message, traceback, and location, and call it from CLI/agent error paths.
+
+### Editor mode config (default|vi)
+- Add `editor_mode` to schema and config normalization; default to `default`.
+- When `editor_mode=vi`, set `Application(editing_mode=EditingMode.VI)` for the editor.
+- Show vi state in the footer (`VI: NORMAL/INSERT/REPLACE/VISUAL`) when in vi mode, plus the most common mode-specific shortcuts.
+- Replace custom shortcut hints with vim-native hints in vi mode; keep non-vi shortcuts as secondary fallbacks only when needed.
+- Provide a vim-style command line at the bottom of the footer (triggered by `:` in normal mode) for ex commands.
+
+### Return dialog options and behavior (by scenario)
+- Prompt input:
+  - Discard: return to CLI without submitting.
+  - Submit: return text to send to the agent.
+  - Save & Submit: save, then return text to send to the agent.
+  - Cancel: remain in editor.
+- Clarification answers:
+  - Discard: skip the question (same as "user chose not to answer").
+  - Submit: return the answer text.
+  - Save & Submit: save, then return the answer text.
+  - Cancel: remain in editor.
+- Outline editing:
+  - Discard: continue with the original outline (send original text to LLM).
+  - Submit: send edited outline to the LLM.
+  - Save & Submit: save, then send edited outline plus file path to the LLM.
+  - Cancel: remain in editor.
+- /edit file editing:
+  - Discard: exit without saving.
+  - Save: write to the opened file path and exit (no LLM submission).
+  - Submit: save and send the file content to the LLM.
+  - Save As: write to a new path and exit (no LLM submission).
+  - Save As + Submit: write to a new path, then send the file content to the LLM.
+  - Cancel: remain in editor.
+- Return dialog only appears when the buffer is dirty.
+
+### Vim ex commands (map to return dialog semantics)
+- The goal is to mirror the Ctrl+Q return dialog behavior via vim-native commands.
+- Prompt input:
+  - `:q` → return dialog if dirty; otherwise return without submitting.
+  - `:q!` → discard and return to CLI.
+  - `:w [path]` → save to file and keep editing.
+  - `:wq` / `:x` → save (prompt for path if missing) and submit.
+- Clarification answers:
+  - `:q` → return dialog if dirty; otherwise skip.
+  - `:q!` → skip (same as discard).
+  - `:w [path]` → save to file and keep editing.
+  - `:wq` / `:x` → save and submit answer.
+- Outline editing (only when editing immediately):
+  - `:q` → return dialog if dirty; otherwise discard edits and keep the original outline.
+  - `:q!` → discard edits and keep the original outline.
+  - `:w [path]` → save to file and keep editing.
+  - `:wq` / `:x` → save and submit edits.
+- /edit file editing:
+  - `:q` → return dialog if dirty; otherwise exit.
+  - `:q!` → discard and exit.
+  - `:w [path]` → save (current path by default) and keep editing (no LLM submission).
+  - `:wq` / `:x` → save (current path by default) and submit content to the LLM.
+
+### Outline editing workflow (selection first)
+- Extend the system prompt with a new outline edit response format:
+  - Tag on first non-empty line: `[[DOGENT_OUTLINE_EDIT_JSON]]`
+  - JSON payload (no code fences) with `response_type="outline_edit"`, `title`, and `outline_text`.
+- Parse outline edit payloads in the agent (similar to clarification).
+- When received, show a selection prompt (same UI as clarification choices):
+  1) Adopt outline (continue writing with the current outline).
+  2) Edit immediately (open the configured editor with the outline text).
+  3) Save to file then edit (choose auto file name or input a file name).
+- If “Adopt outline”: send a follow-up user message that approves the outline and continue.
+- If “Edit immediately”: open the editor and then follow the normal outline-edit return behavior.
+- If “Save to file then edit”: write the outline to disk and pause the current agent task; prompt the user to edit the file and resume writing later via the CLI.
+
+### Editor-submitted content formatting (LLM + CLI display)
+- Track when text is submitted from the multiline editor (prompt input, clarification answers, outline edits).
+- When sending editor-submitted content to the LLM, wrap the edited text in a fenced Markdown code block using the `markdown` language tag to prevent it from affecting surrounding formatting.
+- In CLI output, echo editor-submitted content as a standalone fenced code block only (no extra label) to visually separate it from surrounding text.
+- For clarification summaries, wrap only the editor-entered answer text inside a code block (keep the question/labels as plain text).
+- For prompt input Save-to-file, include the saved file path note along with the code-wrapped content (same pattern as outline edits).
+- Apply consistent wrapping in all editor scenarios, while preserving scenario-specific metadata (e.g., outline file path notes).
+
+### Preview scroll behavior
+- Preview mode supports mouse wheel scrolling and keyboard navigation (Up/Down, PageUp/PageDown, Home/End) while staying read-only.
+
+### /edit command (open text files)
+- Add `/edit <path>` CLI subcommand; it opens a file in the configured markdown editor (default or vi).
+- Completion: after `/edit `, show a dropdown of eligible text files (relative paths from workspace root). The list should allow navigating into subdirectories (directories shown with `/` suffix).
+- Validation:
+  - Path must resolve within the workspace root.
+  - If the path does not exist, prompt the user to create it; on yes, create the file (and any missing parent directories) and open it empty.
+  - When a path exists, it must be a file (not a directory).
+  - Only allow plain-text extensions (default list: `.md`, `.markdown`, `.mdown`, `.mkd`, `.txt`).
+  - If the file fails UTF-8 decode, treat it as unsupported and show an error.
+- Editor semantics:
+  - Save: writes to the original file path and exits (no LLM submission).
+  - Save As: writes to a chosen path and exits (no LLM submission).
+  - Submit: saves to the original file path (or a Save As path if chosen) and then asks the user for a prompt to send to the LLM. Compose the outbound prompt as: `<user prompt> @<saved_file_path>`.
+  - Save As + Submit: saves to a chosen path, then asks for a prompt and sends `<user prompt> @<saved_file_path>`.
+  - Discard exits without saving.
+  - Cancel keeps editing.
+  - Submit is allowed even if the buffer is unchanged.
+  - Show a confirmation panel on save/discard with the target path.

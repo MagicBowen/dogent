@@ -19,13 +19,14 @@
   ```json
   {
     "$schema": "./dogent.schema.json",
-    "version": "0.9.8",
+    "version": "0.9.11",
     "workspace_defaults": {
       "web_profile": "default",
       "vision_profile": null,
       "doc_template": "general",
       "primary_language": "Chinese",
-      "learn_auto": true
+      "learn_auto": true,
+      "editor_mode": "default"
     },
     "llm_profiles": {
       "deepseek": {
@@ -59,9 +60,9 @@
 - `llm_profile` can be set in `.dogent/dogent.json`; if missing, Dogent falls back to environment variables.
 - Debug logs are written when `.dogent/dogent.json` sets `"debug": true` (see Debug Logging below).
 
-## Debug Logging (Release 0.9.9)
-- Set `"debug": true` in `.dogent/dogent.json` to capture JSONL logs for every LLM call.
-- Log files are written to `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.json`.
+## Debug Logging (Release 0.9.11)
+- Set `"debug": true` in `.dogent/dogent.json` to capture Markdown logs for every LLM call.
+- Log files are written to `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md`.
 - Each entry includes `role`, `source`, `event`, and `content`. System prompts are logged once per source unless they change.
 
 ## Document Templates (Release 0.8.0)
@@ -193,6 +194,7 @@ Example `~/.dogent/dogent.json` snippet:
 - `/show lessons` – show recent lessons and where to edit `.dogent/lessons.md`.
 - `/clean` – clean workspace state (`/clean [history|lesson|memory|all]`; defaults to `all`).
 - `/archive` – archive history/lessons to `.dogent/archives` (`/archive [history|lessons|all]`; defaults to `all`).
+- `/edit` – open a workspace text file in the markdown editor (Save/Submit/Save As supported).
 - `/exit` – leave the CLI.
 - Typing `/` shows live command suggestions; typing `@` offers file completions; typing `@@` offers template completions; `!<command>` runs a shell command.
 - Press `Esc` during an in-progress task to interrupt; progress is saved to `.dogent/history.json`.
@@ -203,6 +205,18 @@ Example `~/.dogent/dogent.json` snippet:
 - In the editor: Enter inserts new lines; Ctrl+Enter submits (fallback Ctrl+J shown in the footer); Ctrl+Q returns.
 - Ctrl+P toggles a read-only full preview; press Esc to return to edit mode.
 - If you return with dirty content, Dogent prompts to Discard/Submit/Save/Cancel; Save accepts relative or absolute paths and confirms overwrite.
+
+## Editor Mode & Outline Review (Release 0.9.11)
+- Set `editor_mode` to `vi` in `.dogent/dogent.json` to enable vi keybindings and a live `VI:` status label.
+- When an outline is returned, Dogent shows a scrollable outline pane with options below; press Tab to move focus to the options and Enter to confirm.
+- The free-form clarification prompt shows inline hints (Enter: submit, Esc: skip, Ctrl+E: editor, Ctrl+C: cancel).
+
+## /edit File Workflow (Release 0.9.11)
+- `/edit <path>` opens a workspace text file in the editor. Missing files prompt to create, then open empty.
+- Return dialog: Save, Submit, Save As, Save As + Submit, Discard, Cancel.
+- Submit saves the file and prompts: `prompt for how dogent uses <file>: `
+  - Enter sends the prompt (blank means “use the file only”).
+  - Esc cancels and returns to the CLI.
 
 ## Safety & Permissions (Release 0.9.7)
 - Dogent prompts for confirmation before any built-in `Read`/`Write`/`Edit` tool accesses paths outside the workspace.
@@ -229,6 +243,7 @@ Example `~/.dogent/dogent.json` snippet:
 - For image downloads, choose an output directory per call (e.g., `./images`) and pass it to `dogent_web_fetch`.
 - The system prompt enforces planning, research (including online search), sectioned drafting, validation, and final polishing; history in `.dogent/history.json` provides continuity.
 - Temporary notes go to `.dogent/memory.md` only when needed—create on demand and clean after use.
+- To force PDF page breaks, insert `<div class="page-break"></div>` into the Markdown.
 
 ## Running Tests
 - From the project root: `python -m unittest discover -s tests -v`
