@@ -38,6 +38,12 @@ from .clarification import (
     extract_clarification_payload,
     has_clarification_tag,
 )
+from .outline_edit import (
+    OutlineEditPayload,
+    OUTLINE_EDIT_JSON_TAG,
+    extract_outline_edit_payload,
+    has_outline_edit_tag,
+)
 from .session_log import SessionLogger
 
 DOGENT_TOOL_DISPLAY_NAMES = {
@@ -51,7 +57,7 @@ NEEDS_CLARIFICATION_SENTINEL = "[[DOGENT_STATUS:NEEDS_CLARIFICATION]]"
 
 @dataclass(frozen=True)
 class RunOutcome:
-    status: str  # completed|error|interrupted|needs_clarification|aborted
+    status: str  # completed|error|interrupted|needs_clarification|needs_outline_edit|awaiting_input|aborted
     summary: str
     todos_snapshot: list[dict[str, object]]
     remaining_todos_markdown: str
@@ -84,6 +90,9 @@ class AgentRunner:
         self._clarification_text: str = ""
         self._needs_clarification = False
         self._clarification_seen = False
+        self._outline_edit_text: str = ""
+        self._needs_outline_edit = False
+        self._outline_edit_seen = False
         self._interrupted: bool = False
         self.last_outcome: RunOutcome | None = None
         self._wait_indicator: LLMWaitIndicator | None = None
@@ -92,6 +101,7 @@ class AgentRunner:
         self._aborted_reason: str | None = None
         self._abort_requested = False
         self._clarification_payload: ClarificationPayload | None = None
+        self._outline_edit_payload: OutlineEditPayload | None = None
 
     async def reset(self) -> None:
         """Close current session so it can be re-created with new settings."""
@@ -117,6 +127,11 @@ class AgentRunner:
     def pop_clarification_payload(self) -> ClarificationPayload | None:
         payload = self._clarification_payload
         self._clarification_payload = None
+        return payload
+
+    def pop_outline_edit_payload(self) -> OutlineEditPayload | None:
+        payload = self._outline_edit_payload
+        self._outline_edit_payload = None
         return payload
 
     async def send_message(
@@ -147,11 +162,15 @@ class AgentRunner:
         self._clarification_text = ""
         self._needs_clarification = False
         self._clarification_seen = False
+        self._outline_edit_text = ""
+        self._needs_outline_edit = False
+        self._outline_edit_seen = False
         self._interrupted = False
         self.last_outcome = None
         self._aborted_reason = None
         self._abort_requested = False
         self._clarification_payload = None
+        self._outline_edit_payload = None
         preview = (
             user_message
             if self._is_clarification_answers(user_message)
@@ -191,6 +210,8 @@ class AgentRunner:
                 await self._safe_disconnect()
         except Exception as exc:  # noqa: BLE001
             await self._stop_wait_indicator()
+            if self._session_logger:
+                self._session_logger.log_exception("agent", exc)
             if self._aborted_reason:
                 self._finalize_aborted()
             else:
@@ -249,7 +270,7 @@ class AgentRunner:
             if isinstance(message, AssistantMessage):
                 if not self._abort_requested:
                     self._handle_assistant_message(message)
-                if self._needs_clarification and self._client:
+                if (self._needs_clarification or self._needs_outline_edit) and self._client:
                     with suppress(Exception):
                         await self._client.interrupt()
                     drain_after_interrupt = True
@@ -392,8 +413,44 @@ class AgentRunner:
                 part.strip() for part in text_blocks if part and part.strip()
             ).strip()
             if full_text:
-                handled = self._process_clarification_text(full_text, show_reply=True)
+                handled = self._process_outline_edit_text(full_text, show_reply=True)
+                if not handled:
+                    handled = self._process_clarification_text(full_text, show_reply=True)
         _ = handled
+
+    def _process_outline_edit_text(self, full_text: str, *, show_reply: bool) -> bool:
+        payload, errors = extract_outline_edit_payload(full_text)
+        if payload:
+            self._outline_edit_payload = payload
+            self._needs_outline_edit = True
+            self._outline_edit_seen = True
+            note = payload.title or "Outline edit required."
+            self._outline_edit_text = note
+            self.console.print(Panel(note, title="📝 Outline Edit"))
+            self.console.print()
+            return True
+        tag_present = has_outline_edit_tag(full_text)
+        if not tag_present:
+            return False
+        invalid_payload = tag_present and bool(errors)
+        if invalid_payload:
+            warning = "Outline edit payload invalid. Falling back to plain text."
+            body = f"{warning}\n\n{full_text}"
+            self.console.print(Panel(body, title="Outline Edit", border_style="yellow"))
+            self.console.print()
+        outline_found = False
+        if tag_present and not invalid_payload:
+            full_text = full_text.replace(OUTLINE_EDIT_JSON_TAG, "").strip()
+            outline_found = True
+        if full_text and show_reply and not invalid_payload:
+            self.console.print(Panel(full_text, title="💬 Reply"))
+            self.console.print()
+        if outline_found:
+            self._needs_outline_edit = True
+            self._outline_edit_seen = True
+            if full_text:
+                self._outline_edit_text = full_text
+        return outline_found
 
     def _process_clarification_text(self, full_text: str, *, show_reply: bool) -> bool:
         payload, errors = extract_clarification_payload(full_text)
@@ -449,6 +506,9 @@ class AgentRunner:
         if result_text and not self._needs_clarification and not self._clarification_seen:
             if has_clarification_tag(result_text) or NEEDS_CLARIFICATION_SENTINEL in result_text:
                 self._process_clarification_text(result_text, show_reply=False)
+        if result_text and not self._needs_outline_edit and not self._outline_edit_seen:
+            if has_outline_edit_tag(result_text):
+                self._process_outline_edit_text(result_text, show_reply=False)
 
         if self._aborted_reason:
             title = "🛑 Aborted"
@@ -462,6 +522,23 @@ class AgentRunner:
                 metrics,
             ]
             history_summary = self._aborted_reason
+        elif self._needs_outline_edit:
+            title = "📝 Outline Edit"
+            status = "needs_outline_edit"
+            summary = (
+                self._outline_edit_text
+                or result_text
+                or "Outline edit required."
+            )
+            body_lines = [
+                summary,
+                "",
+                "Remaining Todos:" if remaining else "Remaining Todos: (none)",
+                remaining,
+                "",
+                metrics,
+            ]
+            history_summary = summary
         elif self._needs_clarification:
             title = "❓ Needs clarification"
             status = "needs_clarification"
@@ -489,18 +566,17 @@ class AgentRunner:
             ]
             history_summary = result_text or "Task failed"
         elif remaining:
-            title = "❌ Failed"
-            status = "error"
+            title = "🕓 Awaiting input"
+            status = "awaiting_input"
             body_lines = [
-                "Result/Reason:",
-                result_text or "(no result returned)",
+                result_text or "Awaiting input.",
                 "",
                 "Remaining Todos:" if remaining else "Remaining Todos: (none)",
                 remaining,
                 "",
                 metrics,
             ]
-            history_summary = result_text or "Task failed"
+            history_summary = result_text or "Awaiting input."
         else:
             title = "✅ Completed"
             status = "completed"
@@ -514,7 +590,7 @@ class AgentRunner:
         panel_text = "\n".join(line for line in body_lines if line).strip()
         if status == "error":
             border_style = "red"
-        elif status == "needs_clarification":
+        elif status in {"needs_clarification", "needs_outline_edit", "awaiting_input"}:
             border_style = "yellow"
         elif status == "completed":
             border_style = "green"

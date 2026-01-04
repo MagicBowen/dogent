@@ -21,11 +21,13 @@ from .web_tools import DOGENT_WEB_ALLOWED_TOOLS, create_dogent_web_tools
 
 
 DEFAULT_PROJECT_CONFIG: Dict[str, Any] = {
+    "llm_profile": "default",
     "web_profile": "default",
     "vision_profile": None,
     "doc_template": "general",
     "primary_language": "Chinese",
     "learn_auto": True,
+    "editor_mode": "default",
     "debug": False,
 }
 GLOBAL_DEFAULTS_KEY = "workspace_defaults"
@@ -75,6 +77,8 @@ class ConfigManager:
         current = self._read_json(self.paths.config_file)
         merged = self._merge_dicts(merged_defaults, current)
         normalized = self._normalize_project_config(merged)
+        if not (isinstance(current, dict) and "debug" in current) and "debug" not in global_defaults:
+            normalized.pop("debug", None)
         self.paths.config_file.write_text(
             json.dumps(normalized, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
@@ -311,6 +315,17 @@ class ConfigManager:
 
         if raw_primary_language is None:
             normalized["primary_language"] = DEFAULT_PROJECT_CONFIG["primary_language"]
+        raw_editor_mode = normalized.get("editor_mode")
+        if raw_editor_mode is None:
+            normalized["editor_mode"] = DEFAULT_PROJECT_CONFIG["editor_mode"]
+        elif isinstance(raw_editor_mode, str):
+            cleaned = raw_editor_mode.strip().lower()
+            if cleaned in {"default", "vi"}:
+                normalized["editor_mode"] = cleaned
+            else:
+                normalized["editor_mode"] = DEFAULT_PROJECT_CONFIG["editor_mode"]
+        else:
+            normalized["editor_mode"] = DEFAULT_PROJECT_CONFIG["editor_mode"]
         raw_debug = normalized.get("debug")
         if raw_debug is None:
             normalized["debug"] = DEFAULT_PROJECT_CONFIG["debug"]
@@ -446,6 +461,8 @@ class ConfigManager:
 
     def _load_profile(self, profile_name: Optional[str]) -> Dict[str, Any]:
         if not profile_name:
+            return {}
+        if isinstance(profile_name, str) and profile_name.strip().lower() == "default":
             return {}
         profiles = self._read_profiles_section(GLOBAL_LLM_PROFILES_KEY)
         if not profiles:

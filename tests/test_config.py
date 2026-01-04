@@ -41,10 +41,12 @@ class ConfigTests(unittest.TestCase):
             manager = ConfigManager(paths)
             manager.create_config_template()
             data = json.loads(paths.config_file.read_text(encoding="utf-8"))
+            self.assertEqual(data.get("llm_profile"), "default")
             self.assertEqual(data.get("doc_template"), "general")
             self.assertEqual(data.get("primary_language"), "Chinese")
             self.assertIsNone(data.get("vision_profile"))
-            self.assertFalse(data.get("debug"))
+            self.assertEqual(data.get("editor_mode"), "default")
+            self.assertNotIn("debug", data)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -133,10 +135,28 @@ class ConfigTests(unittest.TestCase):
             os.environ["HOME"] = original_home
         else:
             os.environ.pop("HOME", None)
-        if original_token is not None:
-            os.environ["ANTHROPIC_AUTH_TOKEN"] = original_token
+
+    def test_editor_mode_normalized(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.config_file.write_text(
+                json.dumps({"editor_mode": "vi"}), encoding="utf-8"
+            )
+            manager = ConfigManager(paths)
+            cfg = manager.load_project_config()
+            self.assertEqual(cfg.get("editor_mode"), "vi")
+            paths.config_file.write_text(
+                json.dumps({"editor_mode": "weird"}), encoding="utf-8"
+            )
+            cfg = manager.load_project_config()
+            self.assertEqual(cfg.get("editor_mode"), "default")
+        if original_home is not None:
+            os.environ["HOME"] = original_home
         else:
-            os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+            os.environ.pop("HOME", None)
 
     def test_fallback_model_not_same(self) -> None:
         original_env = {

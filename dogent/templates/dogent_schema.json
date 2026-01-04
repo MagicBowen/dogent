@@ -29,6 +29,10 @@
         "learn_auto": {
           "type": "boolean"
         },
+        "editor_mode": {
+          "type": "string",
+          "enum": ["default", "vi"]
+        },
         "debug": {
           "type": "boolean"
         },

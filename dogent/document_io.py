@@ -510,6 +510,15 @@ def _default_pdf_css() -> str:
         return ""
 
 
+def _ensure_page_break_css(css_text: str) -> str:
+    if ".page-break" in css_text:
+        return css_text
+    rule = ".page-break { break-after: page; page-break-after: always; }\n"
+    if not css_text.strip():
+        return rule
+    return f"{css_text.rstrip()}\n\n{rule}"
+
+
 def _resolve_pdf_style(
     workspace_root: Path | None,
     *,
@@ -586,6 +595,7 @@ def _markdown_to_html(
     if base_path:
         body = _inline_local_images(body, base_path, workspace_root)
     css = css_text if css_text is not None else _default_pdf_css()
+    css = _ensure_page_break_css(css)
     base_tag = ""
     if base_path is not None:
         base_href = base_path.resolve().as_uri()

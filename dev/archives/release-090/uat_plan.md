@@ -658,3 +658,58 @@ User Test Results: PASS (Accepted)
 5) Repeat and press Esc at the initialize prompt; confirm Dogent returns to the CLI prompt without running the agent.
 
 User Test Results: PASS (Accepted)
+
+---
+
+## Release 0.9.10
+
+### Story 1 – Multiline Markdown Editor for Inputs
+1) At the `dogent>` prompt, type a short line (e.g., `# Draft outline`) and press Ctrl+E. Verify the multiline editor opens with the typed text and shows live Markdown highlighting (heading, inline code, tasks, quotes).
+2) Press Ctrl+P to toggle full preview. Confirm it is read-only and toggles back to edit mode.
+3) In the editor, press Enter to insert a new line (ensure it does not submit). Then use the submit shortcut shown in the footer (Ctrl+Enter or fallback) and confirm the full multi-line prompt is sent to the agent.
+4) Press Ctrl+Q to return from the editor with dirty content. Confirm the dialog offers Discard/Submit/Save/Cancel. Choose Save, enter a relative path, and confirm the file is written. Repeat with an existing path and verify overwrite confirmation.
+5) Trigger a clarification flow with "Other (free-form answer)". Select it and verify the editor opens immediately. Press Ctrl+Q and choose Discard to return to the single-line free-form input without submitting.
+
+User Test Results: Accepted
+
+---
+
+## Release 0.9.11
+
+### Story 1 – Markdown Debug Logs + Hidden Debug Default
+1) Initialize a fresh workspace and open `.dogent/dogent.json`. Confirm there is no `debug` field by default.
+2) Set `"debug": true`, run a simple prompt, and confirm a log file is created at `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md`.
+3) Open the log file and verify chronological event sections with system/user prompts, streaming blocks, tool use/result, and final result. Confirm unchanged system prompts are logged only once per source.
+4) Trigger an exception (e.g., force a tool error) and confirm the log contains an `exception` entry with message, traceback, and location.
+
+User Test Results: PASS
+
+### Story 2 – Editor Mode Config + Return Dialog Semantics
+1) Set `"editor_mode": "vi"` in `.dogent/dogent.json`, open the editor with Ctrl+E, and confirm a `VI: ...` status indicator plus expected vi navigation/insert behavior.
+2) In prompt input, press Ctrl+Q with dirty content and confirm the return dialog shows Discard/Submit/Save/Cancel (no Abandon task).
+3) Choose Save, provide a path, and confirm the saved file. Submit and confirm the CLI shows the user-edited content in a fenced `markdown` code block with a saved-file note.
+4) Trigger a clarification with free-form input. Submit an editor answer and confirm the clarification summary wraps only that answer in a fenced `markdown` code block.
+5) In a clarification free-form editor, choose Discard and confirm the summary uses the exact skip text: "user chose not to answer this question".
+
+User Test Results: PASS
+
+### Story 3 – Outline Editing in Editor (In-Loop)
+1) Ask for a long-form document so the agent returns an outline edit payload and opens the editor. Confirm the outline appears in the editor (default or vi mode per config).
+2) Edit the outline, choose Save, and confirm the saved file path exists. Submit and verify the follow-up message includes the outline in a fenced `markdown` code block plus a note that the file stores the outline.
+3) Re-run and choose Discard; confirm the task proceeds using the original outline (still fenced in a code block).
+4) Re-run and choose Abandon task; confirm the current task is interrupted.
+
+User Test Results: PASS
+
+### Story 4 – /edit Command (File Editing + Optional Submit)
+1) Create `notes.md` in the workspace, run `/edit notes.md`, and confirm the editor opens with the file content.
+2) Run `/edit drafts/new-note.md` (non-existent). Confirm a create prompt appears; choose Yes and verify the file is created empty and opened in the editor.
+3) In the editor, use Ctrl+Q to open the return dialog and choose:
+   - Save: file is written and the editor exits without sending to the LLM.
+   - Save As: file is written to the new path and exits without sending to the LLM.
+   - Submit: file is saved, then a prompt asks what to send to the LLM. Confirm the message includes `@<saved_path>`.
+   - Save As + Submit: file is saved to a new path, then the LLM prompt is sent with `@<saved_path>`.
+4) Run `/edit data.csv` and confirm an unsupported file type error.
+5) Run `/edit /absolute/path/inside/workspace.md` and confirm it opens.
+
+User Test Results: PASS

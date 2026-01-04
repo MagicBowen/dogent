@@ -80,7 +80,7 @@ class AgentDisplayTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
-    def test_unfinished_todos_marks_run_failed_and_preserves_todos(self) -> None:
+    def test_unfinished_todos_marks_run_awaiting_input_and_preserves_todos(self) -> None:
         class DummyResult:
             result = "ok"
             is_error = False
@@ -110,12 +110,12 @@ class AgentDisplayTests(unittest.TestCase):
             self.assertNotEqual(todo.items, [])
             self.assertIsNotNone(runner.last_outcome)
             assert runner.last_outcome
-            self.assertEqual(runner.last_outcome.status, "error")
+            self.assertEqual(runner.last_outcome.status, "awaiting_input")
             output = console.file.getvalue()
-            self.assertIn("Failed", output)
+            self.assertIn("Awaiting input", output)
 
             entries = history.read_entries()
-            self.assertEqual(entries[-1]["status"], "error")
+            self.assertEqual(entries[-1]["status"], "awaiting_input")
 
         if original_home is not None:
             os.environ["HOME"] = original_home

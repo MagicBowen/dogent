@@ -3,7 +3,15 @@ from pathlib import Path
 
 from prompt_toolkit.document import Document
 
-from dogent.cli import SimpleMarkdownLexer, mark_math_for_preview, resolve_save_path
+from dogent.cli import (
+    SimpleMarkdownLexer,
+    get_lexer_by_name,
+    pygments_token_to_classname,
+    mark_math_for_preview,
+    resolve_save_path,
+    wrap_markdown_code_block,
+    indent_block,
+)
 
 
 class MarkdownEditorUtilsTests(unittest.TestCase):
@@ -37,6 +45,35 @@ class MarkdownEditorUtilsTests(unittest.TestCase):
         line = lexer.lex_document(doc)(0)
         styles = {style for style, _ in line}
         self.assertIn("class:md.inlinecode", styles)
+
+    def test_simple_markdown_lexer_code_block_language(self) -> None:
+        lexer = SimpleMarkdownLexer()
+        doc = Document(text="```python\nprint('hi')\n```")
+        line = lexer.lex_document(doc)(1)
+        styles = {style for style, _ in line}
+        if pygments_token_to_classname is None or get_lexer_by_name is None:
+            self.assertIn("class:md.codeblock", styles)
+        else:
+            has_pygments = any("class:pygments." in style for style in styles)
+            self.assertTrue(has_pygments)
+
+    def test_simple_markdown_lexer_code_block_no_language(self) -> None:
+        lexer = SimpleMarkdownLexer()
+        doc = Document(text="```\nplain\n```")
+        line = lexer.lex_document(doc)(1)
+        styles = {style for style, _ in line}
+        self.assertIn("class:md.codeblock", styles)
+
+    def test_wrap_markdown_code_block_extends_fence(self) -> None:
+        text = "```\nexample\n```"
+        block = wrap_markdown_code_block(text, language="markdown")
+        self.assertTrue(block.startswith("````markdown"))
+        self.assertIn("example", block)
+
+    def test_indent_block_prefixes_lines(self) -> None:
+        text = "line1\nline2"
+        indented = indent_block(text, "  ")
+        self.assertEqual(indented, "  line1\n  line2")
 
 
 if __name__ == "__main__":

@@ -198,3 +198,27 @@ For long documents or tasks that may exceed context limits:
 }
 ```
 - If you cannot follow the JSON format, end the reply with a single line: [[DOGENT_STATUS:NEEDS_CLARIFICATION]]. Only use this tag for clarification requests.
+
+## Outline Edit Guidelines
+- When you need the user to review or revise an outline, you MUST respond ONLY with:
+  1) A single line tag: [[DOGENT_OUTLINE_EDIT_JSON]]
+  2) A JSON object that matches the outline edit schema (including response_type).
+  The tag must be the first non-empty line of the reply, and the JSON must be the only content after it.
+  Do not wrap the tag or JSON in code fences. Do not add Markdown, prose, or extra whitespace before the tag.
+- Outline edit JSON schema (must match exactly):
+```json
+{
+  "response_type": "outline_edit",
+  "title": "Outline review",
+  "outline_text": "..."
+}
+```
+- Example outline edit response (format only):
+```
+[[DOGENT_OUTLINE_EDIT_JSON]]
+{
+  "response_type": "outline_edit",
+  "title": "Review and adjust the outline",
+  "outline_text": "# Outline\n\n1. Introduction\n2. Background\n3. Proposal\n4. Risks\n5. Conclusion"
+}
+```

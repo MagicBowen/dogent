@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -9,15 +10,17 @@ from .paths import DogentPaths
 
 
 class SessionLogger:
-    """Append JSONL session logs when debug mode is enabled."""
+    """Append Markdown session logs when debug mode is enabled."""
 
     def __init__(self, paths: DogentPaths, *, enabled: bool) -> None:
         self.paths = paths
         self.enabled = bool(enabled)
         self._session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._started_at = datetime.now(timezone.utc)
         self._handle = None
         self._path: Path | None = None
         self._last_system_by_source: dict[str, str] = {}
+        self._header_written = False
 
     @property
     def path(self) -> Path | None:
@@ -145,13 +148,44 @@ class SessionLogger:
             }
         )
 
+    def log_exception(self, source: str, exc: BaseException) -> None:
+        if not self.enabled:
+            return
+        location = None
+        tb = exc.__traceback__
+        if tb is not None:
+            frames = traceback.extract_tb(tb)
+            if frames:
+                last = frames[-1]
+                location = f"{last.filename}:{last.lineno} in {last.name}"
+        trace_text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        self._write(
+            {
+                "role": "system",
+                "source": source,
+                "event": "exception",
+                "content": {
+                    "type": type(exc).__name__,
+                    "message": str(exc),
+                    "location": location,
+                    "traceback": trace_text,
+                },
+            }
+        )
+
     def _ensure_handle(self) -> None:
         if self._handle is not None or not self.enabled:
             return
         logs_dir = self.paths.dogent_dir / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
-        self._path = logs_dir / f"dogent_session_{self._session_id}.json"
+        self._path = logs_dir / f"dogent_session_{self._session_id}.md"
         self._handle = self._path.open("a", encoding="utf-8")
+        if not self._header_written and self._handle is not None:
+            self._handle.write("# Dogent Session Log\n\n")
+            self._handle.write(f"- Session: {self._session_id}\n")
+            self._handle.write(f"- Started: {self._started_at.isoformat()}\n\n")
+            self._handle.write("---\n\n")
+            self._header_written = True
 
     def _write(self, payload: dict[str, Any]) -> None:
         if not self.enabled:
@@ -159,10 +193,25 @@ class SessionLogger:
         self._ensure_handle()
         if self._handle is None:
             return
-        entry = dict(payload)
-        entry["timestamp"] = datetime.now(timezone.utc).isoformat()
         try:
-            self._handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            timestamp = datetime.now(timezone.utc).isoformat()
+            role = str(payload.get("role", ""))
+            source = str(payload.get("source", ""))
+            event = str(payload.get("event", ""))
+            content = payload.get("content", "")
+            self._handle.write(f"## {timestamp} · {role}/{source} · {event}\n")
+            self._handle.write(self._format_content_block(content))
+            self._handle.write("\n\n")
             self._handle.flush()
         except Exception:
             self.close()
+
+    def _format_content_block(self, content: Any) -> str:
+        if isinstance(content, (dict, list)):
+            body = json.dumps(content, indent=2, ensure_ascii=False)
+            language = "json"
+        else:
+            body = "" if content is None else str(content)
+            language = "markdown"
+        body = body.rstrip()
+        return f"```{language}\n{body}\n```"

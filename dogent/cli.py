@@ -48,10 +48,12 @@ from .prompts import PromptBuilder
 from .session_log import SessionLogger
 from .todo import TodoManager
 from .vision import classify_media
+from .outline_edit import OutlineEditPayload
 
 try:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.application import Application
+    from prompt_toolkit.application.current import get_app
     from prompt_toolkit.buffer import Buffer
     from prompt_toolkit.clipboard import Clipboard, ClipboardData, InMemoryClipboard
     try:
@@ -60,10 +62,16 @@ try:
         PyperclipClipboard = None  # type: ignore
     from prompt_toolkit.completion import Completer, Completion
     from prompt_toolkit.document import Document
+    from prompt_toolkit.data_structures import Point
     from prompt_toolkit.enums import EditingMode
     from prompt_toolkit.filters import Condition
     from prompt_toolkit.formatted_text import ANSI
     from prompt_toolkit.key_binding import KeyBindings
+    try:
+        from prompt_toolkit.key_binding import merge_key_bindings
+    except Exception:  # pragma: no cover - optional API
+        merge_key_bindings = None  # type: ignore
+    from prompt_toolkit.key_binding.vi_state import InputMode
     from prompt_toolkit.layout import Layout
     from prompt_toolkit.layout.containers import (
         ConditionalContainer,
@@ -75,8 +83,17 @@ try:
     from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
     from prompt_toolkit.layout.margins import ScrollbarMargin
     from prompt_toolkit.lexers import Lexer
+    from prompt_toolkit.mouse_events import MouseEventType
+    try:
+        from prompt_toolkit.lexers.pygments import pygments_token_to_classname
+    except Exception:  # pragma: no cover - optional pygments helpers
+        pygments_token_to_classname = None  # type: ignore
     from prompt_toolkit.selection import SelectionState, SelectionType
     from prompt_toolkit.styles import Style
+    try:
+        from prompt_toolkit.styles.pygments import style_from_pygments_cls
+    except Exception:  # pragma: no cover - optional pygments helpers
+        style_from_pygments_cls = None  # type: ignore
     from prompt_toolkit.utils import get_cwidth
     from prompt_toolkit.widgets import Frame, SearchToolbar, TextArea
     from prompt_toolkit.shortcuts.dialogs import (
@@ -87,6 +104,7 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     PromptSession = None  # type: ignore
     Application = None  # type: ignore
+    get_app = None  # type: ignore
     Buffer = None  # type: ignore
     Clipboard = None  # type: ignore
     ClipboardData = None  # type: ignore
@@ -95,10 +113,13 @@ except ImportError:  # pragma: no cover - optional dependency
     Completer = object  # type: ignore
     Completion = object  # type: ignore
     Document = object  # type: ignore
+    Point = None  # type: ignore
     EditingMode = None  # type: ignore
     Condition = None  # type: ignore
     ANSI = None  # type: ignore
     KeyBindings = None  # type: ignore
+    merge_key_bindings = None  # type: ignore
+    InputMode = None  # type: ignore
     Layout = None  # type: ignore
     Window = None  # type: ignore
     VSplit = None  # type: ignore
@@ -109,9 +130,12 @@ except ImportError:  # pragma: no cover - optional dependency
     FormattedTextControl = None  # type: ignore
     ScrollbarMargin = None  # type: ignore
     Lexer = object  # type: ignore
+    MouseEventType = None  # type: ignore
     SelectionState = None  # type: ignore
     SelectionType = None  # type: ignore
     Style = None  # type: ignore
+    pygments_token_to_classname = None  # type: ignore
+    style_from_pygments_cls = None  # type: ignore
     get_cwidth = None  # type: ignore
     TextArea = None  # type: ignore
     Frame = None  # type: ignore
@@ -124,9 +148,18 @@ try:
     import pyperclip
 except Exception:  # pragma: no cover - optional system clipboard
     pyperclip = None  # type: ignore
+try:
+    from pygments.lexers import get_lexer_by_name  # type: ignore
+    from pygments.util import ClassNotFound  # type: ignore
+    from pygments.styles.monokai import MonokaiStyle  # type: ignore
+except Exception:  # pragma: no cover - optional pygments
+    get_lexer_by_name = None  # type: ignore
+    ClassNotFound = Exception  # type: ignore
+    MonokaiStyle = None  # type: ignore
 
 
 DOC_TEMPLATE_TOKEN = "@@"
+EDITABLE_EXTENSIONS = {".md", ".markdown", ".mdown", ".mkd", ".txt"}
 
 
 class ClarificationTimeout(Exception):
@@ -143,6 +176,7 @@ class SelectionCancelled(Exception):
 
 CLARIFICATION_SKIP = object()
 CLARIFICATION_SKIP_TEXT = "user chose not to answer this question"
+INPUT_CANCELLED = object()
 
 
 _MATH_BLOCK_RE = re.compile(r"(?s)\$\$(.+?)\$\$")
@@ -162,6 +196,25 @@ def mark_math_for_preview(text: str) -> str:
             parts[idx],
         )
     return "".join(parts)
+
+
+_BACKTICK_RE = re.compile(r"`+")
+
+
+def wrap_markdown_code_block(text: str, *, language: str = "markdown") -> str:
+    max_run = 0
+    for match in _BACKTICK_RE.finditer(text):
+        run_len = len(match.group(0))
+        if run_len > max_run:
+            max_run = run_len
+    fence = "`" * max(3, max_run + 1)
+    body = text.rstrip("\n")
+    return f"{fence}{language}\n{body}\n{fence}"
+
+
+def indent_block(text: str, prefix: str) -> str:
+    lines = text.splitlines() or [""]
+    return "\n".join(prefix + line if line else prefix for line in lines)
 
 
 def resolve_save_path(root: Path, path_text: str) -> Path:
@@ -185,6 +238,7 @@ class SimpleMarkdownLexer(Lexer):
         lines = document.lines
         styled: list[list[tuple[str, str]]] = []
         in_fence = False
+        fence_lexer = None
         in_math_block = False
 
         def apply_regex(
@@ -213,7 +267,20 @@ class SimpleMarkdownLexer(Lexer):
         for line in lines:
             stripped = line.strip()
             if stripped.startswith("```"):
-                in_fence = not in_fence
+                if in_fence:
+                    in_fence = False
+                    fence_lexer = None
+                else:
+                    in_fence = True
+                    fence_lexer = None
+                    tokens = stripped[3:].strip().split()
+                    lang = tokens[0].lower() if tokens else ""
+                    if lang and get_lexer_by_name is not None:
+                        with suppress(Exception):
+                            try:
+                                fence_lexer = get_lexer_by_name(lang)
+                            except ClassNotFound:
+                                fence_lexer = None
                 styled.append([("class:md.fence", line)])
                 continue
             if stripped.startswith("$$") and stripped.endswith("$$") and len(stripped) > 4:
@@ -227,7 +294,18 @@ class SimpleMarkdownLexer(Lexer):
                 styled.append([("class:md.mathblock", line)])
                 continue
             if in_fence:
-                styled.append([("class:md.codeblock", line)])
+                if fence_lexer and pygments_token_to_classname:
+                    segments: list[tuple[str, str]] = []
+                    for token, value in fence_lexer.get_tokens(line):
+                        class_name = pygments_token_to_classname(token)
+                        if class_name:
+                            style = f"class:md.codeblock class:{class_name}"
+                        else:
+                            style = "class:md.codeblock"
+                        segments.append((style, value))
+                    styled.append(segments or [("class:md.codeblock", line)])
+                else:
+                    styled.append([("class:md.codeblock", line)])
                 continue
             if self.RE_HEADING.match(line):
                 styled.append([("class:md.heading", line)])
@@ -277,6 +355,19 @@ class SimpleMarkdownLexer(Lexer):
 @dataclass(frozen=True)
 class MultilineEditRequest:
     text: str
+
+
+@dataclass(frozen=True)
+class EditorOutcome:
+    action: str
+    text: str
+    saved_path: Path | None = None
+
+
+@dataclass(frozen=True)
+class EditorAnswer:
+    text: str
+    saved_path: Path | None = None
 
 
 def _system_clipboard_supported() -> bool:
@@ -504,6 +595,8 @@ class DogentCompleter(Completer):
             options = ["history", "lessons", "all"]
         elif command == "/init" and self.template_provider:
             options = list(self.template_provider())
+        elif command == "/edit":
+            return self._match_edit_paths(arg_prefix)
         if not options:
             return []
         if command == "/init":
@@ -548,6 +641,42 @@ class DogentCompleter(Completer):
                         display=str(rel),
                     )
                 )
+            if len(results) >= 30:
+                break
+        return results
+
+    def _match_edit_paths(self, partial: str) -> Iterable[Completion]:
+        if partial.startswith("/"):
+            return []
+        base = self.root
+        prefix = partial
+        if "/" in partial:
+            parts = partial.split("/")
+            prefix = parts[-1]
+            base = self.root.joinpath(*parts[:-1])
+        if not base.exists() or not base.is_dir():
+            return []
+        results = []
+        for path in sorted(base.iterdir()):
+            if path.name.startswith("."):
+                continue
+            if path.is_dir():
+                candidate = path.name + "/"
+            else:
+                if path.suffix.lower() not in EDITABLE_EXTENSIONS:
+                    continue
+                candidate = path.name
+            if not candidate.startswith(prefix):
+                continue
+            rel = path.relative_to(self.root)
+            display = f"{rel}/" if path.is_dir() else str(rel)
+            results.append(
+                Completion(
+                    display,
+                    start_position=-len(partial),
+                    display=display,
+                )
+            )
             if len(results) >= 30:
                 break
         return results
@@ -703,9 +832,9 @@ class DogentCLI:
         self._register_commands()
         self.session: PromptSession | None = None
         self._shutting_down = False
+        self._pending_editor_submission: EditorOutcome | None = None
         if PromptSession is not None:
             bindings = KeyBindings()
-
             @bindings.add("enter", eager=True)
             def _(event):  # type: ignore
                 """Accept completion if menu is open, else submit."""
@@ -795,6 +924,11 @@ class DogentCLI:
             "Initialize .dogent (dogent.md + dogent.json) with optional doc template.",
         )
         self.registry.register(
+            "/edit",
+            self._cmd_edit,
+            "Edit a local text file in the markdown editor: /edit <path>.",
+        )        
+        self.registry.register(
             "/learn",
             self._cmd_learn,
             "Save a lesson: /learn <text> or toggle auto prompt with /learn on|off.",
@@ -815,14 +949,14 @@ class DogentCLI:
             "Archive workspace records: /archive [history|lessons|all].",
         )
         self.registry.register(
-            "/help",
-            self._cmd_help,
-            "Show Dogent usage, models, API, and available commands.",
-        )
-        self.registry.register(
             "/exit",
             self._cmd_exit,
             "Exit Dogent CLI gracefully.",
+        )        
+        self.registry.register(
+            "/help",
+            self._cmd_help,
+            "Show Dogent usage, models, API, and available commands.",
         )
 
     def _print_banner(self, settings) -> None:
@@ -867,6 +1001,209 @@ class DogentCLI:
 
     async def _cmd_init(self, command: str) -> bool:
         return await self._run_init(command_text=command)
+
+    async def _cmd_edit(self, command: str) -> bool:
+        parts = command.split(maxsplit=1)
+        arg = parts[1].strip() if len(parts) > 1 else ""
+        if not arg:
+            if not self._can_use_multiline_editor():
+                self.console.print(
+                    Panel(
+                        "Markdown editor is unavailable in this environment.",
+                        title="📝 Edit",
+                        border_style="red",
+                    )
+                )
+                return True
+            editor_outcome = await self._open_multiline_editor(
+                "",
+                title="Edit (new file)",
+                context="file_edit",
+                file_path=None,
+            )
+            return await self._handle_edit_outcome(editor_outcome, None)
+        target = self._resolve_edit_path(arg)
+        if target is None:
+            self.console.print(
+                Panel(
+                    "Path must be inside the workspace.",
+                    title="📝 Edit",
+                    border_style="red",
+                )
+            )
+            return True
+        if not self._is_editable_extension(target):
+            self.console.print(
+                Panel(
+                    "Unsupported file type. Use a plain text format like .md or .txt.",
+                    title="📝 Edit",
+                    border_style="red",
+                )
+            )
+            return True
+        if not self._can_use_multiline_editor():
+            self.console.print(
+                Panel(
+                    "Markdown editor is unavailable in this environment.",
+                    title="📝 Edit",
+                    border_style="red",
+                )
+            )
+            return True
+
+        initial_text = ""
+        if target.exists():
+            if target.is_dir():
+                self.console.print(
+                    Panel(
+                        "Path points to a directory, not a file.",
+                        title="📝 Edit",
+                        border_style="red",
+                    )
+                )
+                return True
+            try:
+                initial_text = target.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                self.console.print(
+                    Panel(
+                        "File is not valid UTF-8 text.",
+                        title="📝 Edit",
+                        border_style="red",
+                    )
+                )
+                return True
+            except OSError as exc:
+                self.console.print(
+                    Panel(
+                        f"Failed to read file: {exc}",
+                        title="📝 Edit",
+                        border_style="red",
+                    )
+                )
+                return True
+        else:
+            try:
+                should_create = await self._prompt_yes_no(
+                    title="📝 Edit",
+                    message=f"{self._display_relpath(target)} does not exist. Create it?",
+                    prompt="Create file? [Y/n] ",
+                    default=True,
+                    show_panel=True,
+                )
+            except SelectionCancelled:
+                return True
+            if not should_create:
+                return True
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("", encoding="utf-8")
+            except OSError as exc:
+                self.console.print(
+                    Panel(
+                        f"Failed to create file: {exc}",
+                        title="📝 Edit",
+                        border_style="red",
+                    )
+                )
+
+        title = f"Edit {self._display_relpath(target)}"
+        editor_outcome = await self._open_multiline_editor(
+            initial_text,
+            title=title,
+            context="file_edit",
+            file_path=target,
+        )
+        return await self._handle_edit_outcome(editor_outcome, target)
+
+    async def _handle_edit_outcome(
+        self, editor_outcome: EditorOutcome, target: Path | None
+    ) -> bool:
+        action = editor_outcome.action
+        if action == "discard":
+            label = (
+                f"Discarded changes for {self._display_relpath(target)}."
+                if target is not None
+                else "Discarded changes."
+            )
+            self.console.print(
+                Panel(
+                    label,
+                    title="📝 Edit",
+                    border_style="yellow",
+                )
+            )
+            return True
+        if action in {"save", "submit"}:
+            save_path = editor_outcome.saved_path or target
+            if save_path is None:
+                return True
+            if not self._is_within_root(save_path):
+                self.console.print(
+                    Panel(
+                        "Save path must be inside the workspace.",
+                        title="📝 Edit",
+                        border_style="red",
+                    )
+                )
+                return True
+            if not self._is_editable_extension(save_path):
+                self.console.print(
+                    Panel(
+                        "Unsupported file type. Use a plain text format like .md or .txt.",
+                        title="📝 Edit",
+                        border_style="red",
+                    )
+                )
+                return True
+            try:
+                save_path.parent.mkdir(parents=True, exist_ok=True)
+                save_path.write_text(editor_outcome.text, encoding="utf-8")
+            except OSError as exc:
+                self.console.print(
+                    Panel(
+                        f"Failed to save file: {exc}",
+                        title="📝 Edit",
+                        border_style="red",
+                    )
+                )
+                return True
+            self.console.print(
+                Panel(
+                    f"Saved: {self._display_relpath(save_path)}",
+                    title="📝 Edit",
+                    border_style="green",
+                )
+            )
+            if action == "save":
+                return True
+            try:
+                prompt_text = await self._prompt_file_usage(save_path)
+            except (EOFError, KeyboardInterrupt):
+                return True
+            if prompt_text is None:
+                return True
+            prompt_text = (prompt_text or "").strip()
+            message, template_override = self._extract_template_override(prompt_text)
+            template_override = self._normalize_template_override(template_override)
+            if template_override:
+                self._show_template_reference(template_override)
+            rel_path = self._display_relpath(save_path)
+            if message:
+                message = f"{message} @{rel_path}"
+            else:
+                message = f"@{rel_path}"
+            message, attachments = self._resolve_attachments(message)
+            message = self._replace_file_references(message, attachments)
+            if attachments:
+                self._show_attachments(attachments)
+            await self._run_with_interrupt(
+                message,
+                attachments,
+                config_override=self._build_prompt_override(template_override),
+            )
+            return True
+        return True
 
     async def _run_init(self, command_text: str, *, force_wizard: bool = False) -> bool:
         parts = command_text.split(maxsplit=1)
@@ -1010,6 +1347,37 @@ class DogentCLI:
                 )
             )
 
+    def _resolve_edit_path(self, path_text: str) -> Path | None:
+        candidate = Path(path_text).expanduser()
+        if not candidate.is_absolute():
+            candidate = self.root / candidate
+        try:
+            resolved = candidate.resolve(strict=False)
+        except Exception:
+            return None
+        root_resolved = self.root.resolve()
+        try:
+            resolved.relative_to(root_resolved)
+        except ValueError:
+            return None
+        return resolved
+
+    def _is_editable_extension(self, path: Path) -> bool:
+        return path.suffix.lower() in EDITABLE_EXTENSIONS
+
+    def _is_within_root(self, path: Path) -> bool:
+        try:
+            path.resolve().relative_to(self.root.resolve())
+        except ValueError:
+            return False
+        return True
+
+    def _display_relpath(self, path: Path) -> str:
+        try:
+            return str(path.relative_to(self.root))
+        except ValueError:
+            return str(path)
+
     async def _confirm_overwrite(self, path: Path) -> bool:
         rel = path.relative_to(self.root)
         prompt = f"{rel} exists. Overwrite? [y/N] "
@@ -1122,14 +1490,35 @@ class DogentCLI:
             return False
         return True
 
+    def _editor_mode(self) -> str:
+        config = self.config_manager.load_project_config()
+        raw = config.get("editor_mode")
+        if isinstance(raw, str) and raw.strip().lower() == "vi":
+            return "vi"
+        return "default"
+
+    def _format_saved_path_note(self, path: Path, *, purpose: str) -> str:
+        try:
+            display = str(path.relative_to(self.root))
+        except ValueError:
+            display = str(path)
+        return f"Saved file: {display} (this file stores the {purpose}.)"
+
+    def _format_editor_submission(self, text: str, *, saved_path: Path | None, purpose: str | None) -> str:
+        block = wrap_markdown_code_block(text, language="markdown")
+        if saved_path and purpose:
+            note = self._format_saved_path_note(saved_path, purpose=purpose)
+            return f"{note}\n\n{block}"
+        return block
+
     def _render_markdown_preview(self, text: str, width: int) -> str:
         theme = Theme(
             {
-                "markdown.h1": "bold #003366",
-                "markdown.h2": "bold #2a4d8f",
-                "markdown.h3": "bold #3a5ea8",
+                "markdown.h1": "bold #1f4f82",
+                "markdown.h2": "bold #2a5d9f",
+                "markdown.h3": "bold #356dba",
                 "markdown.code_block": "bold #e6e6e6 on #2d2d2d",
-                "markdown.code": "bold #e6e6e6 on #2d2d2d",
+                "markdown.code": "bold #1b1b1b on #f0f0f0",
             }
         )
         preview_console = Console(
@@ -1141,7 +1530,8 @@ class DogentCLI:
             legacy_windows=False,
         )
         preview_text = mark_math_for_preview(text or "")
-        preview_text = self._pad_preview_code_blocks(preview_text, width)
+        code_width = max(20, width - 1)
+        preview_text = self._pad_preview_code_blocks(preview_text, code_width)
         preview_console.print(
             Markdown(preview_text, code_theme="monokai", hyperlinks=False)
         )
@@ -1165,15 +1555,19 @@ class DogentCLI:
             padded.append(line)
         return "\n".join(padded)
 
-    async def _open_multiline_editor(self, initial_text: str, *, title: str) -> str | None:
+    async def _open_multiline_editor(
+        self, initial_text: str, *, title: str, context: str, file_path: Path | None = None
+    ) -> EditorOutcome:
         if not self._can_use_multiline_editor():
-            return initial_text
+            return EditorOutcome(action="submit", text=initial_text)
         was_active = self._selection_prompt_active.is_set()
         if not was_active:
             self._selection_prompt_active.set()
         try:
             editor_title = f"Markdown editor - {title}"
             preview_title = "Markdown preview (read-only)"
+            editor_mode = self._editor_mode()
+            editing_mode = EditingMode.VI if editor_mode == "vi" else EditingMode.EMACS
             editor = TextArea(
                 text=initial_text,
                 multiline=True,
@@ -1182,9 +1576,13 @@ class DogentCLI:
                 lexer=SimpleMarkdownLexer(),
             )
             preview_text = ""
+            preview_scroll = 0
+            preview_line_count = 0
             mode = "edit"
+            current_file = file_path if context == "file_edit" else None
             submit_hint = "Ctrl+Enter"
             submit_bound = False
+            app: Application | None = None
             def _build_clipboard() -> object:
                 fallback = InMemoryClipboard()
                 if SystemClipboard is not None and _system_clipboard_supported():
@@ -1218,20 +1616,77 @@ class DogentCLI:
             return_prompt_filter = Condition(lambda: return_prompt_active)
             save_prompt_filter = Condition(lambda: save_prompt_active)
             overwrite_prompt_filter = Condition(lambda: overwrite_prompt_active)
+            command_mode = False
+            command_buffer = Buffer(document=Document(text=""))
+            command_filter = Condition(
+                lambda: editing_mode == EditingMode.VI and command_mode and mode == "edit"
+            )
+            emacs_only = Condition(lambda: editing_mode == EditingMode.EMACS)
+            vi_edit = Condition(lambda: editing_mode == EditingMode.VI and mode == "edit")
+            vi_normal = Condition(
+                lambda: editing_mode == EditingMode.VI
+                and mode == "edit"
+                and _vi_mode(app) == "NORMAL"
+                and not command_mode
+                and not return_prompt_active
+                and not save_prompt_active
+                and not overwrite_prompt_active
+            )
 
             def is_dirty() -> bool:
                 return editor.text != initial_text
+
+            def _vi_mode(app_ref: Application | None) -> str:
+                if app_ref is None:
+                    return "NORMAL"
+                try:
+                    current = str(app_ref.vi_state.input_mode).upper()
+                except Exception:
+                    return "NORMAL"
+                if "INSERT" in current:
+                    return "INSERT"
+                if "REPLACE" in current:
+                    return "REPLACE"
+                if "VISUAL" in current:
+                    return "VISUAL"
+                return "NORMAL"
+
+            def _vi_state_label(app_ref: Application | None) -> str:
+                return f"VI: {_vi_mode(app_ref)}"
 
             def status_text() -> str:
                 row = editor.document.cursor_position_row + 1
                 col = editor.document.cursor_position_col + 1
                 dirty_mark = "*" if is_dirty() else ""
-                return f"{mode.upper()} {dirty_mark} {title} | Ln {row}, Col {col}"
+                mode_label = mode.upper()
+                prefix = ""
+                if editing_mode == EditingMode.VI and mode == "edit":
+                    prefix = f"{_vi_state_label(app)} | "
+                return f"{prefix}{mode_label} {dirty_mark} {title} | Ln {row}, Col {col}"
 
             def footer_text() -> str:
-                line1 = (
-                    f"Submit: {submit_hint} | Return: Ctrl+Q | Preview: Ctrl+P"
-                )
+                if editing_mode == EditingMode.VI:
+                    vi_label = _vi_state_label(app)
+                    line1 = f"{vi_label} | {mode.upper()}"
+                    if "INSERT" in vi_label:
+                        if context == "file_edit":
+                            line2 = "Esc: Normal | Ctrl+P preview | :w save | :wq submit | :q :q! :preview"
+                        else:
+                            line2 = "Esc: Normal | Ctrl+P preview | :w :wq :q :q! :preview"
+                        return f"{line1}\n{line2}"
+                    line2 = "i: Insert | v: Visual | /: Search | : Commands"
+                    if context == "file_edit":
+                        line3 = "Ctrl+P preview | :w save | :wq submit | :q :q! :preview"
+                    else:
+                        line3 = "Ctrl+P preview | :w :wq :q :q! :preview"
+                    return f"{line1}\n{line2}\n{line3}"
+                if context == "file_edit":
+                    line1 = (
+                        f"Submit: {submit_hint} (save + send) | Return: Ctrl+Q | "
+                        "Preview: Ctrl+P"
+                    )
+                else:
+                    line1 = f"Submit: {submit_hint} | Return: Ctrl+Q | Preview: Ctrl+P"
                 line2 = "Line: Ctrl+A/E | Word: Option+Left/Right (Alt+B/F)"
                 line3 = (
                     "Select: Shift+Arrows | Word select: Ctrl+W | Clear: Ctrl+G | "
@@ -1308,36 +1763,100 @@ class DogentCLI:
                 scrollbar_width = 1 if ScrollbarMargin else 0
                 return max(20, columns - 4 - scrollbar_width)
 
-            preview_control = FormattedTextControl(
-                lambda: ANSI(preview_text), focusable=False, show_cursor=False
+            def _preview_height(app: Application) -> int:
+                info = getattr(preview_window, "render_info", None)
+                if info and getattr(info, "window_height", 0):
+                    return max(1, info.window_height)
+                with suppress(Exception):
+                    rows = app.output.get_size().rows
+                if not rows:
+                    return 10
+                return max(1, rows - 6)
+
+            def _preview_max_scroll(app: Application) -> int:
+                height = _preview_height(app)
+                return max(0, preview_line_count - height)
+
+            def _preview_can_scroll() -> bool:
+                return mode == "preview"
+
+            def _preview_scroll_mouse(delta: int) -> None:
+                if get_app is None:
+                    return
+                _scroll_preview(get_app(), delta)
+
+            def _preview_cursor_position() -> Point | None:
+                if Point is None:
+                    return None
+                max_line = max(0, preview_line_count - 1)
+                return Point(x=0, y=min(preview_scroll, max_line))
+
+            class PreviewControl(FormattedTextControl):
+                def mouse_handler(self, mouse_event):  # type: ignore[no-untyped-def]
+                    if MouseEventType and _preview_can_scroll():
+                        if mouse_event.event_type == MouseEventType.SCROLL_UP:
+                            _preview_scroll_mouse(-3)
+                            return None
+                        if mouse_event.event_type == MouseEventType.SCROLL_DOWN:
+                            _preview_scroll_mouse(3)
+                            return None
+                    return super().mouse_handler(mouse_event)
+
+            preview_control = PreviewControl(
+                lambda: ANSI(preview_text),
+                focusable=True,
+                show_cursor=False,
+                get_cursor_position=_preview_cursor_position,
             )
             preview_margins = [ScrollbarMargin()] if ScrollbarMargin else None
             try:
                 preview_window = Window(
                     content=preview_control,
-                    wrap_lines=True,
+                    wrap_lines=False,
                     right_margins=preview_margins,
+                    get_vertical_scroll=lambda _window: preview_scroll,
                     style="class:preview",
                 )
             except TypeError:
                 preview_window = Window(
-                    content=preview_control, wrap_lines=True, style="class:preview"
+                    content=preview_control,
+                    wrap_lines=False,
+                    get_vertical_scroll=lambda _window: preview_scroll,
+                    style="class:preview",
                 )
             editor_frame = Frame(editor, title=editor_title)
             preview_frame = Frame(preview_window, title=preview_title, style="class:preview")
 
+            if context == "file_edit":
+                return_options = [
+                    ("Save", "save"),
+                    ("Submit", "submit"),
+                    ("Save As", "save_as"),
+                    ("Save As + Submit", "save_as_submit"),
+                    ("Discard", "discard"),
+                    ("Cancel", "cancel"),
+                ]
+            else:
+                return_options = [
+                    ("Discard", "discard"),
+                    ("Submit", "submit"),
+                    ("Save & Submit", "save"),
+                ]
+                if context == "outline":
+                    return_options.append(("Abandon task", "abandon"))
+                return_options.append(("Cancel", "cancel"))
+
             def _return_prompt_text() -> str:
-                options = ["Discard", "Submit", "Save to file", "Cancel"]
                 lines = ["Unsaved changes. Choose an action:"]
-                for idx, option in enumerate(options):
+                for idx, option in enumerate(return_options):
                     marker = ">" if idx == return_selection else " "
-                    lines.append(f"{marker} {option}")
-                lines.append("Use ↑/↓ to select, Enter to confirm, Esc to cancel.")
+                    lines.append(f"{marker} {option[0]}")
+                lines.append("Use ↑/↓ to select, Enter to confirm, Esc/Ctrl+C to cancel.")
                 return "\n".join(lines)
 
             return_prompt_window = Window(
                 content=FormattedTextControl(_return_prompt_text),
-                height=4,
+                height=max(4, len(return_options) + 3),
                 style="class:return_prompt",
                 wrap_lines=True,
             )
@@ -1364,7 +1883,7 @@ class DogentCLI:
                 for idx, option in enumerate(options):
                     marker = ">" if idx == save_selection else " "
                     lines.append(f"{marker} {option}")
-                lines.append("Use ↑/↓ to select, Enter to confirm, Esc to cancel.")
+                lines.append("Use ↑/↓ to select, Enter to confirm, Esc/Ctrl+C to cancel.")
                 return "\n".join(lines)
 
             save_options_window = Window(
@@ -1385,7 +1904,7 @@ class DogentCLI:
                 for idx, option in enumerate(options):
                     marker = ">" if idx == overwrite_selection else " "
                     lines.append(f"{marker} {option}")
-                lines.append("Use ↑/↓ to select, Enter to confirm, Esc to cancel.")
+                lines.append("Use ↑/↓ to select, Enter to confirm, Esc/Ctrl+C to cancel.")
                 return "\n".join(lines)
 
             overwrite_prompt_window = Window(
@@ -1396,6 +1915,22 @@ class DogentCLI:
             )
             overwrite_prompt_container = ConditionalContainer(
                 overwrite_prompt_window, filter=overwrite_prompt_filter
+            )
+
+            command_prompt_window = Window(
+                content=FormattedTextControl(":"),
+                height=1,
+                dont_extend_width=True,
+                style="class:command",
+            )
+            command_input_window = Window(
+                BufferControl(buffer=command_buffer),
+                height=1,
+                style="class:command",
+            )
+            command_container = ConditionalContainer(
+                VSplit([command_prompt_window, command_input_window]),
+                filter=command_filter,
             )
 
             edit_root = HSplit(
@@ -1413,6 +1948,7 @@ class DogentCLI:
                         wrap_lines=True,
                         dont_extend_height=True,
                     ),
+                    command_container,
                     return_prompt_container,
                     save_prompt_container,
                     overwrite_prompt_container,
@@ -1420,7 +1956,9 @@ class DogentCLI:
             )
             preview_footer = Window(
                 height=1,
-                content=FormattedTextControl("Preview mode • Esc return"),
+                content=FormattedTextControl(
+                    "Preview mode • Scroll: Wheel/↑/↓ PgUp/PgDn Home/End • Esc return"
+                ),
                 style="class:preview_footer",
                 wrap_lines=True,
             )
@@ -1437,16 +1975,20 @@ class DogentCLI:
             bindings = KeyBindings()
 
             def _accept(event) -> None:  # type: ignore[no-untyped-def]
-                event.app.exit(result=editor.text)
+                if context == "file_edit":
+                    event.app.create_background_task(_submit_file_edit(event.app))
+                    return
+                event.app.exit(result=EditorOutcome(action="submit", text=editor.text))
 
-            for key, hint in (("c-enter", "Ctrl+Enter"), ("c-j", "Ctrl+J")):
-                try:
-                    bindings.add(key)(_accept)
-                except ValueError:
-                    continue
-                submit_bound = True
-                submit_hint = hint
-                break
+            if editing_mode == EditingMode.EMACS:
+                for key, hint in (("c-enter", "Ctrl+Enter"), ("c-j", "Ctrl+J")):
+                    try:
+                        bindings.add(key, filter=edit_active)(_accept)
+                    except ValueError:
+                        continue
+                    submit_bound = True
+                    submit_hint = hint
+                    break
             if not submit_bound:
                 submit_hint = "Ctrl+Enter"
 
@@ -1487,7 +2029,7 @@ class DogentCLI:
 
             async def _return_flow(app: Application) -> None:
                 if not is_dirty():
-                    app.exit(result=None)
+                    app.exit(result=EditorOutcome(action="discard", text=initial_text))
                     return
                 nonlocal return_prompt_active, return_selection, return_future
                 return_prompt_active = True
@@ -1499,10 +2041,49 @@ class DogentCLI:
                 return_future = None
                 app.invalidate()
                 if result == "discard":
-                    app.exit(result=None)
+                    app.exit(result=EditorOutcome(action="discard", text=initial_text))
                     return
+                if context == "file_edit":
+                    if result in {"save", "submit"}:
+                        save_path = current_file
+                        if save_path is None:
+                            path_text = await _prompt_save_path(app)
+                            if not path_text:
+                                return
+                            save_path = resolve_save_path(self.root, path_text)
+                        if save_path.exists() and save_path != current_file:
+                            if not await _confirm_overwrite(app, save_path):
+                                return
+                        save_path.parent.mkdir(parents=True, exist_ok=True)
+                        save_path.write_text(editor.text, encoding="utf-8")
+                        app.exit(
+                            result=EditorOutcome(
+                                action="submit" if result == "submit" else "save",
+                                text=editor.text,
+                                saved_path=save_path,
+                            )
+                        )
+                        return
+                    if result in {"save_as", "save_as_submit"}:
+                        path_text = await _prompt_save_path(app)
+                        if not path_text:
+                            return
+                        save_path = resolve_save_path(self.root, path_text)
+                        if save_path.exists():
+                            if not await _confirm_overwrite(app, save_path):
+                                return
+                        save_path.parent.mkdir(parents=True, exist_ok=True)
+                        save_path.write_text(editor.text, encoding="utf-8")
+                        app.exit(
+                            result=EditorOutcome(
+                                action="submit" if result == "save_as_submit" else "save",
+                                text=editor.text,
+                                saved_path=save_path,
+                            )
+                        )
+                        return
                 if result == "submit":
-                    app.exit(result=editor.text)
+                    app.exit(result=EditorOutcome(action="submit", text=editor.text))
                     return
                 if result == "save":
                     path_text = await _prompt_save_path(app)
@@ -1514,29 +2095,174 @@ class DogentCLI:
                             return
                     save_path.parent.mkdir(parents=True, exist_ok=True)
                     save_path.write_text(editor.text, encoding="utf-8")
-                    app.exit(result=None)
+                    app.exit(
+                        result=EditorOutcome(
+                            action="submit", text=editor.text, saved_path=save_path
+                        )
+                    )
+                    return
+                if result == "abandon":
+                    app.exit(result=EditorOutcome(action="abandon", text=initial_text))
                     return
 
-            @bindings.add("c-q", filter=edit_active, eager=True)
+            async def _submit_file_edit(app: Application) -> None:
+                save_path = current_file
+                if save_path is None:
+                    path_text = await _prompt_save_path(app)
+                    if not path_text:
+                        return
+                    save_path = resolve_save_path(self.root, path_text)
+                if save_path.exists() and save_path != current_file:
+                    if not await _confirm_overwrite(app, save_path):
+                        return
+                save_path.parent.mkdir(parents=True, exist_ok=True)
+                save_path.write_text(editor.text, encoding="utf-8")
+                app.exit(
+                    result=EditorOutcome(
+                        action="submit", text=editor.text, saved_path=save_path
+                    )
+                )
+
+            async def _run_command(app: Application, command_text: str) -> None:
+                nonlocal command_mode, initial_text, preview_text, preview_line_count, preview_scroll, mode
+                command_mode = False
+                if InputMode is not None:
+                    app.vi_state.input_mode = InputMode.NAVIGATION
+                app.layout.focus(editor)
+                app.invalidate()
+                cmd_text = command_text.strip()
+                if not cmd_text:
+                    return
+                parts = cmd_text.split(maxsplit=1)
+                cmd = parts[0].lower()
+                arg = parts[1] if len(parts) > 1 else ""
+
+                async def _save_path(path_text: str | None, *, exit_after: bool) -> None:
+                    nonlocal initial_text
+                    resolved = path_text
+                    save_path = None
+                    if not resolved:
+                        if context == "file_edit" and current_file is not None:
+                            save_path = current_file
+                        else:
+                            resolved = await _prompt_save_path(app)
+                            if not resolved:
+                                return
+                    if save_path is None:
+                        save_path = resolve_save_path(self.root, resolved)
+                    if save_path.exists() and save_path != current_file:
+                        if not await _confirm_overwrite(app, save_path):
+                            return
+                    save_path.parent.mkdir(parents=True, exist_ok=True)
+                    save_path.write_text(editor.text, encoding="utf-8")
+                    if exit_after:
+                        app.exit(
+                            result=EditorOutcome(
+                                action="submit", text=editor.text, saved_path=save_path
+                            )
+                        )
+                        return
+                    initial_text = editor.text
+                    app.invalidate()
+
+                if cmd in {"q", "quit"}:
+                    if is_dirty():
+                        app.create_background_task(_return_flow(app))
+                        return
+                    app.exit(result=EditorOutcome(action="discard", text=initial_text))
+                    return
+                if cmd in {"q!", "quit!"}:
+                    app.exit(result=EditorOutcome(action="discard", text=initial_text))
+                    return
+                if cmd in {"w", "write"}:
+                    await _save_path(arg or None, exit_after=False)
+                    return
+                if cmd in {"wq", "x", "wq!", "x!"}:
+                    await _save_path(arg or None, exit_after=True)
+                    return
+                if cmd in {"preview", "p"}:
+                    if mode != "preview":
+                        width = _preview_width(app)
+                        preview_text = self._render_markdown_preview(editor.text, width)
+                        preview_lines = preview_text.splitlines() if preview_text else []
+                        preview_line_count = len(preview_lines) if preview_lines else 1
+                        preview_scroll = 0
+                        mode = "preview"
+                        app.layout.focus(preview_window)
+                        app.invalidate()
+                    return
+
+            @bindings.add(":", filter=vi_normal, eager=True)
+            def _enter_command_mode(event) -> None:  # type: ignore[no-untyped-def]
+                nonlocal command_mode
+                command_mode = True
+                command_buffer.text = ""
+                if InputMode is not None:
+                    event.app.vi_state.input_mode = InputMode.INSERT
+                event.app.layout.focus(command_input_window)
+                event.app.invalidate()
+
+            @bindings.add("enter", filter=command_filter, eager=True)
+            def _command_enter(event) -> None:  # type: ignore[no-untyped-def]
+                text = command_buffer.text
+                command_buffer.text = ""
+                if InputMode is not None:
+                    event.app.vi_state.input_mode = InputMode.NAVIGATION
+                event.app.create_background_task(_run_command(event.app, text))
+
+            @bindings.add("escape", filter=command_filter, eager=True)
+            @bindings.add("c-c", filter=command_filter, eager=True)
+            def _command_cancel(event) -> None:  # type: ignore[no-untyped-def]
+                nonlocal command_mode
+                command_mode = False
+                command_buffer.text = ""
+                if InputMode is not None:
+                    event.app.vi_state.input_mode = InputMode.NAVIGATION
+                event.app.layout.focus(editor)
+                event.app.invalidate()
+
+            @bindings.add("c-q", filter=edit_active & emacs_only, eager=True)
             def _return(event) -> None:  # type: ignore[no-untyped-def]
                 if return_prompt_active:
                     return
                 event.app.create_background_task(_return_flow(event.app))
 
-            @bindings.add("c-p", filter=edit_active, eager=True)
-            def _toggle_preview(event) -> None:  # type: ignore[no-untyped-def]
-                nonlocal preview_text, mode
+            def _toggle_preview_mode(app: Application) -> None:
+                nonlocal preview_text, mode, preview_line_count, preview_scroll
                 if mode == "preview":
                     mode = "edit"
-                    event.app.layout.focus(editor)
+                    app.layout.focus(editor)
                 else:
                     mode = "preview"
-                    width = _preview_width(event.app)
+                    width = _preview_width(app)
                     preview_text = self._render_markdown_preview(editor.text, width)
-                    event.app.layout.focus(preview_window)
-                event.app.invalidate()
+                    preview_lines = preview_text.splitlines() if preview_text else []
+                    preview_line_count = len(preview_lines) if preview_lines else 1
+                    preview_scroll = 0
+                    app.layout.focus(preview_window)
+                app.invalidate()
 
-            @bindings.add("c-w", filter=edit_active, eager=True)
+            @bindings.add("c-p", filter=edit_active & emacs_only, eager=True)
+            def _toggle_preview(event) -> None:  # type: ignore[no-untyped-def]
+                _toggle_preview_mode(event.app)
+
+            @bindings.add("c-p", filter=edit_active & vi_edit, eager=True)
+            def _toggle_preview_vi(event) -> None:  # type: ignore[no-untyped-def]
+                _toggle_preview_mode(event.app)
+
+            def _scroll_preview(app: Application, delta: int) -> None:
+                nonlocal preview_scroll
+                max_scroll = _preview_max_scroll(app)
+                preview_scroll = max(0, min(max_scroll, preview_scroll + delta))
+                app.invalidate()
+
+            def _scroll_preview_to(app: Application, position: int) -> None:
+                nonlocal preview_scroll
+                max_scroll = _preview_max_scroll(app)
+                preview_scroll = max(0, min(max_scroll, position))
+                app.invalidate()
+
+            @bindings.add("c-w", filter=edit_active & emacs_only, eager=True)
             def _select_word(event) -> None:  # type: ignore[no-untyped-def]
                 buffer = event.current_buffer
                 doc = buffer.document
@@ -1550,7 +2276,7 @@ class DogentCLI:
                     type=SelectionType.CHARACTERS,
                 )
 
-            @bindings.add("c-l", filter=edit_active, eager=True)
+            @bindings.add("c-l", filter=edit_active & emacs_only, eager=True)
             def _select_line(event) -> None:  # type: ignore[no-untyped-def]
                 buffer = event.current_buffer
                 text = buffer.document.text
@@ -1565,41 +2291,41 @@ class DogentCLI:
                     type=SelectionType.CHARACTERS,
                 )
 
-            @bindings.add("s-left", filter=edit_active, eager=True)
+            @bindings.add("s-left", filter=edit_active & emacs_only, eager=True)
             def _select_left(event) -> None:  # type: ignore[no-untyped-def]
                 buffer = event.current_buffer
                 doc = buffer.document
                 _extend_selection(buffer, doc.get_cursor_left_position())
 
-            @bindings.add("s-right", filter=edit_active, eager=True)
+            @bindings.add("s-right", filter=edit_active & emacs_only, eager=True)
             def _select_right(event) -> None:  # type: ignore[no-untyped-def]
                 buffer = event.current_buffer
                 doc = buffer.document
                 _extend_selection(buffer, doc.get_cursor_right_position())
 
-            @bindings.add("s-up", filter=edit_active, eager=True)
+            @bindings.add("s-up", filter=edit_active & emacs_only, eager=True)
             def _select_up(event) -> None:  # type: ignore[no-untyped-def]
                 buffer = event.current_buffer
                 doc = buffer.document
                 _extend_selection(buffer, doc.get_cursor_up_position())
 
-            @bindings.add("s-down", filter=edit_active, eager=True)
+            @bindings.add("s-down", filter=edit_active & emacs_only, eager=True)
             def _select_down(event) -> None:  # type: ignore[no-untyped-def]
                 buffer = event.current_buffer
                 doc = buffer.document
                 _extend_selection(buffer, doc.get_cursor_down_position())
 
-            @bindings.add("s-home", filter=edit_active, eager=True)
+            @bindings.add("s-home", filter=edit_active & emacs_only, eager=True)
             def _select_home(event) -> None:  # type: ignore[no-untyped-def]
                 buffer = event.current_buffer
                 _extend_selection(buffer, _line_start_position(buffer.document))
 
-            @bindings.add("s-end", filter=edit_active, eager=True)
+            @bindings.add("s-end", filter=edit_active & emacs_only, eager=True)
             def _select_end(event) -> None:  # type: ignore[no-untyped-def]
                 buffer = event.current_buffer
                 _extend_selection(buffer, _line_end_position(buffer.document))
 
-            @bindings.add("c-g", filter=edit_active, eager=True)
+            @bindings.add("c-g", filter=edit_active & emacs_only, eager=True)
             def _clear_selection(event) -> None:  # type: ignore[no-untyped-def]
                 event.current_buffer.exit_selection()
 
@@ -1607,25 +2333,25 @@ class DogentCLI:
             def _clear_selection_esc(event) -> None:  # type: ignore[no-untyped-def]
                 event.current_buffer.exit_selection()
 
-            @bindings.add("c-c", filter=selection_active, eager=True)
+            @bindings.add("c-c", filter=selection_active & emacs_only, eager=True)
             def _copy_selection(event) -> None:  # type: ignore[no-untyped-def]
                 data = event.current_buffer.copy_selection()
                 _write_system_clipboard(data.text)
                 _emit_osc52_clipboard(event.app, data.text)
                 event.app.clipboard.set_data(data)
 
-            @bindings.add("c-c", filter=edit_active, eager=True)
+            @bindings.add("c-c", filter=edit_active & emacs_only, eager=True)
             def _copy_no_selection(event) -> None:  # type: ignore[no-untyped-def]
                 event.current_buffer.exit_selection()
 
-            @bindings.add("c-x", filter=selection_active, eager=True)
+            @bindings.add("c-x", filter=selection_active & emacs_only, eager=True)
             def _cut_selection(event) -> None:  # type: ignore[no-untyped-def]
                 data = event.current_buffer.cut_selection()
                 _write_system_clipboard(data.text)
                 _emit_osc52_clipboard(event.app, data.text)
                 event.app.clipboard.set_data(data)
 
-            @bindings.add("c-v", filter=edit_active, eager=True)
+            @bindings.add("c-v", filter=edit_active & emacs_only, eager=True)
             def _paste(event) -> None:  # type: ignore[no-untyped-def]
                 text = _read_system_clipboard()
                 if text is not None:
@@ -1643,8 +2369,8 @@ class DogentCLI:
                     data = event.app.clipboard.get_data()
                     event.current_buffer.paste_clipboard_data(data)
 
-            @bindings.add("escape", "left", filter=edit_active, eager=True)
-            @bindings.add("escape", "b", filter=edit_active, eager=True)
+            @bindings.add("escape", "left", filter=edit_active & emacs_only, eager=True)
+            @bindings.add("escape", "b", filter=edit_active & emacs_only, eager=True)
             def _word_left(event) -> None:  # type: ignore[no-untyped-def]
                 _move_word(
                     event.current_buffer,
@@ -1652,8 +2378,8 @@ class DogentCLI:
                     select=event.current_buffer.selection_state is not None,
                 )
 
-            @bindings.add("escape", "right", filter=edit_active, eager=True)
-            @bindings.add("escape", "f", filter=edit_active, eager=True)
+            @bindings.add("escape", "right", filter=edit_active & emacs_only, eager=True)
+            @bindings.add("escape", "f", filter=edit_active & emacs_only, eager=True)
             def _word_right(event) -> None:  # type: ignore[no-untyped-def]
                 _move_word(
                     event.current_buffer,
@@ -1661,32 +2387,32 @@ class DogentCLI:
                     select=event.current_buffer.selection_state is not None,
                 )
 
-            @bindings.add("c-left", filter=edit_active, eager=True)
+            @bindings.add("c-left", filter=edit_active & emacs_only, eager=True)
             def _ctrl_word_left(event) -> None:  # type: ignore[no-untyped-def]
                 _move_word(event.current_buffer, direction="left", select=False)
 
-            @bindings.add("c-right", filter=edit_active, eager=True)
+            @bindings.add("c-right", filter=edit_active & emacs_only, eager=True)
             def _ctrl_word_right(event) -> None:  # type: ignore[no-untyped-def]
                 _move_word(event.current_buffer, direction="right", select=False)
 
-            @bindings.add("home", filter=edit_active, eager=True)
+            @bindings.add("home", filter=edit_active & emacs_only, eager=True)
             def _line_start(event) -> None:  # type: ignore[no-untyped-def]
                 buffer = event.current_buffer
                 buffer.cursor_position = _line_start_position(buffer.document)
 
-            @bindings.add("end", filter=edit_active, eager=True)
+            @bindings.add("end", filter=edit_active & emacs_only, eager=True)
             def _line_end(event) -> None:  # type: ignore[no-untyped-def]
                 buffer = event.current_buffer
                 buffer.cursor_position = _line_end_position(buffer.document)
 
-            @bindings.add("escape", "backspace", filter=edit_active, eager=True)
+            @bindings.add("escape", "backspace", filter=edit_active & emacs_only, eager=True)
             def _delete_prev_word(event) -> None:  # type: ignore[no-untyped-def]
                 buffer = event.current_buffer
                 offset = buffer.document.find_previous_word_beginning(count=1)
                 if offset:
                     buffer.delete_before_cursor(count=-offset)
 
-            @bindings.add("escape", "d", filter=edit_active, eager=True)
+            @bindings.add("escape", "d", filter=edit_active & emacs_only, eager=True)
             def _delete_next_word(event) -> None:  # type: ignore[no-untyped-def]
                 buffer = event.current_buffer
                 offset = buffer.document.find_next_word_ending(count=1)
@@ -1698,7 +2424,7 @@ class DogentCLI:
             def _delete_selection(event) -> None:  # type: ignore[no-untyped-def]
                 event.current_buffer.cut_selection()
 
-            @bindings.add("tab", filter=edit_active, eager=True)
+            @bindings.add("tab", filter=edit_active & emacs_only, eager=True)
             def _insert_tab(event) -> None:  # type: ignore[no-untyped-def]
                 event.current_buffer.insert_text("    ")
 
@@ -1709,26 +2435,66 @@ class DogentCLI:
                 event.app.layout.focus(editor)
                 event.app.invalidate()
 
+            @bindings.add("up", filter=preview_active, eager=True)
+            def _preview_up(event) -> None:  # type: ignore[no-untyped-def]
+                _scroll_preview(event.app, -1)
+
+            @bindings.add("down", filter=preview_active, eager=True)
+            def _preview_down(event) -> None:  # type: ignore[no-untyped-def]
+                _scroll_preview(event.app, 1)
+
+            @bindings.add("pageup", filter=preview_active, eager=True)
+            def _preview_page_up(event) -> None:  # type: ignore[no-untyped-def]
+                _scroll_preview(event.app, -10)
+
+            @bindings.add("pagedown", filter=preview_active, eager=True)
+            def _preview_page_down(event) -> None:  # type: ignore[no-untyped-def]
+                _scroll_preview(event.app, 10)
+
+            @bindings.add("home", filter=preview_active, eager=True)
+            def _preview_home(event) -> None:  # type: ignore[no-untyped-def]
+                _scroll_preview_to(event.app, 0)
+
+            @bindings.add("end", filter=preview_active, eager=True)
+            def _preview_end(event) -> None:  # type: ignore[no-untyped-def]
+                max_scroll = _preview_max_scroll(event.app)
+                _scroll_preview_to(event.app, max_scroll)
+
+            try:
+                @bindings.add("scroll-up", filter=preview_active, eager=True)
+                def _preview_scroll_up(event) -> None:  # type: ignore[no-untyped-def]
+                    _scroll_preview(event.app, -3)
+
+                @bindings.add("scroll-down", filter=preview_active, eager=True)
+                def _preview_scroll_down(event) -> None:  # type: ignore[no-untyped-def]
+                    _scroll_preview(event.app, 3)
+            except ValueError:
+                pass
+
             @bindings.add("up", filter=return_prompt_filter, eager=True)
             def _return_up(event) -> None:  # type: ignore[no-untyped-def]
                 nonlocal return_selection
-                return_selection = (return_selection - 1) % 4
+                return_selection = (return_selection - 1) % len(return_options)
                 event.app.invalidate()
 
             @bindings.add("down", filter=return_prompt_filter, eager=True)
             def _return_down(event) -> None:  # type: ignore[no-untyped-def]
                 nonlocal return_selection
-                return_selection = (return_selection + 1) % 4
+                return_selection = (return_selection + 1) % len(return_options)
                 event.app.invalidate()
 
             @bindings.add("enter", filter=return_prompt_filter, eager=True)
             def _return_enter(event) -> None:  # type: ignore[no-untyped-def]
                 if return_future and not return_future.done():
-                    options = ["discard", "submit", "save", "cancel"]
-                    return_future.set_result(options[return_selection])
+                    return_future.set_result(return_options[return_selection][1])
 
             @bindings.add("escape", filter=return_prompt_filter, eager=True)
             def _return_cancel(event) -> None:  # type: ignore[no-untyped-def]
+                if return_future and not return_future.done():
+                    return_future.set_result("cancel")
+
+            @bindings.add("c-c", filter=return_prompt_filter, eager=True)
+            def _return_cancel_sigint(event) -> None:  # type: ignore[no-untyped-def]
                 if return_future and not return_future.done():
                     return_future.set_result("cancel")
 
@@ -1780,7 +2546,7 @@ class DogentCLI:
                 if overwrite_future and not overwrite_future.done():
                     overwrite_future.set_result("cancel")
 
-            style = Style.from_dict(
+            base_style = Style.from_dict(
                 {
                     "": "bg:#1e1e1e #d4d4d4",
                     "frame.border": "#3a3a3a",
@@ -1788,7 +2554,7 @@ class DogentCLI:
                     "status": "bg:#262626 #d4d4d4",
                     "footer": "bg:#232323 #b5b5b5",
                     "preview": "bg:#f7f7f2 #1b1b1b",
-                    "preview_footer": "bg:#e6e6e6 #1b1b1b",
+                    "preview_footer": "bg:#efefea #1b1b1b",
                     "return_prompt": "bg:#2a2a2a #d4d4d4",
                     "save_prompt": "bg:#2a2a2a #d4d4d4",
                     "md.text": "#d4d4d4",
@@ -1806,6 +2572,13 @@ class DogentCLI:
                     "md.rule": "#5c6370",
                 }
             )
+            style = base_style
+            if style_from_pygments_cls and MonokaiStyle:
+                try:
+                    pygments_style = style_from_pygments_cls(MonokaiStyle)
+                    style = Style.merge([pygments_style, base_style])
+                except Exception:
+                    style = base_style
 
             app = Application(
                 layout=layout,
@@ -1814,7 +2587,7 @@ class DogentCLI:
                 full_screen=True,
                 style=style,
                 clipboard=clipboard,
-                editing_mode=EditingMode.EMACS,
+                editing_mode=editing_mode,
                 after_render=_sync_selection_clipboard,
             )
             return await app.run_async()
@@ -1844,7 +2617,7 @@ class DogentCLI:
             lines.append(
                 (
                     "class:prompt",
-                    "\nUse ↑/↓ to select, Enter to confirm, Esc to cancel.",
+                    "\nUse ↑/↓ to select, Enter to confirm, Esc/Ctrl+C to cancel.",
                 )
             )
             return lines
@@ -1872,6 +2645,10 @@ class DogentCLI:
 
         @bindings.add("escape")
         def _cancel(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=None)
+
+        @bindings.add("c-c")
+        def _cancel_sigint(event) -> None:  # type: ignore[no-untyped-def]
             event.app.exit(result=None)
 
         @bindings.add("y")
@@ -1907,9 +2684,12 @@ class DogentCLI:
         return result == "yes"
 
     async def _prompt_yes_no_text(self, prompt: str, default: bool) -> bool | None:
+        prompt_hint = " (type esc or press Ctrl+C to cancel) "
+        prompt_text = prompt if prompt.endswith(" ") else f"{prompt} "
+        prompt_text = f"{prompt_text}{prompt_hint}"
         try:
             response_raw = await self._read_input(
-                prompt=prompt, allow_multiline_editor=False
+                prompt=prompt_text, allow_multiline_editor=False
             )
         except (EOFError, KeyboardInterrupt):
             return None
@@ -1960,6 +2740,443 @@ class DogentCLI:
             return None, "cancelled"
         return answers, None
 
+    async def _collect_outline_edit(
+        self, payload: OutlineEditPayload
+    ) -> tuple[str | None, str | None]:
+        if not self._can_use_inline_choice():
+            outline_title = payload.title or "Outline"
+            outline_body = payload.outline_text.strip()
+            self.console.print(
+                Panel(
+                    Markdown(outline_body or "(Outline is empty.)"),
+                    title=outline_title,
+                    border_style="cyan",
+                )
+            )
+            self.console.print()
+        try:
+            action = await self._prompt_outline_action(payload)
+        except SelectionCancelled:
+            return None, "cancelled"
+        if action == "adopt":
+            return "Outline approved, continue.", None
+        if action == "save":
+            saved_path = await self._save_outline_for_edit(payload.outline_text)
+            if saved_path is None:
+                return None, "cancelled"
+            self.console.print(
+                Panel(
+                    "\n".join(
+                        [
+                            f"Outline saved to {saved_path}.",
+                            "Edit the file, then resume the writing task from the CLI.",
+                        ]
+                    ),
+                    title="Outline Saved",
+                    border_style="cyan",
+                )
+            )
+            return None, "paused"
+        title = payload.title or "Outline"
+        editor_outcome = await self._open_multiline_editor(
+            payload.outline_text, title=title, context="outline"
+        )
+        if editor_outcome.action == "abandon":
+            return None, "abandon"
+        if editor_outcome.action == "submit":
+            outline_text = editor_outcome.text
+            saved_path = editor_outcome.saved_path
+            message = self._format_editor_submission(
+                outline_text, saved_path=saved_path, purpose="outline"
+            )
+            return message, None
+        message = self._format_editor_submission(
+            payload.outline_text, saved_path=None, purpose=None
+        )
+        return message, None
+
+    async def _prompt_outline_action(self, payload: OutlineEditPayload) -> str:
+        options = [
+            ("Adopt outline", "adopt"),
+            ("Edit immediately", "edit"),
+            ("Save to file then edit", "save"),
+        ]
+        title = payload.title or "Outline"
+        if self._can_use_inline_choice():
+            selection = await self._prompt_outline_action_inline(
+                title=title,
+                outline_text=payload.outline_text,
+                options=[label for label, _ in options],
+            )
+        else:
+            prompt_text = f"{title}\n\nChoose how to proceed:"
+            selection = await self._prompt_text_choice(
+                title="Outline",
+                prompt_text=prompt_text,
+                options=[label for label, _ in options],
+            )
+        if selection is None:
+            raise SelectionCancelled
+        return options[selection][1]
+
+    async def _prompt_outline_action_inline(
+        self, *, title: str, outline_text: str, options: list[str]
+    ) -> int | None:
+        selection = 0
+        outline_scroll = 0
+        outline_body = outline_text.strip() or "(Outline is empty.)"
+
+        columns = shutil.get_terminal_size((80, 20)).columns
+        scrollbar_width = 1 if ScrollbarMargin else 0
+        outline_width = max(20, columns - 4 - scrollbar_width)
+        outline_rendered = self._render_markdown_preview(outline_body, outline_width)
+        outline_lines = outline_rendered.splitlines() if outline_rendered else []
+        outline_line_count = len(outline_lines) if outline_lines else 1
+
+        def _outline_cursor_position() -> Point | None:
+            if Point is None:
+                return None
+            max_line = max(0, outline_line_count - 1)
+            return Point(x=0, y=min(outline_scroll, max_line))
+
+        def _scroll_outline(app: Application, delta: int) -> None:
+            nonlocal outline_scroll
+            max_scroll = _outline_max_scroll(app)
+            outline_scroll = max(0, min(max_scroll, outline_scroll + delta))
+            app.invalidate()
+
+        def _outline_max_scroll(app: Application) -> int:
+            info = getattr(outline_window, "render_info", None)
+            height = getattr(info, "window_height", 0) if info else 0
+            if height <= 0:
+                height = max(1, shutil.get_terminal_size((80, 20)).lines - 6)
+            return max(0, outline_line_count - height)
+
+        class OutlineControl(FormattedTextControl):
+            def mouse_handler(self, mouse_event):  # type: ignore[no-untyped-def]
+                if MouseEventType:
+                    if mouse_event.event_type == MouseEventType.SCROLL_UP:
+                        _scroll_outline(get_app(), -3)
+                        return None
+                    if mouse_event.event_type == MouseEventType.SCROLL_DOWN:
+                        _scroll_outline(get_app(), 3)
+                        return None
+                return super().mouse_handler(mouse_event)
+
+        outline_control = OutlineControl(
+            lambda: ANSI(outline_rendered),
+            focusable=True,
+            show_cursor=False,
+            get_cursor_position=_outline_cursor_position,
+        )
+        outline_margins = [ScrollbarMargin()] if ScrollbarMargin else None
+        try:
+            outline_window = Window(
+                content=outline_control,
+                wrap_lines=False,
+                right_margins=outline_margins,
+                get_vertical_scroll=lambda _window: outline_scroll,
+                style="class:outline",
+            )
+        except TypeError:
+            outline_window = Window(
+                content=outline_control,
+                wrap_lines=False,
+                get_vertical_scroll=lambda _window: outline_scroll,
+                style="class:outline",
+            )
+        outline_frame = Frame(outline_window, title=title, style="class:outline")
+
+        def _options_fragments():
+            lines = [("class:prompt", "Choose how to proceed:\n")]
+            for idx, option in enumerate(options):
+                marker = ">" if idx == selection else " "
+                style = "class:selected" if idx == selection else "class:choice"
+                lines.append((style, f"{marker} {option}\n"))
+            lines.append(
+                (
+                    "class:prompt",
+                    "Tab: switch pane • Enter: confirm • Esc/Ctrl+C: cancel",
+                )
+            )
+            return lines
+
+        options_control = FormattedTextControl(
+            _options_fragments, focusable=True, show_cursor=False
+        )
+        options_window = Window(options_control, dont_extend_height=True)
+        footer = Window(
+            height=1,
+            content=FormattedTextControl(
+                "Tab: options • Scroll outline: Wheel/↑/↓ PgUp/PgDn Home/End"
+            ),
+            style="class:footer",
+            wrap_lines=True,
+        )
+        root = HSplit([outline_frame, options_window, footer])
+        layout = Layout(root, focused_element=outline_window)
+        bindings = KeyBindings()
+        app: Application | None = None
+
+        def _focus_outline(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.layout.focus(outline_window)
+            event.app.invalidate()
+
+        def _focus_options(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.layout.focus(options_control)
+            event.app.invalidate()
+
+        def _is_outline_active() -> bool:
+            return app is not None and app.layout.current_control == outline_control
+
+        def _is_options_active() -> bool:
+            return app is not None and app.layout.current_control == options_control
+
+        outline_active = Condition(_is_outline_active)
+        options_active = Condition(_is_options_active)
+
+        @bindings.add("tab")
+        def _toggle_focus(event) -> None:  # type: ignore[no-untyped-def]
+            if _is_outline_active():
+                _focus_options(event)
+            else:
+                _focus_outline(event)
+
+        with suppress(ValueError):
+            @bindings.add("s-tab")
+            def _toggle_focus_back(event) -> None:  # type: ignore[no-untyped-def]
+                if _is_options_active():
+                    _focus_outline(event)
+                else:
+                    _focus_options(event)
+
+        @bindings.add("up", filter=outline_active)
+        def _outline_up(event) -> None:  # type: ignore[no-untyped-def]
+            _scroll_outline(event.app, -1)
+
+        @bindings.add("down", filter=outline_active)
+        def _outline_down(event) -> None:  # type: ignore[no-untyped-def]
+            _scroll_outline(event.app, 1)
+
+        @bindings.add("pageup", filter=outline_active)
+        def _outline_page_up(event) -> None:  # type: ignore[no-untyped-def]
+            _scroll_outline(event.app, -10)
+
+        @bindings.add("pagedown", filter=outline_active)
+        def _outline_page_down(event) -> None:  # type: ignore[no-untyped-def]
+            _scroll_outline(event.app, 10)
+
+        @bindings.add("home", filter=outline_active)
+        def _outline_home(event) -> None:  # type: ignore[no-untyped-def]
+            nonlocal outline_scroll
+            outline_scroll = 0
+            event.app.invalidate()
+
+        @bindings.add("end", filter=outline_active)
+        def _outline_end(event) -> None:  # type: ignore[no-untyped-def]
+            nonlocal outline_scroll
+            outline_scroll = _outline_max_scroll(event.app)
+            event.app.invalidate()
+
+        @bindings.add("up", filter=options_active)
+        def _options_up(event) -> None:  # type: ignore[no-untyped-def]
+            nonlocal selection
+            selection = (selection - 1) % len(options)
+            event.app.invalidate()
+
+        @bindings.add("down", filter=options_active)
+        def _options_down(event) -> None:  # type: ignore[no-untyped-def]
+            nonlocal selection
+            selection = (selection + 1) % len(options)
+            event.app.invalidate()
+
+        @bindings.add("enter", filter=options_active)
+        def _options_accept(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=selection)
+
+        @bindings.add("escape")
+        def _cancel(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=None)
+
+        style = Style.from_dict(
+            {
+                "outline": "bg:#f7f7f2 #1b1b1b",
+                "outline.border": "#c9c9c9",
+                "outline.label": "bold #1b1b1b",
+                "prompt": "",
+                "choice": "",
+                "selected": "reverse",
+                "footer": "bg:#efefea #1b1b1b",
+                "scrollbar.background": "bg:#e0e0e0 #e0e0e0",
+                "scrollbar.button": "bg:#b0b0b0 #b0b0b0",
+            }
+        )
+        app = Application(
+            layout=layout,
+            key_bindings=bindings,
+            mouse_support=True,
+            full_screen=True,
+            style=style,
+        )
+        was_active = self._selection_prompt_active.is_set()
+        if not was_active:
+            self._selection_prompt_active.set()
+        try:
+            return await app.run_async()
+        finally:
+            if not was_active:
+                self._selection_prompt_active.clear()
+
+    async def _save_outline_for_edit(self, outline_text: str) -> Path | None:
+        choice = await self._prompt_outline_save_mode()
+        if choice is None:
+            return None
+        if choice == "auto":
+            filename = f"outline_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        else:
+            filename = await self._prompt_outline_filename()
+            if not filename:
+                return None
+        save_path = resolve_save_path(self.root, filename)
+        if save_path.exists():
+            if not await self._prompt_yes_no(
+                title="Overwrite?",
+                message=f"{save_path} exists. Overwrite?",
+                prompt="Overwrite? [y/N] ",
+                default=False,
+                show_panel=True,
+            ):
+                return None
+        save_path.write_text(outline_text, encoding="utf-8")
+        return save_path
+
+    async def _prompt_outline_save_mode(self) -> str | None:
+        options = [
+            ("Auto-generate filename", "auto"),
+            ("Enter filename", "manual"),
+        ]
+        prompt_text = "Save outline to a file:"
+        if self._can_use_inline_choice():
+            selection = await self._prompt_inline_choice(
+                title="Save Outline",
+                prompt_text=prompt_text,
+                options=[label for label, _ in options],
+            )
+        else:
+            selection = await self._prompt_text_choice(
+                title="Save Outline",
+                prompt_text=prompt_text,
+                options=[label for label, _ in options],
+            )
+        if selection is None:
+            return None
+        return options[selection][1]
+
+    async def _prompt_outline_filename(self) -> str | None:
+        try:
+            response = await self._read_input(
+                prompt="Filename: ", allow_multiline_editor=False
+            )
+        except (EOFError, KeyboardInterrupt):
+            return None
+        value = (response or "").strip()
+        return value or None
+
+    async def _prompt_inline_choice(
+        self, *, title: str, prompt_text: str, options: list[str]
+    ) -> int | None:
+        selection = 0
+
+        def _fragments():
+            lines = [
+                ("class:prompt", f"{title}\n"),
+                ("class:prompt", f"{prompt_text}\n\n"),
+            ]
+            for idx, option in enumerate(options):
+                marker = ">" if idx == selection else " "
+                style = "class:selected" if idx == selection else "class:choice"
+                lines.append((style, f"{marker} {option}\n"))
+            lines.append(
+                (
+                    "class:prompt",
+                    "\nUse ↑/↓ to select, Enter to confirm, Esc/Ctrl+C to cancel.",
+                )
+            )
+            return lines
+
+        control = FormattedTextControl(_fragments, focusable=True, show_cursor=False)
+        window = Window(control, dont_extend_height=True)
+        layout = Layout(window, focused_element=window)
+        bindings = KeyBindings()
+
+        @bindings.add("up")
+        def _up(event) -> None:  # type: ignore[no-untyped-def]
+            nonlocal selection
+            selection = (selection - 1) % len(options)
+            event.app.invalidate()
+
+        @bindings.add("down")
+        def _down(event) -> None:  # type: ignore[no-untyped-def]
+            nonlocal selection
+            selection = (selection + 1) % len(options)
+            event.app.invalidate()
+
+        @bindings.add("enter")
+        def _accept(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=selection)
+
+        @bindings.add("escape")
+        def _cancel(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=None)
+
+        @bindings.add("c-c")
+        def _cancel_sigint(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=None)
+
+        style = Style.from_dict(
+            {
+                "prompt": "",
+                "choice": "",
+                "selected": "reverse",
+            }
+        )
+        app = Application(
+            layout=layout,
+            key_bindings=bindings,
+            mouse_support=True,
+            full_screen=False,
+            style=style,
+        )
+        return await app.run_async()
+
+    async def _prompt_text_choice(
+        self, *, title: str, prompt_text: str, options: list[str]
+    ) -> int | None:
+        lines = [title, prompt_text, ""]
+        for idx, option in enumerate(options, start=1):
+            marker = "*" if idx == 1 else " "
+            lines.append(f"{marker} {idx}) {option}")
+        lines.append("")
+        lines.append("Enter a number to select, or type esc to cancel.")
+        lines.append("Press Ctrl+C to cancel.")
+        self.console.print(Panel("\n".join(lines), title=title))
+        try:
+            response_raw = await self._read_input(
+                prompt="Choice: ", allow_multiline_editor=False
+            )
+        except (EOFError, KeyboardInterrupt):
+            return None
+        response = (response_raw or "").strip()
+        if not response:
+            return 0
+        if response.lower() == "esc":
+            return None
+        if response.isdigit():
+            choice = int(response)
+            if 1 <= choice <= len(options):
+                return choice - 1
+        return 0
+
     async def _prompt_clarification_question(
         self,
         question: ClarificationQuestion,
@@ -1995,10 +3212,18 @@ class DogentCLI:
                     raise ClarificationCancelled
                 if answer is CLARIFICATION_SKIP:
                     return _skip_answer()
+                if isinstance(answer, EditorAnswer):
+                    return {
+                        "id": question.question_id,
+                        "question": question.question,
+                        "answer": answer.text,
+                        "editor": "true",
+                    }
                 return {
                     "id": question.question_id,
                     "question": question.question,
                     "answer": str(answer),
+                    "editor": "false",
                 }
 
             if not options and question.allow_freeform:
@@ -2088,7 +3313,7 @@ class DogentCLI:
             lines.append(
                 (
                     "class:prompt",
-                    "\nUse ↑/↓ to select, Enter to confirm, Esc to skip, Ctrl+C to cancel.",
+                    "\nUse ↑/↓ to select, Enter to input, Esc to skip, Ctrl+C to cancel.",
                 )
             )
             return lines
@@ -2180,17 +3405,21 @@ class DogentCLI:
         label: str | None = None,
         force_editor: bool = False,
         skip_on_editor_cancel: bool = False,
-    ) -> str | object | None:
+    ) -> str | EditorAnswer | object | None:
         prompt = f"{label}: " if label else "Your answer: "
         if question.placeholder and not label:
             prompt = f"Your answer ({question.placeholder}): "
         if force_editor and self._can_use_multiline_editor():
             title = question.question.strip() or label or "Your answer"
-            editor_result = await self._open_multiline_editor("", title=title)
-            if editor_result is None:
+            editor_outcome = await self._open_multiline_editor(
+                "", title=title, context="clarification"
+            )
+            if editor_outcome.action != "submit":
                 return CLARIFICATION_SKIP if skip_on_editor_cancel else None
-            response = str(editor_result).strip()
-            return response or CLARIFICATION_SKIP
+            response = editor_outcome.text.rstrip()
+            if not response:
+                return CLARIFICATION_SKIP
+            return EditorAnswer(response, saved_path=editor_outcome.saved_path)
         if self._can_use_inline_choice():
             result = await self._prompt_freeform_answer_inline(
                 prompt, skip_on_editor_cancel=skip_on_editor_cancel
@@ -2201,15 +3430,17 @@ class DogentCLI:
             return None
         if result is CLARIFICATION_SKIP:
             return CLARIFICATION_SKIP
+        if isinstance(result, EditorAnswer):
+            if not result.text:
+                return CLARIFICATION_SKIP
+            return result
         response = str(result).strip()
-        if not response:
-            return CLARIFICATION_SKIP
-        return response
+        return response or CLARIFICATION_SKIP
 
     async def _prompt_freeform_answer_text(self, prompt: str) -> str | object | None:
         try:
             response_raw = await self._read_input(
-                prompt=prompt, allow_multiline_editor=True
+                prompt=prompt, allow_multiline_editor=True, editor_context="clarification"
             )
         except (EOFError, KeyboardInterrupt):
             return None
@@ -2228,7 +3459,16 @@ class DogentCLI:
         prompt_control = FormattedTextControl([("class:prompt", prompt)])
         prompt_window = Window(prompt_control, dont_extend_width=True, height=1)
         input_window = Window(control, height=1, dont_extend_height=True)
-        layout = Layout(VSplit([prompt_window, input_window]), focused_element=input_window)
+        hint_text = "• Enter: submit • Esc: skip  • Ctrl+C: cancel • Ctrl+E: editor"
+        hint_window = Window(
+            FormattedTextControl([("class:prompt", hint_text)]),
+            height=1,
+            dont_extend_height=True,
+        )
+        layout = Layout(
+            HSplit([VSplit([prompt_window, input_window]), hint_window]),
+            focused_element=input_window,
+        )
         bindings = KeyBindings()
 
         @bindings.add("enter")
@@ -2269,15 +3509,18 @@ class DogentCLI:
             if isinstance(result, MultilineEditRequest):
                 if not self._can_use_multiline_editor():
                     return result.text
-                editor_result = await self._open_multiline_editor(
-                    result.text, title=title
+                editor_outcome = await self._open_multiline_editor(
+                    result.text, title=title, context="clarification"
                 )
-                if editor_result is None:
+                if editor_outcome.action != "submit":
                     if skip_on_editor_cancel:
                         return CLARIFICATION_SKIP
-                    initial_text = result.text
+                    initial_text = editor_outcome.text
                     continue
-                return editor_result
+                response = editor_outcome.text.rstrip()
+                if not response:
+                    return CLARIFICATION_SKIP
+                return EditorAnswer(response, saved_path=editor_outcome.saved_path)
             return result
 
     def _format_clarification_answers(
@@ -2288,9 +3531,15 @@ class DogentCLI:
             qid = answer.get("id", "")
             question = answer.get("question", "")
             response = answer.get("answer", "")
+            is_editor = answer.get("editor") == "true"
             label = f"{qid}: {question}".strip(": ")
             lines.append(f"- {label}")
-            lines.append(f"  Answer: {response}")
+            if is_editor:
+                lines.append("  Answer:")
+                block = wrap_markdown_code_block(response, language="markdown")
+                lines.append(indent_block(block, "  "))
+            else:
+                lines.append(f"  Answer: {response}")
         lines.append("")
         lines.append("Please continue the original request.")
         return "\n".join(lines).strip()
@@ -2655,17 +3904,22 @@ class DogentCLI:
         try:
             while True:
                 try:
-                    raw = await self._read_input(allow_multiline_editor=True)
+                    raw = await self._read_input(
+                        allow_multiline_editor=True,
+                        capture_editor_submission=True,
+                    )
                 except (EOFError, KeyboardInterrupt):
                     await self._graceful_exit()
                     break
                 if not raw:
                     continue
                 if raw.startswith("!"):
+                    self._pending_editor_submission = None
                     await self._run_shell_command(raw)
                     continue
                 text = raw.strip()
                 if text.startswith("/"):
+                    self._pending_editor_submission = None
                     should_continue = await self._handle_command(text)
                     if not should_continue:
                         break
@@ -2680,6 +3934,13 @@ class DogentCLI:
                     self._show_attachments(attachments)
                 if not message and not attachments:
                     continue
+                if self._pending_editor_submission and message:
+                    message = self._format_editor_submission(
+                        message,
+                        saved_path=self._pending_editor_submission.saved_path,
+                        purpose="user request",
+                    )
+                self._pending_editor_submission = None
                 if not await self._maybe_auto_init_for_request(message):
                     continue
                 blocked = self._blocked_media_attachments(attachments)
@@ -2705,6 +3966,10 @@ class DogentCLI:
                 except KeyboardInterrupt:
                     await self._graceful_exit()
                     break
+        except Exception as exc:  # noqa: BLE001
+            if self.session_logger:
+                self.session_logger.log_exception("cli", exc)
+            raise
         finally:
             await self._graceful_exit()
 
@@ -2731,6 +3996,24 @@ class DogentCLI:
                 "error",
             }:
                 break
+            outline_payload = self.agent.pop_outline_edit_payload()
+            if outline_payload:
+                outline_message, abort_reason = await self._collect_outline_edit(
+                    outline_payload
+                )
+                if abort_reason == "abandon":
+                    await self.agent.interrupt("Outline editing abandoned by user.")
+                    return
+                if abort_reason == "paused":
+                    await self.agent.interrupt("Outline saved; edit the file and resume.")
+                    return
+                if abort_reason == "cancelled":
+                    await self.agent.interrupt("Outline selection cancelled by user.")
+                    return
+                if outline_message:
+                    next_message = outline_message
+                    next_attachments = []
+                    continue
             payload = self.agent.pop_clarification_payload()
             if not payload:
                 break
@@ -2930,7 +4213,12 @@ class DogentCLI:
         )
 
     async def _read_input(
-        self, prompt: str = "dogent> ", *, allow_multiline_editor: bool = False
+        self,
+        prompt: str = "dogent> ",
+        *,
+        allow_multiline_editor: bool = False,
+        capture_editor_submission: bool = False,
+        editor_context: str = "prompt",
     ) -> str:
         loop = asyncio.get_event_loop()
         default_text = ""
@@ -2955,22 +4243,109 @@ class DogentCLI:
                     self._multiline_editor_allowed.clear()
                 if isinstance(result, MultilineEditRequest):
                     if not allow_multiline_editor or not self._can_use_multiline_editor():
+                        if capture_editor_submission:
+                            self._pending_editor_submission = None
                         return result.text
                     title = prompt.strip() or "Prompt"
-                    editor_result = await self._open_multiline_editor(
-                        result.text, title=title
+                    editor_outcome = await self._open_multiline_editor(
+                        result.text, title=title, context=editor_context
                     )
-                    if editor_result is None:
-                        default_text = result.text
+                    if editor_outcome.action == "discard":
+                        if capture_editor_submission:
+                            self._pending_editor_submission = None
+                        default_text = editor_outcome.text
                         continue
-                    return editor_result
+                    if editor_outcome.action == "submit":
+                        if capture_editor_submission:
+                            self._pending_editor_submission = editor_outcome
+                        return editor_outcome.text
+                    if capture_editor_submission:
+                        self._pending_editor_submission = None
+                    default_text = editor_outcome.text
+                    continue
+                if capture_editor_submission:
+                    self._pending_editor_submission = None
                 return result
-            return await loop.run_in_executor(
+            result = await loop.run_in_executor(
                 None,
                 lambda: Prompt.ask(
                     "[bold cyan]dogent>[/bold cyan]" if prompt == "dogent> " else prompt
                 ),
             )
+            if capture_editor_submission:
+                self._pending_editor_submission = None
+            return result
+
+    async def _prompt_file_usage(self, save_path: Path) -> str | None:
+        prompt_label = (
+            f"prompt for how dogent uses {self._display_relpath(save_path)}: "
+        )
+        hint = "Enter: send • Esc: cancel"
+        loop = asyncio.get_event_loop()
+        default_text = ""
+        while True:
+            if self.session:
+                prompt_callable = getattr(self.session, "prompt_async", None)
+                prompt_kwargs: dict[str, Any] = {"bottom_toolbar": hint}
+                if default_text:
+                    prompt_kwargs["default"] = default_text
+                if self._can_use_multiline_editor():
+                    self._multiline_editor_allowed.set()
+                else:
+                    self._multiline_editor_allowed.clear()
+                bindings = KeyBindings()
+
+                @bindings.add("escape", eager=True)
+                def _cancel(event) -> None:  # type: ignore[no-untyped-def]
+                    event.app.exit(result=INPUT_CANCELLED)
+
+                merged_bindings = bindings
+                if merge_key_bindings and getattr(self.session, "key_bindings", None):
+                    merged_bindings = merge_key_bindings(
+                        [self.session.key_bindings, bindings]
+                    )
+                orig_bindings = getattr(self.session, "key_bindings", None)
+                orig_toolbar = getattr(self.session, "bottom_toolbar", None)
+                try:
+                    prompt_kwargs["key_bindings"] = merged_bindings
+                    if callable(prompt_callable):
+                        result = await prompt_callable(prompt_label, **prompt_kwargs)
+                    else:
+                        result = await loop.run_in_executor(
+                            None,
+                            lambda: self.session.prompt(prompt_label, **prompt_kwargs),
+                        )
+                finally:
+                    self.session.key_bindings = orig_bindings
+                    self.session.bottom_toolbar = orig_toolbar
+                    self._multiline_editor_allowed.clear()
+                if result is INPUT_CANCELLED:
+                    return None
+                if isinstance(result, MultilineEditRequest):
+                    if not self._can_use_multiline_editor():
+                        return result.text
+                    title = prompt_label.strip() or "Prompt"
+                    editor_outcome = await self._open_multiline_editor(
+                        result.text, title=title, context="prompt"
+                    )
+                    if editor_outcome.action == "discard":
+                        default_text = editor_outcome.text
+                        continue
+                    if editor_outcome.action == "submit":
+                        return editor_outcome.text
+                    default_text = editor_outcome.text
+                    continue
+                return result
+            self.console.print(hint)
+            result = await loop.run_in_executor(
+                None,
+                lambda: Prompt.ask(
+                    "[bold cyan]dogent>[/bold cyan]"
+                    if prompt_label == "dogent> "
+                    else prompt_label
+                ),
+            )
+            return result
 
     def _extract_template_override(self, message: str) -> Tuple[str, str | None]:
         pattern = re.compile(r"(^|\s)" + re.escape(DOC_TEMPLATE_TOKEN) + r"([^\s]+)")
@@ -3075,7 +4450,7 @@ class DogentCLI:
             suffix = f"#{attachment.sheet}" if attachment.sheet else ""
             self.console.print(
                 Panel(
-                    f"Referenced @file {attachment.path}{suffix}",
+                    f"Referenced @{attachment.path}{suffix}",
                     title="📂 File Reference",
                 )
             )
@@ -3158,9 +4533,13 @@ class DogentCLI:
             "completed": "✅",
             "error": "❌",
             "aborted": "🛑",
+            "awaiting_input": "🕓",
+            "awaiting input": "🕓",
             "needs_clarification": "❓",
             "needs clarification": "❓",
             "clarification": "❓",
+            "needs_outline_edit": "📝",
+            "needs outline edit": "📝",
         }
         return mapping.get(normalized, "•")
 

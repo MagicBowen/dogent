@@ -6,7 +6,13 @@ from unittest import mock
 
 from rich.console import Console
 
-from dogent.cli import DogentCLI, MultilineEditRequest, CLARIFICATION_SKIP
+from dogent.cli import (
+    DogentCLI,
+    MultilineEditRequest,
+    CLARIFICATION_SKIP,
+    EditorOutcome,
+    EditorAnswer,
+)
 
 
 class FakeSession:
@@ -33,13 +39,15 @@ class MultilineEditorTests(unittest.IsolatedAsyncioTestCase):
             cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
             cli.session = FakeSession([MultilineEditRequest("draft")])
             cli._can_use_multiline_editor = mock.Mock(return_value=True)  # type: ignore[assignment]
-            cli._open_multiline_editor = mock.AsyncMock(return_value="edited")  # type: ignore[assignment]
+            cli._open_multiline_editor = mock.AsyncMock(  # type: ignore[assignment]
+                return_value=EditorOutcome(action="submit", text="edited")
+            )
 
             result = await cli._read_input(prompt="dogent> ", allow_multiline_editor=True)
 
             self.assertEqual(result, "edited")
             cli._open_multiline_editor.assert_awaited_once_with(  # type: ignore[union-attr]
-                "draft", title="dogent>"
+                "draft", title="dogent>", context="prompt"
             )
         if original_home is not None:
             os.environ["HOME"] = original_home
@@ -54,7 +62,9 @@ class MultilineEditorTests(unittest.IsolatedAsyncioTestCase):
             cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
             cli.session = FakeSession([MultilineEditRequest("draft"), "final"])
             cli._can_use_multiline_editor = mock.Mock(return_value=True)  # type: ignore[assignment]
-            cli._open_multiline_editor = mock.AsyncMock(return_value=None)  # type: ignore[assignment]
+            cli._open_multiline_editor = mock.AsyncMock(  # type: ignore[assignment]
+                return_value=EditorOutcome(action="discard", text="draft")
+            )
 
             result = await cli._read_input(prompt="dogent> ", allow_multiline_editor=True)
 
@@ -75,13 +85,16 @@ class MultilineEditorTests(unittest.IsolatedAsyncioTestCase):
             cli._run_freeform_inline_app = mock.AsyncMock(  # type: ignore[assignment]
                 return_value=MultilineEditRequest("draft")
             )
-            cli._open_multiline_editor = mock.AsyncMock(return_value="edited")  # type: ignore[assignment]
+            cli._open_multiline_editor = mock.AsyncMock(  # type: ignore[assignment]
+                return_value=EditorOutcome(action="submit", text="edited")
+            )
 
             result = await cli._prompt_freeform_answer_inline("Your answer: ")
 
-            self.assertEqual(result, "edited")
+            self.assertIsInstance(result, EditorAnswer)
+            self.assertEqual(result.text, "edited")
             cli._open_multiline_editor.assert_awaited_once_with(  # type: ignore[union-attr]
-                "draft", title="Your answer:"
+                "draft", title="Your answer:", context="clarification"
             )
         if original_home is not None:
             os.environ["HOME"] = original_home
@@ -98,7 +111,9 @@ class MultilineEditorTests(unittest.IsolatedAsyncioTestCase):
             cli._run_freeform_inline_app = mock.AsyncMock(  # type: ignore[assignment]
                 return_value=MultilineEditRequest("draft")
             )
-            cli._open_multiline_editor = mock.AsyncMock(return_value=None)  # type: ignore[assignment]
+            cli._open_multiline_editor = mock.AsyncMock(  # type: ignore[assignment]
+                return_value=EditorOutcome(action="discard", text="draft")
+            )
 
             result = await cli._prompt_freeform_answer_inline(
                 "Your answer: ", skip_on_editor_cancel=True
