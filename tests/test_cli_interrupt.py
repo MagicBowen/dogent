@@ -106,9 +106,9 @@ class InterruptHelperTests(unittest.TestCase):
             stop_event = threading.Event()
             captured: list[str] = []
             read_values = ["\x1b", "[", "D"]
-            select_calls: list[float] = []
+            kbhit_calls = [0]
 
-            def read_side_effect(_: int) -> str:
+            def read_side_effect() -> str:
                 if read_values:
                     value = read_values.pop(0)
                 else:
@@ -116,21 +116,24 @@ class InterruptHelperTests(unittest.TestCase):
                 captured.append(value)
                 return value
 
-            def select_side_effect(rlist, wlist, xlist, timeout):  # noqa: ARG001
-                select_calls.append(timeout)
-                if len(select_calls) == 1:
-                    return ([0], [], [])
-                if len(select_calls) in {2, 3}:
-                    return ([0], [], [])
-                return ([], [], [])
+            def kbhit_side_effect() -> bool:
+                kbhit_calls[0] += 1
+                # First call: check if escape key is available (True)
+                if kbhit_calls[0] == 1:
+                    return True
+                # After reading escape, drain the sequence (True for remaining chars)
+                if read_values:
+                    return True
+                # After draining, signal stop to exit loop
+                stop_event.set()
+                return False
 
             with (
-                mock.patch("dogent.cli.termios.tcgetattr", return_value=object()),
-                mock.patch("dogent.cli.termios.tcsetattr"),
-                mock.patch("dogent.cli.tty.setcbreak"),
-                mock.patch("dogent.cli.select.select", side_effect=select_side_effect),
-                mock.patch("dogent.cli.sys.stdin.fileno", return_value=0),
-                mock.patch("dogent.cli.sys.stdin.read", side_effect=read_side_effect),
+                mock.patch("dogent.cli.tcgetattr", return_value=object()),
+                mock.patch("dogent.cli.tcsetattr"),
+                mock.patch("dogent.cli.setcbreak"),
+                mock.patch("dogent.cli.kbhit", side_effect=kbhit_side_effect),
+                mock.patch("dogent.cli.getch", side_effect=read_side_effect),
             ):
                 result = cli._read_escape_key(stop_event)
 

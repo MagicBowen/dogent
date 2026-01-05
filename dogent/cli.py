@@ -9,10 +9,8 @@ import select
 import shutil
 import subprocess
 import sys
-import termios
 import threading
 import time
-import tty
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
@@ -47,6 +45,15 @@ from .paths import DogentPaths
 from .prompts import PromptBuilder
 from .session_log import SessionLogger
 from .todo import TodoManager
+from .terminal import (
+    TCSADRAIN,
+    _TerminalSettings,
+    getch,
+    kbhit,
+    setcbreak,
+    tcsetattr,
+    tcgetattr,
+)
 from .vision import classify_media
 from .outline_edit import OutlineEditPayload
 
@@ -4103,40 +4110,42 @@ class DogentCLI:
     def _read_escape_key(self, stop_event: threading.Event) -> bool:
         fd = sys.stdin.fileno()
         try:
-            old_settings = termios.tcgetattr(fd)
-            tty.setcbreak(fd)
+            old_settings = tcgetattr(fd)
+            setcbreak(fd)
         except Exception:
             return False
         try:
             while not stop_event.is_set():
                 if self._selection_prompt_active.is_set():
-                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                    tcsetattr(fd, TCSADRAIN, old_settings)
                     while self._selection_prompt_active.is_set() and not stop_event.is_set():
                         time.sleep(0.05)
                     if stop_event.is_set():
                         break
                     try:
-                        tty.setcbreak(fd)
+                        setcbreak(fd)
                     except Exception:
                         return False
                     continue
-                rlist, _, _ = select.select([fd], [], [], 0.2)
-                if not rlist:
+
+                # Check for keypress using cross-platform method
+                if not kbhit():
                     continue
                 if self._selection_prompt_active.is_set():
                     continue
-                ch = sys.stdin.read(1)
+
+                ch = getch()
                 if ch == "\x1b":
+                    # Drain the escape sequence
                     for _ in range(8):
-                        rlist, _, _ = select.select([fd], [], [], 0)
-                        if not rlist:
+                        if not kbhit():
                             break
-                        sys.stdin.read(1)
+                        getch()
                     return True
         except Exception:
             return False
         finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            tcsetattr(fd, TCSADRAIN, old_settings)
         return False
 
     async def _interrupt_running_task(
