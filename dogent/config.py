@@ -363,6 +363,7 @@ class ConfigManager:
         vision_enabled = self._vision_enabled(project_cfg)
 
         allowed_tools = [
+            "Skill", 
             "Read",
             "Write",
             "Edit",
@@ -422,6 +423,7 @@ class ConfigManager:
             fallback_model=fallback_model,
             permission_mode=resolved_permission_mode,
             allowed_tools=allowed_tools,
+            setting_sources=["user", "project"],
             add_dirs=add_dirs,
             env=env,
             mcp_servers=mcp_servers,
