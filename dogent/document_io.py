@@ -553,7 +553,7 @@ def _build_pdf_header_footer(css_text: str) -> tuple[str | None, str | None]:
         + "<span class=\"pageNumber\"></span> / <span class=\"totalPages\"></span>"
         + "</div>"
     )
-    return None, None
+    return None, footer
 
 
 def _markdown_to_html(

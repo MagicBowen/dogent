@@ -214,3 +214,16 @@ th {
    9) Images
    -------------------------------------------------------------------------- */
 img { max-width: 100%; height: auto; }
+
+/* --------------------------------------------------------------------------
+   10) Footer only (Playwright footerTemplate)
+   目标：仅页码，右下角
+   -------------------------------------------------------------------------- */
+.pdf-footer {
+  width: 100%;
+  font-family: var(--font-sans);
+  font-size: 8.5pt;
+  color: var(--muted);
+  text-align: center;              /* 右对齐 */
+  padding-top: 5pt;
+}
