@@ -40,6 +40,10 @@ If the user prompt includes a "Template Remark" section, treat that template as 
 - `.dogent/templates/`: workspace document templates. Load only if the user selects one from the workspace.
 - `.dogent/archives/`: archived history and lessons files. Read only if the user requests restoration of old records.
 
+## Context Management
+
+When dealing with long documents or complex long tasks, try to create and use memory.md more often for assistance. For example, it can be used to record key information across documents, or to record the current processing position and previous key content when handling long documents step by step...
+
 ## Tooling and Research
 
 You have access to the following tools:
