@@ -100,6 +100,9 @@ class AgentRunner:
         self._session_logger = session_logger
         self._aborted_reason: str | None = None
         self._abort_requested = False
+        self._abort_finalized = False
+        self._abort_interrupt_sent = False
+        self._permission_prompt_active = False
         self._clarification_payload: ClarificationPayload | None = None
         self._outline_edit_payload: OutlineEditPayload | None = None
 
@@ -169,6 +172,8 @@ class AgentRunner:
         self.last_outcome = None
         self._aborted_reason = None
         self._abort_requested = False
+        self._abort_finalized = False
+        self._abort_interrupt_sent = False
         self._clarification_payload = None
         self._outline_edit_payload = None
         preview = (
@@ -262,6 +267,9 @@ class AgentRunner:
             if self._interrupted:
                 break
             await self._stop_wait_indicator()
+            if self._abort_requested and not drain_after_interrupt:
+                await self._interrupt_client_on_abort()
+                drain_after_interrupt = True
             if drain_after_interrupt:
                 if isinstance(message, ResultMessage):
                     saw_result = True
@@ -318,9 +326,13 @@ class AgentRunner:
             )
 
     def _finalize_aborted(self) -> None:
+        if self._abort_finalized:
+            return
+        self._abort_finalized = True
         reason = self._aborted_reason or "Aborted."
         todos_snapshot = self.todo_manager.export_items()
         remaining = self.todo_manager.remaining_markdown()
+        self.todo_manager.set_items([], source="aborted")
         self.last_outcome = RunOutcome(
             status="aborted",
             summary=reason,
@@ -487,6 +499,8 @@ class AgentRunner:
         return clarification_found
 
     def _handle_result(self, message: ResultMessage) -> None:
+        if self._abort_finalized:
+            return
         cost = f"${message.total_cost_usd:.4f}" if message.total_cost_usd is not None else "n/a"
         metrics = (
             f"Duration {message.duration_ms} ms | API {message.duration_api_ms} ms | Cost {cost}"
@@ -708,6 +722,10 @@ class AgentRunner:
     async def _start_wait_indicator(self) -> None:
         if self._wait_indicator is not None:
             return
+        if self._permission_prompt_active:
+            return
+        if self._abort_requested or self._abort_finalized:
+            return
         self._wait_indicator = LLMWaitIndicator(self.console)
         await self._wait_indicator.start()
 
@@ -742,11 +760,8 @@ class AgentRunner:
         if not self.config:
             return PermissionResultAllow()
         if self._abort_requested and self._aborted_reason:
-            return PermissionResultDeny(message=self._aborted_reason)
-        allowed_roots = [
-            self.config.paths.root.resolve(),
-            self.config.paths.global_dir.resolve(),
-        ]
+            return PermissionResultDeny(message=self._aborted_reason, interrupt=True)
+        allowed_roots = [self.config.paths.root.resolve()]
         delete_whitelist = [self.config.paths.memory_file.resolve()]
         needs_confirm, reason = should_confirm_tool_use(
             tool_name,
@@ -759,20 +774,42 @@ class AgentRunner:
             return PermissionResultAllow()
         if await self._request_permission(tool_name, reason):
             return PermissionResultAllow()
+        await self._handle_permission_denied(reason)
+        return PermissionResultDeny(
+            message=self._aborted_reason or "User denied permission.",
+            interrupt=True,
+        )
+
+    async def _handle_permission_denied(self, reason: str) -> None:
         self._aborted_reason = f"User denied permission: {reason}"
         self._abort_requested = True
-        return PermissionResultDeny(message=self._aborted_reason)
+        await self._stop_wait_indicator()
+        await self._interrupt_client_on_abort()
+        self._finalize_aborted()
+
+    async def _interrupt_client_on_abort(self) -> None:
+        if self._abort_interrupt_sent:
+            return
+        if not self._client:
+            return
+        self._abort_interrupt_sent = True
+        with suppress(Exception):
+            await self._client.interrupt()
 
     async def _request_permission(self, tool_name: str, reason: str) -> bool:
         if not self._permission_prompt:
             return False
         was_running = self._wait_indicator is not None
+        self._permission_prompt_active = True
         if was_running:
             await self._stop_wait_indicator()
+        approved = False
         try:
             title = f"Permission required: {tool_name}"
             body = reason
-            return await self._permission_prompt(title, body)
+            approved = await self._permission_prompt(title, body)
+            return approved
         finally:
-            if was_running:
+            self._permission_prompt_active = False
+            if was_running and approved:
                 await self._start_wait_indicator()

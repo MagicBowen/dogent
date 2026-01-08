@@ -326,6 +326,10 @@ class AgentDisplayTests(unittest.TestCase):
                 history=history,
                 console=console,
             )
+            todo.set_items(
+                [TodoItem(title="pending task", status="pending")],
+                source="TodoWrite",
+            )
 
             runner._aborted_reason = "User denied permission: Read path outside workspace."
             runner._finalize_aborted()
@@ -337,6 +341,7 @@ class AgentDisplayTests(unittest.TestCase):
             self.assertIn("Aborted", output)
             entries = history.read_entries()
             self.assertEqual(entries[-1]["status"], "aborted")
+            self.assertEqual(todo.items, [])
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -365,6 +370,66 @@ class AgentResetTests(unittest.IsolatedAsyncioTestCase):
             runner._stop_wait_indicator = mock.AsyncMock()  # type: ignore[assignment]
             await runner.reset()
             runner._stop_wait_indicator.assert_awaited_once()
+
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_wait_indicator_skips_when_permission_prompt_active(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            todo = TodoManager(console=console)
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo, history)
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=builder,
+                todo_manager=todo,
+                history=history,
+                console=console,
+            )
+            runner._permission_prompt_active = True
+            await runner._start_wait_indicator()
+            self.assertIsNone(runner._wait_indicator)
+
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+
+class AgentPermissionAbortTests(unittest.IsolatedAsyncioTestCase):
+    async def test_handle_permission_denied_aborts_and_clears_todos(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            todo = TodoManager(console=console)
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo, history)
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=builder,
+                todo_manager=todo,
+                history=history,
+                console=console,
+            )
+            todo.set_items(
+                [TodoItem(title="pending task", status="pending")],
+                source="TodoWrite",
+            )
+            await runner._handle_permission_denied("Read path outside workspace.")
+            self.assertTrue(runner._abort_requested)
+            self.assertEqual(todo.items, [])
+            entries = history.read_entries()
+            self.assertEqual(entries[-1]["status"], "aborted")
 
         if original_home is not None:
             os.environ["HOME"] = original_home

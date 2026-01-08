@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from rich.console import Console
 
@@ -65,6 +66,23 @@ class ConfirmationPromptTests(unittest.IsolatedAsyncioTestCase):
         target = Path(self._tmp_root.name) / "dogent.md"
         with self.assertRaises(SelectionCancelled):
             await self.cli._confirm_overwrite(target)
+
+    async def test_confirm_dogent_file_update_skips_when_missing(self) -> None:
+        prompt_mock = mock.AsyncMock(return_value=True)
+        self.cli._prompt_yes_no = prompt_mock  # type: ignore[assignment]
+        result = await self.cli._confirm_dogent_file_update(self.cli.paths.config_file)
+        self.assertTrue(result)
+        prompt_mock.assert_not_called()
+
+    async def test_confirm_dogent_file_update_prompts_when_exists(self) -> None:
+        target = self.cli.paths.config_file
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("{}", encoding="utf-8")
+        prompt_mock = mock.AsyncMock(return_value=True)
+        self.cli._prompt_yes_no = prompt_mock  # type: ignore[assignment]
+        result = await self.cli._confirm_dogent_file_update(target)
+        self.assertTrue(result)
+        prompt_mock.assert_awaited_once()
 
     async def test_confirm_save_lesson_esc_cancels(self) -> None:
         async def fake_read_input(*_args, **_kwargs):
