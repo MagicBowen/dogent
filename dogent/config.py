@@ -362,33 +362,37 @@ class ConfigManager:
         use_custom_web = bool(settings.web_profile)
         vision_enabled = self._vision_enabled(project_cfg)
 
-        allowed_tools = [
-            "Skill", 
-            "Read",
-            "Write",
-            "Edit",
-            "Ls",
-            "ListFiles",
-            "Bash",
-            "Grep",
-            "Glob",
-            "Task",
-            "WebFetch" if not use_custom_web else None,
-            "WebSearch" if not use_custom_web else None,
-            "TodoWrite",
-            "BashOutput",
-            "SlashCommand",
-            "NotebookEdit",
-        ]
-        allowed_tools = [t for t in allowed_tools if t]
-        allowed_tools.extend(DOGENT_DOC_ALLOWED_TOOLS)
+        allowed_tools: list[str] | None = None
+        if can_use_tool is None:
+            allowed_tools = [
+                "Skill",
+                "Read",
+                "Write",
+                "Edit",
+                "Ls",
+                "ListFiles",
+                "Bash",
+                "Grep",
+                "Glob",
+                "Task",
+                "WebFetch" if not use_custom_web else None,
+                "WebSearch" if not use_custom_web else None,
+                "TodoWrite",
+                "BashOutput",
+                "SlashCommand",
+                "NotebookEdit",
+            ]
+            allowed_tools = [t for t in allowed_tools if t]
+            allowed_tools.extend(DOGENT_DOC_ALLOWED_TOOLS)
         doc_tools = create_dogent_doc_tools(self.paths.root)
         tools = list(doc_tools)
         if vision_enabled:
-            allowed_tools.extend(DOGENT_VISION_ALLOWED_TOOLS)
+            if allowed_tools is not None:
+                allowed_tools.extend(DOGENT_VISION_ALLOWED_TOOLS)
             tools.extend(create_dogent_vision_tools(self.paths.root, self))
         if use_custom_web:
-            allowed_tools.extend(DOGENT_WEB_ALLOWED_TOOLS)
+            if allowed_tools is not None:
+                allowed_tools.extend(DOGENT_WEB_ALLOWED_TOOLS)
             tools.extend(
                 create_dogent_web_tools(
                     root=self.paths.root,
@@ -416,20 +420,23 @@ class ConfigManager:
         if resolved_permission_mode is None:
             resolved_permission_mode = "default" if can_use_tool else "acceptEdits"
 
-        options = ClaudeAgentOptions(
-            system_prompt=system_prompt,
-            cwd=str(self.paths.root),
-            model=settings.model,
-            fallback_model=fallback_model,
-            permission_mode=resolved_permission_mode,
-            allowed_tools=allowed_tools,
-            setting_sources=["user", "project"],
-            add_dirs=add_dirs,
-            env=env,
-            mcp_servers=mcp_servers,
-            can_use_tool=can_use_tool,
-            hooks=hooks,
-        )
+        options_kwargs = {
+            "system_prompt": system_prompt,
+            "cwd": str(self.paths.root),
+            "model": settings.model,
+            "fallback_model": fallback_model,
+            "permission_mode": resolved_permission_mode,
+            "setting_sources": ["user", "project"],
+            "add_dirs": add_dirs,
+            "env": env,
+            "mcp_servers": mcp_servers,
+            "can_use_tool": can_use_tool,
+            "hooks": hooks,
+        }
+        if allowed_tools is not None:
+            options_kwargs["allowed_tools"] = allowed_tools
+
+        options = ClaudeAgentOptions(**options_kwargs)
         return options
 
     def _build_env(self, settings: DogentSettings) -> Dict[str, str]:

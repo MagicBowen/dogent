@@ -1219,6 +1219,12 @@ class DogentCLI:
         content = ""
         mode_label = "default"
         wizard_prompt = ""
+        config_existed = self.paths.config_file.exists()
+        config_updated = False
+        config_update_denied = False
+        doc_template_updated = False
+        config_update_allowed: bool | None = None
+        doc_update_allowed: bool | None = None
 
         if force_wizard:
             mode_label = "wizard"
@@ -1281,7 +1287,18 @@ class DogentCLI:
             if wizard_result.doc_template:
                 doc_template_key = wizard_result.doc_template
             if wizard_result.primary_language:
-                self.config_manager.set_primary_language(wizard_result.primary_language)
+                if not config_update_denied:
+                    if config_update_allowed is None:
+                        config_update_allowed = await self._confirm_dogent_file_update(
+                            self.paths.config_file
+                        )
+                    if config_update_allowed:
+                        self.config_manager.set_primary_language(
+                            wizard_result.primary_language
+                        )
+                        config_updated = True
+                    else:
+                        config_update_denied = True
             self._warn_if_missing_doc_template(doc_template_key)
 
         if not content.strip():
@@ -1295,9 +1312,23 @@ class DogentCLI:
             return True
 
         self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
-        config_existed = self.paths.config_file.exists()
-        self.config_manager.create_config_template()
-        self.config_manager.set_doc_template(doc_template_key)
+        if not config_update_denied:
+            if config_update_allowed is None:
+                config_update_allowed = await self._confirm_dogent_file_update(
+                    self.paths.config_file
+                )
+            if config_update_allowed:
+                self.config_manager.create_config_template()
+                config_updated = True
+            else:
+                config_update_denied = True
+        if not config_update_denied:
+            if config_update_allowed:
+                self.config_manager.set_doc_template(doc_template_key)
+                config_updated = True
+                doc_template_updated = True
+            else:
+                config_update_denied = True
         await self.agent.refresh_system_prompt()
 
         doc_path = self.paths.doc_preferences
@@ -1305,7 +1336,9 @@ class DogentCLI:
         overwritten = False
         if doc_path.exists():
             try:
-                if await self._confirm_overwrite(doc_path):
+                if doc_update_allowed is None:
+                    doc_update_allowed = await self._confirm_dogent_file_update(doc_path)
+                if doc_update_allowed:
                     doc_path.write_text(content.rstrip() + "\n", encoding="utf-8")
                     wrote_doc = True
                     overwritten = True
@@ -1325,14 +1358,23 @@ class DogentCLI:
         else:
             summary_lines.append(f"Skipped: {doc_path.relative_to(self.root)} (kept existing)")
 
-        if config_existed:
+        config_rel = self.paths.config_file.relative_to(self.root)
+        doc_template_note = (
+            f"doc_template={doc_template_key}"
+            if doc_template_updated
+            else "doc_template unchanged"
+        )
+        if config_updated:
+            action = "Updated" if config_existed else "Created"
+            note = " (permission denied for some updates)" if config_update_denied else ""
             summary_lines.append(
-                f"Updated: {self.paths.config_file.relative_to(self.root)} (doc_template={doc_template_key})"
+                f"{action}: {config_rel} ({doc_template_note}){note}"
             )
+        elif config_existed:
+            note = "permission denied" if config_update_denied else "kept existing"
+            summary_lines.append(f"Skipped: {config_rel} ({note})")
         else:
-            summary_lines.append(
-                f"Created: {self.paths.config_file.relative_to(self.root)} (doc_template={doc_template_key})"
-            )
+            summary_lines.append(f"Skipped: {config_rel} (not created)")
         summary_lines.append(f"Mode: {mode_label}")
 
         self.console.print(
@@ -1385,14 +1427,29 @@ class DogentCLI:
         except ValueError:
             return str(path)
 
+    async def _confirm_dogent_file_update(self, path: Path) -> bool:
+        if not path.exists():
+            return True
+        rel = self._display_relpath(path)
+        try:
+            return await self._prompt_yes_no(
+                title="Permission required",
+                message=f"{rel} exists. Allow update?",
+                prompt="Allow? [Y/n] ",
+                default=True,
+                show_panel=True,
+            )
+        except SelectionCancelled:
+            return False
+
     async def _confirm_overwrite(self, path: Path) -> bool:
         rel = path.relative_to(self.root)
-        prompt = f"{rel} exists. Overwrite? [y/N] "
+        prompt = f"{rel} exists. Overwrite? [Y/n] "
         return await self._prompt_yes_no(
             title="Init",
             message="",
             prompt=prompt,
-            default=False,
+            default=True,
             show_panel=False,
         )
 
@@ -1401,8 +1458,8 @@ class DogentCLI:
             return await self._prompt_yes_no(
                 title=title,
                 message=message,
-                prompt="Allow? [y/N] ",
-                default=False,
+                prompt="Allow? [Y/n] ",
+                default=True,
                 show_panel=True,
             )
         except SelectionCancelled:
@@ -3568,12 +3625,16 @@ class DogentCLI:
         lowered = arg.lower()
         if lowered in {"on", "off"}:
             self.auto_learn_enabled = lowered == "on"
-            with suppress(Exception):
-                self.config_manager.set_learn_auto(self.auto_learn_enabled)
+            saved = False
+            if await self._confirm_dogent_file_update(self.paths.config_file):
+                with suppress(Exception):
+                    self.config_manager.set_learn_auto(self.auto_learn_enabled)
+                    saved = True
             state = "on" if self.auto_learn_enabled else "off"
+            note = "Saved to .dogent/dogent.json" if saved else "Not saved (permission denied)."
             self.console.print(
                 Panel(
-                    f"Automatic 'Save a lesson?' prompt is now {state}. (Saved to .dogent/dogent.json)",
+                    f"Automatic 'Save a lesson?' prompt is now {state}. ({note})",
                     title="📝 Learn",
                     border_style="green",
                 )

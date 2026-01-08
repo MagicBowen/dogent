@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from rich.console import Console
 
@@ -35,6 +36,7 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
                 lesson_drafter=FakeLessonDrafter(),
                 interactive_prompts=False,
             )
+            cli._prompt_yes_no = mock.AsyncMock(return_value=True)  # type: ignore[assignment]
 
             await cli._handle_command("/learn off")
             self.assertFalse(cli.auto_learn_enabled)
@@ -60,6 +62,7 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
                 lesson_drafter=drafter,
                 interactive_prompts=False,
             )
+            cli._prompt_yes_no = mock.AsyncMock(return_value=True)  # type: ignore[assignment]
 
             await cli._handle_command("/learn use pathlib for paths")
             self.assertTrue(cli.paths.lessons_file.exists())
@@ -85,6 +88,7 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
                 lesson_drafter=drafter,
                 interactive_prompts=False,
             )
+            cli._prompt_yes_no = mock.AsyncMock(return_value=True)  # type: ignore[assignment]
             cli._armed_incident = LessonIncident(
                 status="error",
                 summary="boom",
@@ -112,6 +116,7 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
                 lesson_drafter=FakeLessonDrafter(),
                 interactive_prompts=False,
             )
+            cli._prompt_yes_no = mock.AsyncMock(return_value=True)  # type: ignore[assignment]
 
             await cli._handle_command("/learn off")
             self.assertFalse(cli.auto_learn_enabled)
@@ -143,6 +148,7 @@ class LearnCommandTests(unittest.IsolatedAsyncioTestCase):
                 lesson_drafter=FakeLessonDrafter(),
                 interactive_prompts=False,
             )
+            cli._prompt_yes_no = mock.AsyncMock(return_value=True)  # type: ignore[assignment]
 
             await cli._handle_command("/learn off")
             await cli._handle_command("/init")

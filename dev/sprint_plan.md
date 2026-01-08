@@ -17,30 +17,37 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
 ## Release 0.9.12
 
-### Story 1: Outside Workspace Permission Coverage
-- User Value: Users are prompted before the agent accesses any paths outside the workspace, including `~/.dogent`, across read/list tools.
-- Acceptance: `Read`, `Ls`, `ListFiles`, `Glob`, `Grep`, and `mcp__dogent__read_document` all require permission when targeting paths outside the workspace; in-workspace paths do not prompt.
+### Story 1: Permission Pipeline Uses `can_use_tool` Only
+- User Value: Users get consistent permission gating because tool allow/deny flows run through the permission callback rather than a static allowlist.
+- Acceptance: When `can_use_tool` is set, `allowed_tools` is not set in `ClaudeAgentOptions`; the permission callback decides which tools proceed.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: `python -m unittest discover -s tests -v`
 
-### Story 2: Delete Command Permission Enforcement
-- User Value: Users are prompted before the agent deletes files in the workspace, except whitelisted files.
-- Acceptance: `rm/rmdir/del` inside the workspace always prompt unless the target is in the whitelist (e.g. `.dogent/memory.md`); delete prompts remain blocked for outside paths.
+### Story 2: Tool Permissions for Outside Access and Deletes
+- User Value: Users are prompted before the agent reads/writes outside the workspace or deletes workspace files.
+- Acceptance: `Read/Write/Edit` require permission for paths outside workspace (including `~/.dogent`); `rm/rmdir/del/mv` inside workspace always prompt unless the target is whitelisted (e.g. `.dogent/memory.md`).
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: `python -m unittest discover -s tests -v`
 
-### Story 3: Protect Existing `.dogent/dogent.md`
-- User Value: Users must approve any modification to existing `.dogent/dogent.md` regardless of the write path.
-- Acceptance: If `.dogent/dogent.md` exists, `Write/Edit/NotebookEdit` and Bash redirections targeting it prompt for permission; if it does not exist, creation proceeds without this special prompt.
+### Story 3: Protect Existing `.dogent` Files
+- User Value: Users must approve any modification to existing `.dogent/dogent.md` or `.dogent/dogent.json`.
+- Acceptance: If these files exist, tool-based `Write/Edit` and Bash redirections prompt for permission; first-time creation does not prompt.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: `python -m unittest discover -s tests -v`
 
-### Story 4: Permission Prompt Keeps Session Alive
-- User Value: When permission is requested, the agent stays active and resumes correctly after the user answers.
-- Acceptance: During a permission prompt, the client session remains open and continues after approval; denial aborts the task cleanly.
+### Story 4: CLI Authorization for `.dogent` Updates
+- User Value: CLI actions cannot overwrite `.dogent/dogent.md` or `.dogent/dogent.json` without explicit approval.
+- Acceptance: CLI writes to existing `.dogent/dogent.md` or `.dogent/dogent.json` prompt for authorization each time and skip updates on denial; first-time creation proceeds without prompts.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
+- Verification: `python -m unittest discover -s tests -v`
+
+### Story 5: Permission Prompt UX Defaults to Yes
+- User Value: Permission prompts are fast to approve and do not leak raw escape sequences while selecting.
+- Acceptance: Permission prompts default to yes and allow up/down selection when prompt_toolkit is available; text fallback remains when it is not.
+- Dev Status: Done
+- Acceptance Status: Accepted
 - Verification: Manual interactive test (CLI).

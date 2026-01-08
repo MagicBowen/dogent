@@ -23,7 +23,7 @@ class PermissionPromptTests(unittest.IsolatedAsyncioTestCase):
             allowed = await cli._prompt_tool_permission(
                 "Permission required: Read", "Read path outside workspace."
             )
-            self.assertFalse(allowed)
+            self.assertTrue(allowed)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
