@@ -18,3 +18,4 @@
 - Dogent supports mdbook's skill (using the capability of external skill configuration);
 - Provide a good solution for model context overflow;
 - Dogent supports the ability to generate images;
+- A comprehensive solution to address context overflow needs to investigate the causes and mechanisms of context overflow in Claude Agent Client and LLM, and construct a multiple-cycle scheme based on these mechanisms.
