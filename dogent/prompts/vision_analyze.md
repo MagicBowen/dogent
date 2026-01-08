@@ -1,0 +1,1 @@
+Analyze the provided media. Return ONLY valid JSON. Schema: {"summary": string, "tags": [string], "text": string}. summary: concise single-paragraph description. tags: short keywords. text: OCR/transcript if present, otherwise empty.

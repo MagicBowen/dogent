@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from importlib import resources
 from typing import Optional
 
 from rich.console import Console
@@ -10,11 +9,12 @@ from rich.console import Console
 from claude_agent_sdk import AssistantMessage, ClaudeSDKClient, ResultMessage, TextBlock
 from claude_agent_sdk.types import ClaudeAgentOptions
 
-from .config import ConfigManager
-from .doc_templates import DocumentTemplateManager
-from .paths import DogentPaths
-from .session_log import SessionLogger
-from .wait_indicator import LLMWaitIndicator
+from ..config import ConfigManager
+from ..features.doc_templates import DocumentTemplateManager
+from ..config.paths import DogentPaths
+from ..config.resources import read_config_text, read_prompt_text
+from ..core.session_log import SessionLogger
+from ..agent.wait import LLMWaitIndicator
 
 
 @dataclass(frozen=True)
@@ -161,12 +161,7 @@ class InitWizard:
         )
 
     def _load_prompt(self, name: str) -> str:
-        base = resources.files("dogent").joinpath("prompts")
-        return base.joinpath(name).read_text(encoding="utf-8")
+        return read_prompt_text(name)
 
     def _load_template_file(self, name: str) -> str:
-        base = resources.files("dogent").joinpath("templates")
-        try:
-            return base.joinpath(name).read_text(encoding="utf-8")
-        except Exception:
-            return ""
+        return read_config_text(name)

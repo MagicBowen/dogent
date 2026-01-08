@@ -1,6 +1,6 @@
 import unittest
 
-from dogent.commands import CommandRegistry
+from dogent.cli.commands import CommandRegistry
 
 
 class CommandRegistryTests(unittest.TestCase):

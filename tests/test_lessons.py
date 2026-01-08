@@ -3,11 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dogent.history import HistoryManager
-from dogent.lessons import LessonsManager
-from dogent.paths import DogentPaths
+from dogent.core.history import HistoryManager
+from dogent.features.lessons import LessonsManager
+from dogent.config.paths import DogentPaths
 from dogent.prompts import PromptBuilder
-from dogent.todo import TodoManager
+from dogent.core.todo import TodoManager
 
 
 class LessonsManagerTests(unittest.TestCase):

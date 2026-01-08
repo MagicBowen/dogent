@@ -1,6 +1,6 @@
 import unittest
 
-from dogent.clarification import (
+from dogent.features.clarification import (
     CLARIFICATION_JSON_TAG,
     extract_clarification_payload,
     recommended_index,

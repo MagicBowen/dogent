@@ -6,11 +6,11 @@ from pathlib import Path
 
 from rich.console import Console
 
-from dogent.file_refs import FileReferenceResolver
-from dogent.history import HistoryManager
-from dogent.paths import DogentPaths
+from dogent.core.file_refs import FileReferenceResolver
+from dogent.core.history import HistoryManager
+from dogent.config.paths import DogentPaths
 from dogent.prompts import PromptBuilder, TemplateRenderer
-from dogent.todo import TodoItem, TodoManager
+from dogent.core.todo import TodoItem, TodoManager
 
 
 class PromptTests(unittest.TestCase):

@@ -13,7 +13,7 @@ from dogent.cli import (
     CLARIFICATION_SKIP,
     CLARIFICATION_SKIP_TEXT,
 )
-from dogent.clarification import (
+from dogent.features.clarification import (
     ClarificationOption,
     ClarificationPayload,
     ClarificationQuestion,

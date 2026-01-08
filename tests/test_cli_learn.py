@@ -8,7 +8,7 @@ from unittest import mock
 from rich.console import Console
 
 from dogent.cli import DogentCLI
-from dogent.lessons import LessonIncident
+from dogent.features.lessons import LessonIncident
 
 
 class FakeLessonDrafter:

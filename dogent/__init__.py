@@ -3,13 +3,13 @@
 from importlib.metadata import version
 
 __all__ = [
-    "cli",
     "agent",
+    "cli",
     "config",
+    "core",
+    "features",
+    "outline_edit",
     "prompts",
-    "todo",
-    "file_refs",
-    "history",
 ]
 
 # Single source of truth comes from package metadata defined in pyproject.toml

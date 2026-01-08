@@ -3,8 +3,8 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
-from dogent import document_io
-from dogent.document_io import read_document
+from dogent.features import document_io
+from dogent.features.document_io import read_document
 
 
 class DocumentIOTests(unittest.TestCase):
@@ -219,7 +219,7 @@ class DocumentIOTests(unittest.TestCase):
 class DocumentIOAsyncTests(unittest.IsolatedAsyncioTestCase):
     async def test_playwright_install_runs_in_thread(self) -> None:
         with mock.patch(
-            "dogent.document_io.asyncio.to_thread", new=mock.AsyncMock()
+            "dogent.features.document_io.asyncio.to_thread", new=mock.AsyncMock()
         ) as to_thread:
             await document_io._ensure_playwright_chromium_installed_async()
             to_thread.assert_awaited_once_with(
@@ -233,11 +233,11 @@ class DocumentIOAsyncTests(unittest.IsolatedAsyncioTestCase):
             md_path.write_text("![alt](image.png)", encoding="utf-8")
             output_path = tmp_path / "note.pdf"
             with mock.patch(
-                "dogent.document_io._resolve_pdf_style",
+                "dogent.features.document_io._resolve_pdf_style",
                 return_value=("body { color: #111; }", []),
             ):
                 with mock.patch(
-                    "dogent.document_io._html_to_pdf", new=mock.AsyncMock()
+                    "dogent.features.document_io._html_to_pdf", new=mock.AsyncMock()
                 ) as html_to_pdf:
                     await document_io._markdown_to_pdf(
                         md_path,

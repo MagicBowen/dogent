@@ -14,7 +14,7 @@ from urllib.request import Request, urlopen
 
 from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool
 
-from . import __version__
+from .. import __version__
 
 DOGENT_WEB_ALLOWED_TOOLS = ["mcp__dogent__web_search", "mcp__dogent__web_fetch"]
 DOGENT_WEB_TOOL_DISPLAY_NAMES = {

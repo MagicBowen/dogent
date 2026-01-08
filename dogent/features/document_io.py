@@ -10,11 +10,11 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
-from importlib import resources
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import unquote, urlparse
 
+from ..config.resources import read_config_text
 
 DEFAULT_MAX_CHARS = 15000
 DEFAULT_XLSX_MAX_ROWS = 50
@@ -503,11 +503,7 @@ def _markdown_to_docx(md_path: Path, *, output_path: Path) -> None:
 
 
 def _default_pdf_css() -> str:
-    try:
-        data = resources.files("dogent").joinpath("templates").joinpath(PDF_STYLE_FILENAME)
-        return data.read_text(encoding="utf-8")
-    except Exception:
-        return ""
+    return read_config_text(PDF_STYLE_FILENAME)
 
 
 def _ensure_page_break_css(css_text: str) -> str:

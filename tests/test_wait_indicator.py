@@ -3,7 +3,7 @@ import unittest
 
 from rich.console import Console
 
-from dogent.wait_indicator import LLMWaitIndicator
+from dogent.agent.wait import LLMWaitIndicator
 
 
 class WaitIndicatorTests(unittest.IsolatedAsyncioTestCase):

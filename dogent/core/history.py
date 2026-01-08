@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from .paths import DogentPaths
+from ..config.paths import DogentPaths
 
 
 class HistoryManager:

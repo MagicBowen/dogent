@@ -1,6 +1,6 @@
 import unittest
 
-from dogent.init_wizard import InitWizard, WizardResult
+from dogent.cli.wizard import InitWizard, WizardResult
 
 
 class InitWizardTests(unittest.TestCase):

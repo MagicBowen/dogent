@@ -61,3 +61,40 @@ User Test Results: PASS
 5) Approve and confirm the task continues; repeat and deny to see the abort panel.
 
 User Test Results: PASS
+
+---
+
+## Release 0.9.13
+
+### Story 1 – Resource Layout & Loader Consolidation
+1) `cd sample`
+2) Backup and remove `~/.dogent/dogent.schema.json` and `~/.dogent/pdf_style.css` if they exist.
+3) Run `dogent`, then exit. Expect both files recreated in `~/.dogent/`.
+4) Run `dogent` and execute `/init`, then choose a built-in template (e.g., `built-in:resume`).
+5) Confirm `.dogent/dogent.md` reflects the selected built-in template and no errors appear.
+
+User Test Results: PASS
+
+### Story 2 – Complex Multi-line Prompts Externalized
+1) Verify prompt files exist: `dogent/prompts/lesson_drafter_system.md` and `dogent/prompts/vision_analyze.md`.
+2) Confirm `dogent/lesson_drafter.py` no longer contains the lesson drafter system prompt text.
+3) Confirm `dogent/vision.py` no longer contains the vision analysis prompt text.
+
+User Test Results: PASS
+
+### Story 3 – CLI Module Split
+1) `cd sample`
+2) Run `dogent` and confirm the startup panel renders without errors.
+3) Run `/help` and `/show history` to confirm commands still work.
+4) Run `/edit README.md`, then cancel; confirm you return to the prompt.
+5) Exit with `/exit`.
+
+User Test Results: PASS
+
+### Story 4 – Agent/Config/Core/Feature Modules Split
+1) Confirm directories exist: `dogent/agent`, `dogent/config`, `dogent/core`, `dogent/features`.
+2) Confirm old single-file modules are removed (for example `dogent/agent.py`, `dogent/config.py`, `dogent/todo.py`).
+3) Run `python -m unittest discover -s tests -v` and confirm all tests pass.
+4) `cd sample`, run `dogent`, then `/help`, then `/exit`.
+
+User Test Results: PASS

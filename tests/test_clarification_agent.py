@@ -10,10 +10,10 @@ from rich.console import Console
 
 from dogent.agent import AgentRunner
 from dogent.config import ConfigManager
-from dogent.history import HistoryManager
-from dogent.paths import DogentPaths
+from dogent.core.history import HistoryManager
+from dogent.config.paths import DogentPaths
 from dogent.prompts import PromptBuilder
-from dogent.todo import TodoManager
+from dogent.core.todo import TodoManager
 
 
 class ClarificationAgentTests(unittest.IsolatedAsyncioTestCase):
@@ -106,7 +106,7 @@ class ClarificationAgentTests(unittest.IsolatedAsyncioTestCase):
             runner._needs_clarification = True
 
             from claude_agent_sdk import AssistantMessage, TextBlock
-            from dogent.clarification import CLARIFICATION_JSON_TAG
+            from dogent.features.clarification import CLARIFICATION_JSON_TAG
 
             async def fake_receive():
                 runner._needs_clarification = True
@@ -175,7 +175,7 @@ class ClarificationAgentTests(unittest.IsolatedAsyncioTestCase):
             runner._client = client
 
             from claude_agent_sdk import AssistantMessage, ThinkingBlock
-            from dogent.clarification import CLARIFICATION_JSON_TAG
+            from dogent.features.clarification import CLARIFICATION_JSON_TAG
 
             payload = {
                 "response_type": "clarification",
@@ -221,7 +221,7 @@ class ClarificationAgentTests(unittest.IsolatedAsyncioTestCase):
 
             async def receive_response(self):
                 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
-                from dogent.clarification import CLARIFICATION_JSON_TAG
+                from dogent.features.clarification import CLARIFICATION_JSON_TAG
 
                 payload = {
                     "response_type": "clarification",

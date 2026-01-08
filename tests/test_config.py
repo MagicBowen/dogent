@@ -12,7 +12,7 @@ from claude_agent_sdk import HookMatcher
 
 from dogent import __version__
 from dogent.config import ConfigManager
-from dogent.paths import DogentPaths
+from dogent.config.paths import DogentPaths
 
 
 class ConfigTests(unittest.TestCase):

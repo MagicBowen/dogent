@@ -7,7 +7,7 @@ from rich.console import Console
 
 from dogent.agent import AgentRunner
 from dogent.cli import DogentCLI
-from dogent.todo import TodoManager
+from dogent.core.todo import TodoManager
 
 
 class DummyBlock:

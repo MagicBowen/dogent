@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from importlib import resources
 from typing import Any, Iterable
 
+from ..config.resources import read_schema_text
 
 CLARIFICATION_JSON_TAG = "[[DOGENT_CLARIFICATION_JSON]]"
 
@@ -115,8 +115,7 @@ def _split_tagged_payload_text(text: str, tag: str) -> tuple[bool, str]:
 
 
 def _load_schema() -> dict[str, Any]:
-    base = resources.files("dogent").joinpath("schemas")
-    text = base.joinpath("clarification.schema.json").read_text(encoding="utf-8")
+    text = read_schema_text(None, "clarification.schema.json")
     return json.loads(text)
 
 

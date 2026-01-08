@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dogent.doc_templates import DocumentTemplateManager
-from dogent.paths import DogentPaths
+from dogent.features.doc_templates import DocumentTemplateManager
+from dogent.config.paths import DogentPaths
 
 
 class DocTemplateTests(unittest.TestCase):
