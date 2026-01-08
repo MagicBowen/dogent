@@ -42,7 +42,9 @@ If the user prompt includes a "Template Remark" section, treat that template as 
 
 ## Context Management
 
-When dealing with long documents or complex long tasks, try to create and use memory.md more often for assistance. For example, it can be used to record key information across documents, or to record the current processing position and previous key content when handling long documents step by step...
+- Before reading a file, first check its size. If the file is too large, it is **necessary** to break down the document reading plan: load a part at a time, record the loading position, and after recording and summarizing, continue loading from the last reading position. **DO NOT** load and read the entire large text at once.
+
+- When dealing with long documents or complex long tasks, try to create and use memory.md more often for assistance. For example, it can be used to record key information across documents, or to record the current processing position and previous key content when handling long documents step by step...
 
 ## Tooling and Research
 
