@@ -51,3 +51,42 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: Manual interactive test (CLI).
+
+---
+
+## Release 0.9.13
+
+### Story 1: Resource Layout & Loader Consolidation
+- User Value: Configs, templates, and schemas live in predictable locations with a single loader, reducing confusion and duplicate logic.
+- Acceptance: `dogent/templates` is renamed to `dogent/resources`; `dogent/resources/doc_templates` content moves to `dogent/templates`; schemas live under `dogent/schema/workspace` and `dogent/schema/global` (same content); `dogent/schemas/clarification.schema.json` moves under `dogent/schema/`; all loads go through one resource loader.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `python -m unittest discover -s tests -v`
+
+### Story 2: Complex Multi-line Prompts Externalized
+- User Value: Prompts are easier to audit and update without touching code.
+- Acceptance: Only complex multi-line prompts are moved into `dogent/prompts/` files with content unchanged; short prompts stay inline; runtime loads via the centralized loader.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `python -m unittest discover -s tests -v`
+
+### Story 3: CLI Module Split
+- User Value: The CLI codebase is easier to maintain and extend without cross-cutting edits.
+- Acceptance: `dogent/cli.py` and related CLI helpers are split into the `dogent/cli/` package per the design; CLI behavior remains unchanged; imports/tests updated.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `python -m unittest discover -s tests -v`
+
+### Story 4: Agent/Config/Core/Feature Modules Split
+- User Value: Core services and feature modules are clearly separated, reducing coupling and duplication.
+- Acceptance: `dogent/agent`, `dogent/config`, `dogent/core`, and `dogent/features` packages are created per the design; public entrypoints remain stable; tests updated.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `python -m unittest discover -s tests -v`
+
+### Story 5: Panels + English Documentation Refresh
+- User Value: Users see a concise startup panel, an expanded help panel, and complete English documentation.
+- Acceptance: Startup panel is minimal; help panel documents end-to-end usage; `docs/dogent_design.md` added with mermaid diagrams; `docs/usage.md` rewritten in English with step-by-step examples.
+- Dev Status: Todo
+- Acceptance Status: Pending
+- Verification: Manual review of panels/docs.

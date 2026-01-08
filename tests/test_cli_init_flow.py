@@ -8,7 +8,7 @@ from unittest import mock
 from rich.console import Console
 
 from dogent.cli import DogentCLI, SelectionCancelled
-from dogent.init_wizard import WizardResult
+from dogent.cli.wizard import WizardResult
 
 
 class InitFlowTests(unittest.IsolatedAsyncioTestCase):

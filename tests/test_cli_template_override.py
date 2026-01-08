@@ -7,7 +7,7 @@ from pathlib import Path
 from rich.console import Console
 
 from dogent.cli import DogentCLI
-from dogent.file_refs import FileAttachment
+from dogent.core.file_refs import FileAttachment
 
 
 class TemplateOverrideTests(unittest.TestCase):

@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dogent.paths import DogentPaths
-from dogent.session_log import SessionLogger
+from dogent.config.paths import DogentPaths
+from dogent.core.session_log import SessionLogger
 
 
 class SessionLoggerTests(unittest.TestCase):

@@ -22,29 +22,29 @@ from claude_agent_sdk import (
     ToolPermissionContext,
 )
 
-from .config import ConfigManager
-from .file_refs import FileAttachment
-from .prompts import PromptBuilder
-from .history import HistoryManager
-from .todo import TodoManager
-from .wait_indicator import LLMWaitIndicator
-from .document_tools import DOGENT_DOC_TOOL_DISPLAY_NAMES
-from .vision_tools import DOGENT_VISION_TOOL_DISPLAY_NAMES
-from .web_tools import DOGENT_WEB_TOOL_DISPLAY_NAMES
-from .tool_permissions import should_confirm_tool_use
-from .clarification import (
+from ..config import ConfigManager
+from ..core.file_refs import FileAttachment
+from ..prompts import PromptBuilder
+from ..core.history import HistoryManager
+from ..core.todo import TodoManager
+from .wait import LLMWaitIndicator
+from ..features.document_tools import DOGENT_DOC_TOOL_DISPLAY_NAMES
+from ..features.vision_tools import DOGENT_VISION_TOOL_DISPLAY_NAMES
+from ..features.web_tools import DOGENT_WEB_TOOL_DISPLAY_NAMES
+from .permissions import should_confirm_tool_use
+from ..features.clarification import (
     ClarificationPayload,
     CLARIFICATION_JSON_TAG,
     extract_clarification_payload,
     has_clarification_tag,
 )
-from .outline_edit import (
+from ..outline_edit import (
     OutlineEditPayload,
     OUTLINE_EDIT_JSON_TAG,
     extract_outline_edit_payload,
     has_outline_edit_tag,
 )
-from .session_log import SessionLogger
+from ..core.session_log import SessionLogger
 
 DOGENT_TOOL_DISPLAY_NAMES = {
     **DOGENT_WEB_TOOL_DISPLAY_NAMES,

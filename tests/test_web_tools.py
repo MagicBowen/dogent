@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from dogent import __version__
-from dogent.web_tools import (
+from dogent.features.web_tools import (
     HttpResponse,
     create_dogent_web_tools,
     extract_text_from_html,

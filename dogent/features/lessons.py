@@ -7,7 +7,7 @@ from typing import Optional
 
 from rich.console import Console
 
-from .paths import DogentPaths
+from ..config.paths import DogentPaths
 
 
 @dataclass(frozen=True)
@@ -72,4 +72,3 @@ def format_remaining_todos_markdown(todos: list[dict[str, str | None]]) -> str:
         suffix = f" — {note}" if note else ""
         lines.append(f"- [{status}] {title}{suffix}")
     return "\n".join(lines)
-

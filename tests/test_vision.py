@@ -6,9 +6,9 @@ from pathlib import Path
 from unittest import mock
 
 from dogent.config import ConfigManager
-from dogent.paths import DogentPaths
-from dogent.vision_tools import create_dogent_vision_tools
-from dogent.vision import GLM4VClient, VisionAnalysisError, VisionManager, classify_media
+from dogent.config.paths import DogentPaths
+from dogent.features.vision_tools import create_dogent_vision_tools
+from dogent.features.vision import GLM4VClient, VisionAnalysisError, VisionManager, classify_media
 
 
 class VisionManagerTests(unittest.IsolatedAsyncioTestCase):
@@ -126,7 +126,7 @@ class VisionToolTests(unittest.IsolatedAsyncioTestCase):
             tool = create_dogent_vision_tools(paths.root, config)[0]
 
             with mock.patch(
-                "dogent.vision_tools.VisionManager.analyze", new=mock.AsyncMock()
+                "dogent.features.vision_tools.VisionManager.analyze", new=mock.AsyncMock()
             ) as analyze:
                 analyze.return_value = {"summary": "ok", "tags": [], "text": ""}
                 result = await tool.handler({"path": "photo.png"})

@@ -145,6 +145,42 @@ class InterruptHelperTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_stop_active_interrupts_cancels_tasks(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
+            stop_event = threading.Event()
+
+            async def esc_listener() -> None:
+                while not stop_event.is_set():
+                    await asyncio.sleep(0.01)
+
+            async def agent_job() -> None:
+                await asyncio.sleep(1)
+
+            async def run_stop():
+                cli._active_interrupt_event = stop_event
+                cli._active_interrupt_task = asyncio.create_task(esc_listener())
+                cli._active_agent_task = asyncio.create_task(agent_job())
+                esc_task = cli._active_interrupt_task
+                agent_task = cli._active_agent_task
+                await cli._stop_active_interrupts()
+                return esc_task, agent_task
+
+            esc_task, agent_task = asyncio.run(run_stop())
+            self.assertTrue(stop_event.is_set())
+            self.assertIsNone(cli._active_interrupt_event)
+            self.assertIsNone(cli._active_interrupt_task)
+            self.assertIsNone(cli._active_agent_task)
+            self.assertTrue(esc_task.cancelled() or esc_task.done())
+            self.assertTrue(agent_task.cancelled() or agent_task.done())
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import json
 import re
-from importlib import resources
 from typing import Any, Callable, Iterable, List
 
 from rich.console import Console
 
-from .doc_templates import DocumentTemplateManager
-from .file_refs import FileAttachment
-from .paths import DogentPaths
-from .todo import TodoManager
-from .history import HistoryManager
+from .features.doc_templates import DocumentTemplateManager
+from .core.file_refs import FileAttachment
+from .config.paths import DogentPaths
+from .config.resources import read_prompt_text, read_template_text
+from .core.todo import TodoManager
+from .core.history import HistoryManager
 
 
 class TemplateRenderer:
@@ -269,13 +269,8 @@ class PromptBuilder:
         return "\n".join(lines)
 
     def _load_template(self, name: str) -> str:
-        base = resources.files("dogent").joinpath("prompts")
-        return base.joinpath(name).read_text(encoding="utf-8")
+        return read_prompt_text(name)
 
     def _load_default_doc_template(self) -> str:
-        base = resources.files("dogent").joinpath("templates").joinpath("doc_templates")
-        try:
-            text = base.joinpath("doc_general.md").read_text(encoding="utf-8").strip()
-            return text or "General document template not available."
-        except Exception:
-            return "General document template not available."
+        text = read_template_text("doc_general.md").strip()
+        return text or "General document template not available."

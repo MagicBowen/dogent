@@ -6,7 +6,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from .paths import DogentPaths
+from ..config.paths import DogentPaths
 
 
 class SessionLogger:

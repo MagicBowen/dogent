@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from importlib import resources
 from pathlib import Path
 from typing import Iterable, Optional
 
-from .paths import DogentPaths
+from ..config.paths import DogentPaths
+from ..config.resources import iter_dir, read_template_text
 
 
 _SOURCES = ("workspace", "global", "built-in")
@@ -132,35 +132,19 @@ class DocumentTemplateManager:
         return entries
 
     def _list_built_in(self) -> list[TemplateInfo]:
-        try:
-            root = resources.files("dogent").joinpath("templates").joinpath(
-                "doc_templates"
-            )
-        except Exception:
-            return []
         entries: list[TemplateInfo] = []
-        try:
-            for entry in root.iterdir():
-                if entry.is_dir() or not entry.name.endswith(".md"):
-                    continue
-                name = Path(entry.name).stem
-                if name == _GENERAL_TEMPLATE_FILE:
-                    continue
-                entries.append(TemplateInfo(name=name, source="built-in", path=entry))
-        except Exception:
-            return []
+        for entry in iter_dir("templates"):
+            if entry.is_dir() or not entry.name.endswith(".md"):
+                continue
+            name = Path(entry.name).stem
+            if name == _GENERAL_TEMPLATE_FILE:
+                continue
+            entries.append(TemplateInfo(name=name, source="built-in", path=entry))
         return entries
 
     def _load_builtin(self, name: str) -> Optional[TemplateContent]:
-        try:
-            data = (
-                resources.files("dogent")
-                .joinpath("templates")
-                .joinpath("doc_templates")
-                .joinpath(f"{name}.md")
-            )
-            text = data.read_text(encoding="utf-8")
-        except Exception:
+        text = read_template_text(f"{name}.md")
+        if not text:
             return None
         return TemplateContent(name=name, source="built-in", content=text.strip())
 

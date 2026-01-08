@@ -12,7 +12,8 @@ from typing import Any
 
 from rich.console import Console
 
-from .paths import DogentPaths
+from ..config.paths import DogentPaths
+from ..config.resources import read_prompt_text
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
@@ -124,13 +125,7 @@ class GLM4VClient:
         if media_type not in {"image", "video"}:
             raise VisionAnalysisError(f"Unsupported media type: {media_type}")
         encoded = _encode_file(path)
-        prompt = (
-            "Analyze the provided media. Return ONLY valid JSON. "
-            "Schema: {\"summary\": string, \"tags\": [string], \"text\": string}. "
-            "summary: concise single-paragraph description. "
-            "tags: short keywords. "
-            "text: OCR/transcript if present, otherwise empty."
-        )
+        prompt = read_prompt_text("vision_analyze.md").strip()
         media_key = "image_url" if media_type == "image" else "video_url"
         return {
             "model": self.profile.model,

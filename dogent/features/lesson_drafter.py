@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from importlib import resources
 from typing import Optional, Protocol
 
 from rich.console import Console
@@ -9,12 +8,13 @@ from rich.console import Console
 from claude_agent_sdk import AssistantMessage, ClaudeSDKClient, ResultMessage, TextBlock
 from claude_agent_sdk.types import ClaudeAgentOptions
 
-from .config import ConfigManager
+from ..config import ConfigManager
 from .lessons import LessonIncident
-from .paths import DogentPaths
-from .prompts import TemplateRenderer
-from .session_log import SessionLogger
-from .wait_indicator import LLMWaitIndicator
+from ..config.paths import DogentPaths
+from ..prompts import TemplateRenderer
+from ..config.resources import read_prompt_text
+from ..core.session_log import SessionLogger
+from ..agent.wait import LLMWaitIndicator
 
 
 class LessonDrafter(Protocol):
@@ -43,7 +43,8 @@ class ClaudeLessonDrafter:
         self.console = console or Console()
         self._session_logger = session_logger
         self.renderer = TemplateRenderer(console=self.console)
-        self._template = self._load_template("lesson_draft.md")
+        self._template = self._load_prompt("lesson_draft.md")
+        self._system_prompt = self._load_prompt("lesson_drafter_system.md")
 
     async def draft_from_incident(self, incident: LessonIncident, user_correction: str) -> str:
         summary = incident.summary.strip()
@@ -78,9 +79,8 @@ class ClaudeLessonDrafter:
             template_name="lesson draft",
         ).strip()
 
-    def _load_template(self, name: str) -> str:
-        base = resources.files("dogent").joinpath("prompts")
-        return base.joinpath(name).read_text(encoding="utf-8")
+    def _load_prompt(self, name: str) -> str:
+        return read_prompt_text(name)
 
     def _build_options(self, system_prompt: str) -> ClaudeAgentOptions:
         settings = self.config.load_settings()
@@ -96,14 +96,7 @@ class ClaudeLessonDrafter:
         )
 
     async def _run_llm(self, user_prompt: str) -> str:
-        system_prompt = (
-            "You write concise, reusable engineering lessons in Markdown.\n"
-            "Return ONLY Markdown (no code fences). Start with a '## ' heading.\n"
-            "Then include sections: ### Problem, ### Cause, ### Correct Approach.\n"
-            "The title must be a specific actionable rule derived from the user correction.\n"
-            "Be brief: prefer bullets; avoid long prose.\n"
-            "The Correct Approach MUST include the user's correction verbatim as a short quote block.\n"
-        )
+        system_prompt = self._system_prompt
         if self._session_logger:
             self._session_logger.log_system_prompt("lesson_drafter", system_prompt)
             self._session_logger.log_user_prompt("lesson_drafter", user_prompt)

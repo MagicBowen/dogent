@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from dogent.tool_permissions import extract_delete_targets, should_confirm_tool_use
+from dogent.agent.permissions import extract_delete_targets, should_confirm_tool_use
 
 
 class ToolPermissionTests(unittest.TestCase):

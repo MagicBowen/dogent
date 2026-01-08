@@ -6,7 +6,7 @@ from pathlib import Path
 from rich.console import Console
 
 from dogent.cli import DogentCLI
-from dogent.todo import TodoItem
+from dogent.core.todo import TodoItem
 
 
 class CleanCommandTests(unittest.IsolatedAsyncioTestCase):

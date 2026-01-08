@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from .vision import VisionAnalysisError, VisionManager, classify_media
 
 if TYPE_CHECKING:
-    from .config import ConfigManager
+    from ..config import ConfigManager
 
 
 DOGENT_VISION_ALLOWED_TOOLS = ["mcp__dogent__analyze_media"]

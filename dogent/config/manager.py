@@ -9,15 +9,14 @@ from typing import Any, Dict, Optional
 
 from rich.console import Console
 
-from importlib import resources
-
 from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server
 
-from . import __version__
-from .document_tools import DOGENT_DOC_ALLOWED_TOOLS, create_dogent_doc_tools
+from .. import __version__
+from ..features.document_tools import DOGENT_DOC_ALLOWED_TOOLS, create_dogent_doc_tools
 from .paths import DogentPaths
-from .vision_tools import DOGENT_VISION_ALLOWED_TOOLS, create_dogent_vision_tools
-from .web_tools import DOGENT_WEB_ALLOWED_TOOLS, create_dogent_web_tools
+from .resources import read_config_text, read_schema_text
+from ..features.vision_tools import DOGENT_VISION_ALLOWED_TOOLS, create_dogent_vision_tools
+from ..features.web_tools import DOGENT_WEB_ALLOWED_TOOLS, create_dogent_web_tools
 
 
 DEFAULT_PROJECT_CONFIG: Dict[str, Any] = {
@@ -135,7 +134,7 @@ class ConfigManager:
 
     def render_template(self, name: str, context: Optional[Dict[str, str]] = None) -> str:
         """Render a workspace template with simple {key} replacements."""
-        text = self._read_home_template(name)
+        text = self._read_config_template(name)
         if not text:
             return ""
         if not context:
@@ -506,7 +505,7 @@ class ConfigManager:
             return {}
 
     def _read_template_json(self, name: str) -> Dict[str, Any]:
-        template_text = self._read_home_template(name)
+        template_text = self._read_config_template(name)
         if not template_text:
             return {}
         try:
@@ -572,7 +571,7 @@ class ConfigManager:
         else:
             self._maybe_upgrade_global_config()
         if not self.paths.global_schema_file.exists():
-            schema = self._read_home_template("dogent_schema.json")
+            schema = self._read_schema_template("global", "dogent.schema.json")
             if schema:
                 try:
                     self.paths.global_schema_file.write_text(schema, encoding="utf-8")
@@ -581,7 +580,7 @@ class ConfigManager:
                         f"[yellow]Cannot write {self.paths.global_schema_file}. Please create it manually.[/yellow]"
                     )
         if not self.paths.global_pdf_style_file.exists():
-            css = self._read_home_template("pdf_style.css")
+            css = self._read_config_template("pdf_style.css")
             if css:
                 try:
                     self.paths.global_pdf_style_file.write_text(css, encoding="utf-8")
@@ -637,17 +636,16 @@ class ConfigManager:
             return None
 
     def _doc_template(self) -> str:
-        template = self._read_home_template("dogent_default.md")
+        template = self._read_config_template("dogent_default.md")
         if template:
             return template.replace("{doc_template}", "general")
         return "# Dogent Writing Constraints\n"
 
-    def _read_home_template(self, name: str) -> str:
-        try:
-            data = resources.files("dogent").joinpath("templates").joinpath(name)
-            return data.read_text(encoding="utf-8")
-        except Exception:
-            return ""
+    def _read_config_template(self, name: str) -> str:
+        return read_config_text(name)
+
+    def _read_schema_template(self, scope: str, name: str) -> str:
+        return read_schema_text(scope, name)
 
     def _warn_if_placeholder_profile(
         self, profile_name: Optional[str], profile_cfg: Dict[str, Any]

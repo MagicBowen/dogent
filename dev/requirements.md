@@ -12,6 +12,39 @@
 
 ---
 
+## Release 0.9.13
+
+Here are suggestions for refactoring the code of dogent：
+- Decouple and reasonably split all oversized files, such as `dogent/cli.py` is too large and needs to be split and decoupled (Perhaps decouple the two types of editor and preview mode from cli...)
+- All complex multi-line prompts and templates in the code should be separated into well-named files instead of being hard-coded in the code， such as below：
+```py
+    async def _run_llm(self, user_prompt: str) -> str:
+        system_prompt = (
+            "You write concise, reusable engineering lessons in Markdown.\n"
+            "Return ONLY Markdown (no code fences). Start with a '## ' heading.\n"
+            "Then include sections: ### Problem, ### Cause, ### Correct Approach.\n"
+            "The title must be a specific actionable rule derived from the user correction.\n"
+            "Be brief: prefer bullets; avoid long prose.\n"
+            "The Correct Approach MUST include the user's correction verbatim as a short quote block.\n"
+        )
+```
+- There are quite a lot of files under "dogent" now. According to functional modules and reusability, different code files should be placed in appropriate subdirectories.
+- move all json schema files into `dogent/schema`, such as dogent_schema.json
+- rename the `dogent/templates` to `dogent/resources`
+- move the `dogent/resources/doc_templates` to `dogent/templates` that is under dogent folder directly and rename from doc_templates to templates.
+- Write the new software architecture and main design into `docs/dogent_design.md`, and use mermaid to complete the main design diagrams such as logical architecture and physical architecture;
+
+
+---
+
+## Release 0.9.14
+
+- Issue: when convert markdown file to docx file, all the images referenced in markdown should be shown in docx. The images referenced in markdown use syntax such as : `![](../images/1.png)` or `<div align="center"><img src="../images/2.png" width="70%"></div>`
+- Simplify the content in the startup dogent panel, retaining only the necessary introductions and important reminders. Supplement the help panel in markdown preview mode with as comprehensive a functional introduction as possible.
+- Refactor `docs/usage.md` to introduce all functions of dogent in a complete end-to-end manner, step by step, from install to usage with examples;
+
+---
+
 ## Pending Requirements
 
 - Dogent supports more excellent file templates (technical blog);
@@ -26,6 +59,7 @@
 - termios doesn't support windows platform
 - should publish several package types, the whole include pandoc and chrome default to avoid the long period download or pool network
 - There is a problem with the XSL format, and it cannot be converted.
-- The Word format converted from markdown will lose images.
 - log mechanism should be improved, adding the exception log and log level.
 - support multiple languages: en & zh;
+
+- The Word format converted from markdown will lose images.
