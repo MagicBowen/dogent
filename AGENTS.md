@@ -32,8 +32,7 @@
 - PRs: include summary of behavior change, testing performed, and any new config/env needs. Add screenshots or terminal snippets for CLI UX changes when helpful.
 
 ## Security & Configuration Tips
-- Credentials loaded from `~/.dogent/claude.json`, `.dogent/dogent.json` (profile reference), or env vars (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, etc.). Do not commit secrets.
-- Keep network/tool permissions aligned with Claude Agent SDK defaults; review any additions to allowed tools.
+- Credentials loaded from `.dogent/dogent.json` (profile reference), or env vars (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, etc.). Do not commit secrets.
 - Claude Agent SDK usage must follow the docs and samples under `claude-agent-sdk/`; do not guess behaviors.
 
 ## Agent-Specific Notes
@@ -44,7 +43,7 @@
 
 ## Process & Quality Requirements
 - All functions must have automated tests; extend `tests/` alongside new code.
-- After receiving the user's update to dev/requirements.md requesting the implementation of specified release requirements, first analyze and conduct preliminary design of the requirements. 
+- After receiving the user's update to `dev/requirement.md` requesting the implementation of specified release requirements, first analyze and conduct preliminary design of the requirements. 
 - The design results can be append to `dev/sprint_design.md` by release. If there are contradictions or unclear points, it is necessary to clarify with the user before continuing to revise the design. 
 - Once the design is confirmed to be problem-free, split the requirements into user stories with end-to-end value that can be independently accepted, sort them according to dependency order, and append them to `dev/sprint_plan.md`  by release. 
 - After finishing each story, design user acceptance test cases for each user story (guiding users to conduct manual step-by-step testing and acceptance in the sample directory, as well as updating acceptance results and identified issues in uat_plan.md), and append them to `dev/sprint_uat.md` by release.

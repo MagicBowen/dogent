@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import mimetypes
 import os
 import re
@@ -9,17 +10,20 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import unquote, urlparse
+from xml.etree import ElementTree as ET
 
 from ..config.resources import read_config_text
 
 DEFAULT_MAX_CHARS = 15000
 DEFAULT_XLSX_MAX_ROWS = 50
 DEFAULT_XLSX_MAX_COLS = 20
+PACKAGE_MODE_ENV = "DOGENT_PACKAGE_MODE"
 PDF_STYLE_FILENAME = "pdf_style.css"
 
 
@@ -39,6 +43,46 @@ class DocumentConvertResult:
     output_path: Path
     extracted_media_dir: Path | None
     notes: list[str]
+
+
+def _package_mode() -> str:
+    mode = os.getenv(PACKAGE_MODE_ENV, "lite").strip().lower()
+    return "full" if mode == "full" else "lite"
+
+
+def _platform_tag() -> str:
+    if sys.platform == "win32":
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    return "linux"
+
+
+def _bundled_tools_root() -> Path:
+    return Path(__file__).resolve().parents[1] / "resources" / "tools"
+
+
+def _resolve_pandoc_binary() -> Path | None:
+    if _package_mode() != "full":
+        return None
+    root = _bundled_tools_root() / "pandoc" / _platform_tag()
+    binary_name = "pandoc.exe" if sys.platform == "win32" else "pandoc"
+    candidate = root / binary_name
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _resolve_playwright_browsers_path() -> Path | None:
+    if _package_mode() != "full":
+        return None
+    root = _bundled_tools_root() / "playwright" / _platform_tag()
+    if not root.exists():
+        return None
+    for child in root.iterdir():
+        if child.is_dir() and child.name.startswith("chromium"):
+            return root
+    return None
 
 
 def read_document(
@@ -113,7 +157,7 @@ async def convert_document_async(
     input_format = _detect_format(input_path)
     output_format = _detect_format(output_path)
     if not input_format:
-        raise ValueError("Unsupported input format. Use docx, pdf, or md.")
+        raise ValueError("Unsupported input format. Use docx, pdf, md, or xlsx.")
     if not output_format:
         raise ValueError("Unsupported output format. Use docx, pdf, or md.")
     if input_format == output_format:
@@ -169,6 +213,11 @@ async def convert_document_async(
             tmp_md = Path(tmp) / "source.md"
             tmp_md.write_text(result.content, encoding="utf-8")
             _markdown_to_docx(tmp_md, output_path=output_path, workspace_root=workspace_root)
+    elif input_format == "xlsx" and output_format == "md":
+        result = read_document(input_path, max_chars=0)
+        if result.error:
+            raise RuntimeError(result.error)
+        output_path.write_text(result.content, encoding="utf-8")
     else:
         raise ValueError(f"Unsupported conversion: {input_format} -> {output_format}")
 
@@ -320,58 +369,195 @@ def _read_xlsx(
             error=f"XLSX read failed (missing openpyxl): {exc}",
         )
     try:
-        workbook = openpyxl.load_workbook(path, read_only=True, data_only=False)
+        workbook = openpyxl.load_workbook(
+            path,
+            read_only=True,
+            data_only=True,
+            keep_links=False,
+        )
     except Exception as exc:  # noqa: BLE001
-        return DocumentReadResult(
-            content="",
-            truncated=False,
-            format="xlsx",
-            metadata={},
-            error=f"XLSX read failed: {exc}",
+        return _read_xlsx_xml(
+            path,
+            sheet=sheet,
+            max_chars=max_chars,
+            error_context=exc,
         )
     try:
-        sheet_name = _select_sheet(workbook.sheetnames, sheet)
-        if not sheet_name:
+        sheetnames = workbook.sheetnames
+        if sheet:
+            sheet_name = _select_sheet(sheetnames, sheet)
+            if not sheet_name:
+                return DocumentReadResult(
+                    content="",
+                    truncated=False,
+                    format="xlsx",
+                    metadata={"sheets": sheetnames},
+                    error=f"Sheet not found: {sheet}",
+                )
+            ws = workbook[sheet_name]
+            total_rows = int(ws.max_row or 0)
+            total_cols = int(ws.max_column or 0)
+            if total_rows == 0 or total_cols == 0:
+                table, meta = _sheet_to_markdown_table(
+                    [],
+                    total_rows=total_rows,
+                    total_cols=total_cols,
+                    max_rows=DEFAULT_XLSX_MAX_ROWS,
+                    max_cols=DEFAULT_XLSX_MAX_COLS,
+                )
+            else:
+                capped_rows = min(total_rows, DEFAULT_XLSX_MAX_ROWS)
+                capped_cols = min(total_cols, DEFAULT_XLSX_MAX_COLS)
+                table, meta = _sheet_to_markdown_table(
+                    ws.iter_rows(
+                        min_row=1,
+                        max_row=capped_rows,
+                        max_col=capped_cols,
+                        values_only=True,
+                    ),
+                    total_rows=total_rows,
+                    total_cols=total_cols,
+                    max_rows=DEFAULT_XLSX_MAX_ROWS,
+                    max_cols=DEFAULT_XLSX_MAX_COLS,
+                )
+            metadata = {"sheet": sheet_name, **meta}
+            content, truncated = _apply_size_limit(table, max_chars)
+            return DocumentReadResult(
+                content=content,
+                truncated=truncated,
+                format="xlsx",
+                metadata=metadata,
+            )
+        if not sheetnames:
             return DocumentReadResult(
                 content="",
                 truncated=False,
                 format="xlsx",
-                metadata={"sheets": workbook.sheetnames},
-                error=f"Sheet not found: {sheet}",
+                metadata={},
+                error="No sheets found in XLSX.",
             )
-        ws = workbook[sheet_name]
-        total_rows = int(ws.max_row or 0)
-        total_cols = int(ws.max_column or 0)
-        if total_rows == 0 or total_cols == 0:
-            table, meta = "(empty sheet)", {"rows": total_rows, "cols": total_cols}
-        else:
-            capped_rows = min(total_rows, DEFAULT_XLSX_MAX_ROWS)
-            capped_cols = min(total_cols, DEFAULT_XLSX_MAX_COLS)
-            table, meta = _sheet_to_markdown_table(
-                ws.iter_rows(
-                    min_row=1,
-                    max_row=capped_rows,
-                    max_col=capped_cols,
-                    values_only=True,
-                ),
-                total_rows=total_rows,
-                total_cols=total_cols,
-                max_rows=DEFAULT_XLSX_MAX_ROWS,
-                max_cols=DEFAULT_XLSX_MAX_COLS,
-            )
-        metadata = {"sheet": sheet_name, **meta}
-        content, truncated = _apply_size_limit(table, max_chars)
+        sections = [f"# {path.stem}"]
+        sheets_meta: list[dict[str, Any]] = []
+        for sheet_name in sheetnames:
+            ws = workbook[sheet_name]
+            total_rows = int(ws.max_row or 0)
+            total_cols = int(ws.max_column or 0)
+            if total_rows == 0 or total_cols == 0:
+                table, meta = _sheet_to_markdown_table(
+                    [],
+                    total_rows=total_rows,
+                    total_cols=total_cols,
+                    max_rows=DEFAULT_XLSX_MAX_ROWS,
+                    max_cols=DEFAULT_XLSX_MAX_COLS,
+                )
+            else:
+                capped_rows = min(total_rows, DEFAULT_XLSX_MAX_ROWS)
+                capped_cols = min(total_cols, DEFAULT_XLSX_MAX_COLS)
+                table, meta = _sheet_to_markdown_table(
+                    ws.iter_rows(
+                        min_row=1,
+                        max_row=capped_rows,
+                        max_col=capped_cols,
+                        values_only=True,
+                    ),
+                    total_rows=total_rows,
+                    total_cols=total_cols,
+                    max_rows=DEFAULT_XLSX_MAX_ROWS,
+                    max_cols=DEFAULT_XLSX_MAX_COLS,
+                )
+            sheets_meta.append({"name": sheet_name, **meta})
+            sections.append(f"## {sheet_name}")
+            sections.append(table)
+        joined = "\n\n".join(sections)
+        content, truncated = _apply_size_limit(joined, max_chars)
         return DocumentReadResult(
             content=content,
             truncated=truncated,
             format="xlsx",
-            metadata=metadata,
+            metadata={"sheets": sheetnames, "sheets_meta": sheets_meta},
         )
     finally:
         try:
             workbook.close()
         except Exception:
             pass
+
+
+def _read_xlsx_xml(
+    path: Path,
+    *,
+    sheet: str | None,
+    max_chars: int,
+    error_context: Exception | None = None,
+) -> DocumentReadResult:
+    try:
+        with zipfile.ZipFile(path) as zf:
+            sheet_info = _xlsx_sheet_info(zf)
+            if not sheet_info:
+                return DocumentReadResult(
+                    content="",
+                    truncated=False,
+                    format="xlsx",
+                    metadata={},
+                    error="No sheets found in XLSX.",
+                )
+            sheetnames = [name for name, _ in sheet_info]
+            shared_strings = _xlsx_shared_strings(zf)
+            if sheet:
+                sheet_name, sheet_path = _xlsx_select_sheet(sheet_info, sheet)
+                if not sheet_name:
+                    return DocumentReadResult(
+                        content="",
+                        truncated=False,
+                        format="xlsx",
+                        metadata={"sheets": sheetnames},
+                        error=f"Sheet not found: {sheet}",
+                    )
+                table, meta = _xlsx_sheet_to_markdown(
+                    zf,
+                    sheet_path,
+                    shared_strings,
+                    max_rows=DEFAULT_XLSX_MAX_ROWS,
+                    max_cols=DEFAULT_XLSX_MAX_COLS,
+                )
+                metadata = {"sheet": sheet_name, **meta}
+                content, truncated = _apply_size_limit(table, max_chars)
+                return DocumentReadResult(
+                    content=content,
+                    truncated=truncated,
+                    format="xlsx",
+                    metadata=metadata,
+                )
+            sections = [f"# {path.stem}"]
+            sheets_meta: list[dict[str, Any]] = []
+            for sheet_name, sheet_path in sheet_info:
+                table, meta = _xlsx_sheet_to_markdown(
+                    zf,
+                    sheet_path,
+                    shared_strings,
+                    max_rows=DEFAULT_XLSX_MAX_ROWS,
+                    max_cols=DEFAULT_XLSX_MAX_COLS,
+                )
+                sheets_meta.append({"name": sheet_name, **meta})
+                sections.append(f"## {sheet_name}")
+                sections.append(table)
+            joined = "\n\n".join(sections)
+            content, truncated = _apply_size_limit(joined, max_chars)
+            return DocumentReadResult(
+                content=content,
+                truncated=truncated,
+                format="xlsx",
+                metadata={"sheets": sheetnames, "sheets_meta": sheets_meta},
+            )
+    except Exception as exc:  # noqa: BLE001
+        hint = f"{error_context}; " if error_context else ""
+        return DocumentReadResult(
+            content="",
+            truncated=False,
+            format="xlsx",
+            metadata={},
+            error=f"XLSX read failed: {hint}{exc}",
+        )
 
 
 def _sheet_to_markdown_table(
@@ -383,13 +569,21 @@ def _sheet_to_markdown_table(
     max_cols: int,
 ) -> tuple[str, dict[str, Any]]:
     if total_rows == 0 or total_cols == 0:
-        return "(empty sheet)", {"rows": total_rows, "cols": total_cols}
+        return "(empty sheet)", {
+            "rows": total_rows,
+            "cols": total_cols,
+            "truncated": False,
+        }
 
     capped_rows = min(total_rows, max_rows)
     capped_cols = min(total_cols, max_cols)
     raw_rows = [list(row) for row in rows]
     if not raw_rows:
-        return "(empty sheet)", {"rows": total_rows, "cols": total_cols}
+        return "(empty sheet)", {
+            "rows": total_rows,
+            "cols": total_cols,
+            "truncated": False,
+        }
     header = raw_rows[0][:capped_cols]
     body_rows = raw_rows[1:capped_rows]
 
@@ -430,6 +624,15 @@ def _excel_col_name(index: int) -> str:
     return name
 
 
+def _excel_col_index(label: str) -> int:
+    total = 0
+    for ch in label.upper():
+        if not ("A" <= ch <= "Z"):
+            break
+        total = total * 26 + (ord(ch) - ord("A") + 1)
+    return total
+
+
 def _select_sheet(sheetnames: list[str], requested: str | None) -> str | None:
     if not sheetnames:
         return None
@@ -443,6 +646,171 @@ def _select_sheet(sheetnames: list[str], requested: str | None) -> str | None:
         if name.lower() == lowered:
             return name
     return None
+
+
+def _xlsx_strip_ns(tag: str) -> str:
+    return tag.split("}", 1)[-1]
+
+
+def _xlsx_sheet_info(zf: zipfile.ZipFile) -> list[tuple[str, str]]:
+    workbook_xml = zf.read("xl/workbook.xml")
+    rels_xml = zf.read("xl/_rels/workbook.xml.rels")
+    workbook_root = ET.fromstring(workbook_xml)
+    rels_root = ET.fromstring(rels_xml)
+    rel_map: dict[str, str] = {}
+    for rel in rels_root.iter():
+        if _xlsx_strip_ns(rel.tag) != "Relationship":
+            continue
+        rel_id = rel.attrib.get("Id")
+        target = rel.attrib.get("Target")
+        if rel_id and target:
+            rel_map[rel_id] = target
+    sheet_info: list[tuple[str, str]] = []
+    for sheet in workbook_root.iter():
+        if _xlsx_strip_ns(sheet.tag) != "sheet":
+            continue
+        name = sheet.attrib.get("name")
+        rel_id = sheet.attrib.get(
+            "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+        ) or sheet.attrib.get("r:id")
+        target = rel_map.get(rel_id or "")
+        if not (name and target):
+            continue
+        if target.startswith("/"):
+            target = target.lstrip("/")
+        if not target.startswith("xl/"):
+            target = f"xl/{target}"
+        sheet_info.append((name, target))
+    return sheet_info
+
+
+def _xlsx_select_sheet(
+    sheet_info: list[tuple[str, str]], requested: str
+) -> tuple[str | None, str | None]:
+    requested = requested.strip()
+    for name, path in sheet_info:
+        if name == requested:
+            return name, path
+    lowered = requested.lower()
+    for name, path in sheet_info:
+        if name.lower() == lowered:
+            return name, path
+    return None, None
+
+
+def _xlsx_shared_strings(zf: zipfile.ZipFile) -> list[str]:
+    try:
+        data = zf.read("xl/sharedStrings.xml")
+    except KeyError:
+        return []
+    root = ET.fromstring(data)
+    strings: list[str] = []
+    for si in root.iter():
+        if _xlsx_strip_ns(si.tag) != "si":
+            continue
+        parts: list[str] = []
+        for node in si.iter():
+            if _xlsx_strip_ns(node.tag) == "t":
+                parts.append(node.text or "")
+        strings.append("".join(parts))
+    return strings
+
+
+def _xlsx_cell_value(
+    cell: ET.Element, shared_strings: list[str]
+) -> object | None:
+    cell_type = cell.attrib.get("t")
+    v_text = None
+    inline_parts: list[str] = []
+    for child in cell:
+        tag = _xlsx_strip_ns(child.tag)
+        if tag == "v":
+            v_text = child.text
+        elif tag == "is":
+            for node in child.iter():
+                if _xlsx_strip_ns(node.tag) == "t":
+                    inline_parts.append(node.text or "")
+    if cell_type == "inlineStr":
+        return "".join(inline_parts)
+    if cell_type == "s":
+        if v_text is None:
+            return ""
+        try:
+            idx = int(v_text)
+        except ValueError:
+            return ""
+        if 0 <= idx < len(shared_strings):
+            return shared_strings[idx]
+        return ""
+    if cell_type == "b":
+        if v_text is None:
+            return ""
+        return "TRUE" if v_text == "1" else "FALSE"
+    if v_text is None:
+        return ""
+    return v_text
+
+
+def _xlsx_sheet_to_markdown(
+    zf: zipfile.ZipFile,
+    sheet_path: str,
+    shared_strings: list[str],
+    *,
+    max_rows: int,
+    max_cols: int,
+) -> tuple[str, dict[str, Any]]:
+    data = zf.read(sheet_path)
+    max_row = 0
+    max_col = 0
+    row_cache: list[dict[int, object | None]] = []
+    with io.BytesIO(data) as handle:
+        for _, elem in ET.iterparse(handle, events=("end",)):
+            if _xlsx_strip_ns(elem.tag) != "row":
+                continue
+            row_idx_raw = elem.attrib.get("r")
+            row_idx = int(row_idx_raw) if row_idx_raw and row_idx_raw.isdigit() else 0
+            if row_idx == 0:
+                row_idx = max_row + 1
+            max_row = max(max_row, row_idx)
+            row_values: dict[int, object | None] = {}
+            for cell in elem:
+                if _xlsx_strip_ns(cell.tag) != "c":
+                    continue
+                ref = cell.attrib.get("r")
+                if not ref:
+                    continue
+                match = re.match(r"([A-Z]+)", ref)
+                if not match:
+                    continue
+                col_idx = _excel_col_index(match.group(1))
+                if col_idx <= 0:
+                    continue
+                max_col = max(max_col, col_idx)
+                if row_idx <= max_rows and col_idx <= max_cols:
+                    row_values[col_idx] = _xlsx_cell_value(cell, shared_strings)
+            if row_idx <= max_rows:
+                row_cache.append(row_values)
+            elem.clear()
+    if max_row == 0 or max_col == 0:
+        return _sheet_to_markdown_table(
+            [],
+            total_rows=max_row,
+            total_cols=max_col,
+            max_rows=max_rows,
+            max_cols=max_cols,
+        )
+    capped_cols = min(max_col, max_cols)
+    rows: list[list[object | None]] = []
+    for row_values in row_cache:
+        row = [row_values.get(idx) for idx in range(1, capped_cols + 1)]
+        rows.append(row)
+    return _sheet_to_markdown_table(
+        rows,
+        total_rows=max_row,
+        total_cols=max_col,
+        max_rows=max_rows,
+        max_cols=max_cols,
+    )
 
 
 def _apply_size_limit(text: str, max_chars: int) -> tuple[str, bool]:
@@ -465,10 +833,21 @@ def _detect_format(path: Path) -> str:
         return "docx"
     if ext == ".pdf":
         return "pdf"
+    if ext == ".xlsx":
+        return "xlsx"
     return ""
 
 
 def _ensure_pandoc_available() -> None:
+    if _package_mode() == "full":
+        pandoc_path = _resolve_pandoc_binary()
+        if not pandoc_path:
+            raise RuntimeError(
+                "Full package mode requires a bundled pandoc binary under "
+                "`dogent/resources/tools/pandoc/<platform>/`."
+            )
+        os.environ["PYPANDOC_PANDOC"] = str(pandoc_path)
+        return
     if shutil.which("pandoc"):
         return
     try:
@@ -873,6 +1252,7 @@ async def _html_to_pdf(
     footer_template: str | None = None,
     source_url: str | None = None,
 ) -> None:
+    _configure_playwright_browsers()
     try:
         from playwright.async_api import async_playwright
     except Exception as exc:  # noqa: BLE001
@@ -938,7 +1318,22 @@ async def _html_to_pdf(
             await browser.close()
 
 
+def _configure_playwright_browsers() -> None:
+    if _package_mode() != "full":
+        return
+    browsers_path = _resolve_playwright_browsers_path()
+    if not browsers_path:
+        raise RuntimeError(
+            "Full package mode requires bundled Playwright Chromium under "
+            "`dogent/resources/tools/playwright/<platform>/`."
+        )
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(browsers_path)
+
+
 def _ensure_playwright_chromium_installed() -> None:
+    if _package_mode() == "full":
+        _configure_playwright_browsers()
+        return
     try:
         subprocess.run(
             [sys.executable, "-m", "playwright", "install", "chromium"],

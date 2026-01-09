@@ -71,7 +71,7 @@ def create_dogent_doc_tools(root: Path) -> list[SdkMcpTool]:
         "properties": {
             "input_path": {
                 "type": "string",
-                "description": "Workspace-relative source path (.docx, .pdf, or .md).",
+                "description": "Workspace-relative source path (.docx, .pdf, .md, or .xlsx).",
             },
             "output_path": {
                 "type": "string",
