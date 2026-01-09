@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "Dogent Team"}]
 dependencies = [
-    "claude-agent-sdk>=0.1.17",
+    "claude-agent-sdk>=0.1.19",
     "jsonschema>=4.21.0",
     "markdown-it-py>=3.0.0",
     "openpyxl>=3.1.2",
