@@ -66,12 +66,41 @@ class DocumentIOTests(unittest.TestCase):
             wb.save(path)
 
             default_result = read_document(path)
-            self.assertEqual(default_result.metadata.get("sheet"), "Sheet1")
+            self.assertIn("# sample", default_result.content)
+            self.assertIn("## Sheet1", default_result.content)
+            self.assertIn("## Sheet2", default_result.content)
             self.assertIn("Alpha", default_result.content)
+            self.assertIn("Second", default_result.content)
+            self.assertIn("\n\n## Sheet2", default_result.content)
+            self.assertEqual(default_result.metadata.get("sheets"), ["Sheet1", "Sheet2"])
+            sheets_meta = default_result.metadata.get("sheets_meta") or []
+            self.assertEqual(sheets_meta[0]["name"], "Sheet1")
+            self.assertEqual(sheets_meta[1]["name"], "Sheet2")
 
             sheet2_result = read_document(path, sheet="Sheet2")
             self.assertEqual(sheet2_result.metadata.get("sheet"), "Sheet2")
             self.assertIn("Second", sheet2_result.content)
+
+    def test_read_xlsx_falls_back_to_xml_reader(self) -> None:
+        try:
+            import openpyxl  # type: ignore
+        except Exception:
+            self.skipTest("openpyxl not installed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fallback.xlsx"
+            wb = openpyxl.Workbook()
+            ws1 = wb.active
+            ws1.title = "Main"
+            ws1.append(["A", "B"])
+            ws1.append(["Row", 1])
+            wb.save(path)
+
+            with mock.patch("openpyxl.load_workbook", side_effect=RuntimeError("boom")):
+                result = read_document(path)
+            self.assertIn("# fallback", result.content)
+            self.assertIn("## Main", result.content)
+            self.assertIn("Row", result.content)
 
     def test_read_docx_with_pandoc(self) -> None:
         try:
@@ -234,6 +263,44 @@ class DocumentIOTests(unittest.TestCase):
         self.assertIn('style="border: 0"', normalized)
         self.assertEqual(warnings, [])
 
+    def test_package_mode_resolves_bundled_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "resources" / "tools"
+            pandoc_dir = root / "pandoc" / document_io._platform_tag()
+            pandoc_dir.mkdir(parents=True, exist_ok=True)
+            pandoc_name = "pandoc.exe" if sys.platform == "win32" else "pandoc"
+            pandoc_path = pandoc_dir / pandoc_name
+            pandoc_path.write_text("stub", encoding="utf-8")
+
+            chromium_dir = root / "playwright" / document_io._platform_tag()
+            (chromium_dir / "chromium-1234").mkdir(parents=True, exist_ok=True)
+
+            with mock.patch.dict(os.environ, {"DOGENT_PACKAGE_MODE": "full"}):
+                with mock.patch(
+                    "dogent.features.document_io._bundled_tools_root",
+                    return_value=root,
+                ):
+                    resolved = document_io._resolve_pandoc_binary()
+                    self.assertEqual(resolved, pandoc_path)
+                    document_io._ensure_pandoc_available()
+                    self.assertEqual(os.environ.get("PYPANDOC_PANDOC"), str(pandoc_path))
+                    self.assertEqual(
+                        document_io._resolve_playwright_browsers_path(), chromium_dir
+                    )
+
+    def test_package_mode_missing_bundles_raise(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "resources" / "tools"
+            with mock.patch.dict(os.environ, {"DOGENT_PACKAGE_MODE": "full"}):
+                with mock.patch(
+                    "dogent.features.document_io._bundled_tools_root",
+                    return_value=root,
+                ):
+                    with self.assertRaises(RuntimeError):
+                        document_io._ensure_pandoc_available()
+                    with self.assertRaises(RuntimeError):
+                        document_io._configure_playwright_browsers()
+
 
 class DocumentIOAsyncTests(unittest.IsolatedAsyncioTestCase):
     async def test_playwright_install_runs_in_thread(self) -> None:
@@ -361,6 +428,37 @@ class DocumentConversionTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Hello PDF", output_md.read_text(encoding="utf-8"))
             self.assertEqual(result.output_format, "md")
             self.assertTrue(result.notes)
+
+    async def test_convert_xlsx_to_markdown(self) -> None:
+        try:
+            import openpyxl  # type: ignore
+        except Exception:
+            self.skipTest("openpyxl not installed")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            xlsx_path = tmp_path / "source.xlsx"
+            wb = openpyxl.Workbook()
+            ws1 = wb.active
+            ws1.title = "SheetA"
+            ws1.append(["Col", "Value"])
+            ws1.append(["Row", 1])
+            ws2 = wb.create_sheet("SheetB")
+            ws2.append(["Note"])
+            ws2.append(["Second"])
+            wb.save(xlsx_path)
+
+            output_md = tmp_path / "output.md"
+            result = await document_io.convert_document_async(
+                xlsx_path, output_path=output_md
+            )
+
+            self.assertTrue(output_md.exists())
+            text = output_md.read_text(encoding="utf-8")
+            self.assertIn("# source", text)
+            self.assertIn("## SheetA", text)
+            self.assertIn("## SheetB", text)
+            self.assertEqual(result.output_format, "md")
 
 
 if __name__ == "__main__":
