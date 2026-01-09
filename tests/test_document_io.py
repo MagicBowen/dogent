@@ -1,7 +1,10 @@
+import os
+import sys
 import tempfile
 import unittest
 from unittest import mock
 from pathlib import Path
+from types import SimpleNamespace
 
 from dogent.features import document_io
 from dogent.features.document_io import read_document
@@ -215,6 +218,22 @@ class DocumentIOTests(unittest.TestCase):
             )
             self.assertIn("data:image/png;base64", html)
 
+    def test_normalize_markdown_for_docx_converts_img_tags(self) -> None:
+        md_text = (
+            "Before\n"
+            "<div align=\"center\"><img src=\"../images/2.png\" width=\"70%\" alt=\"Hero\"></div>\n"
+            "<img src=\"./images/1.png\" style=\"width:70%; height:40px; border:0\" title=\"Sample\">\n"
+            "After"
+        )
+        normalized, warnings = document_io._normalize_markdown_for_docx(md_text)
+        self.assertNotIn("<img", normalized)
+        self.assertIn("![Hero](../images/2.png)", normalized)
+        self.assertIn('width="70%"', normalized)
+        self.assertIn('align="center"', normalized)
+        self.assertIn('height="40px"', normalized)
+        self.assertIn('style="border: 0"', normalized)
+        self.assertEqual(warnings, [])
+
 
 class DocumentIOAsyncTests(unittest.IsolatedAsyncioTestCase):
     async def test_playwright_install_runs_in_thread(self) -> None:
@@ -247,6 +266,38 @@ class DocumentIOAsyncTests(unittest.IsolatedAsyncioTestCase):
                     )
             _, kwargs = html_to_pdf.await_args
             self.assertTrue(kwargs["source_url"].startswith("file://"))
+
+    async def test_markdown_to_docx_uses_resource_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "workspace"
+            md_dir = root / "docs"
+            md_dir.mkdir(parents=True, exist_ok=True)
+            md_path = md_dir / "note.md"
+            md_path.write_text("![x](../images/1.png)", encoding="utf-8")
+            output_path = root / "note.docx"
+            fake_pandoc = SimpleNamespace(convert_file=mock.Mock())
+            with (
+                mock.patch.dict(sys.modules, {"pypandoc": fake_pandoc}),
+                mock.patch("dogent.features.document_io._ensure_pandoc_available"),
+            ):
+                document_io._markdown_to_docx(
+                    md_path, output_path=output_path, workspace_root=root
+                )
+            _, kwargs = fake_pandoc.convert_file.call_args
+            self.assertEqual(
+                kwargs["format"],
+                "markdown+raw_html+link_attributes+pipe_tables+multiline_tables"
+                "+grid_tables+fenced_code_blocks",
+            )
+            self.assertEqual(kwargs["to"], "docx")
+            resource_arg = next(
+                arg for arg in kwargs["extra_args"] if arg.startswith("--resource-path=")
+            )
+            self.assertIn("--highlight-style=tango", kwargs["extra_args"])
+            expected = os.pathsep.join(
+                [str(md_dir.resolve()), str(root.resolve())]
+            )
+            self.assertEqual(resource_arg, f"--resource-path={expected}")
 
 
 class DocumentConversionTests(unittest.IsolatedAsyncioTestCase):

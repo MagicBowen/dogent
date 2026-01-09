@@ -87,6 +87,31 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 ### Story 5: Panels + English Documentation Refresh
 - User Value: Users see a concise startup panel, an expanded help panel, and complete English documentation.
 - Acceptance: Startup panel is minimal; help panel documents end-to-end usage; `docs/dogent_design.md` added with mermaid diagrams; `docs/usage.md` rewritten in English with step-by-step examples.
-- Dev Status: Todo
-- Acceptance Status: Pending
+- Dev Status: Done
+- Acceptance Status: Accepted
 - Verification: Manual review of panels/docs.
+
+---
+
+## Release 0.9.14
+
+### Story 1: DOCX Export Embeds Markdown Images
+- User Value: Users get DOCX exports that include all local images referenced in Markdown or HTML.
+- Acceptance: Markdown and HTML image references (relative or absolute local paths) appear in the DOCX output; width/height/style attributes are preserved where possible; code blocks and tables render correctly with a syntax-highlighted theme; conversion uses a normalized Markdown copy and proper resource paths.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: `python -m unittest discover -s tests -v`
+
+### Story 2: Startup Panel Simplified + Markdown Help Panel
+- User Value: Startup UI is concise while help remains comprehensive and readable.
+- Acceptance: Startup panel shows name/version, model/profile info, and 1-2 key reminders only; `/help` renders Markdown directly in the normal CLI panel.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Manual CLI review.
+
+### Story 3: English End-to-End Usage Guide
+- User Value: New users can install, configure, and use Dogent with step-by-step examples.
+- Acceptance: `docs/usage.md` is fully rewritten in English with end-to-end flow (install -> configure -> run -> tools/templates -> permissions -> troubleshooting) and includes examples.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Doc review.

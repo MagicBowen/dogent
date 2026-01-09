@@ -98,3 +98,35 @@ User Test Results: PASS
 4) `cd sample`, run `dogent`, then `/help`, then `/exit`.
 
 User Test Results: PASS
+
+---
+
+## Release 0.9.14
+
+### Story 1 – DOCX Export Embeds Markdown Images
+1) `cd sample`
+2) Create `docs/images` and add two images (for example `docs/images/1.png` and `docs/images/2.png`).
+3) Create `docs/notes.md` with:
+   - `![](../images/1.png)`
+   - `<div align="center"><img src="../images/2.png" width="70%"></div>`
+   - A fenced code block (language tag included).
+   - A Markdown table.
+4) Run `dogent` and ask: “Export docs/notes.md to docs/notes.docx”.
+5) Open `docs/notes.docx` and confirm both images render; the second image respects width; code block is styled; table layout is preserved.
+
+User Test Results: PASS
+
+### Story 2 – Startup Panel Simplified + Markdown Help Panel
+1) `cd sample`
+2) Run `dogent` and confirm the startup panel shows name/version, model/profile info, and 1–2 reminders only.
+3) Run `/help` and confirm the help content renders in a framed panel with Markdown styling (headings/lists/code).
+4) Exit the CLI with `/exit`.
+
+User Test Results: PASS
+
+### Story 3 – English End-to-End Usage Guide
+1) Open `docs/usage.md`.
+2) Confirm the doc is English-only and covers install -> configure -> run -> tools/templates -> permissions -> troubleshooting.
+3) Confirm examples are present (CLI commands and/or config snippets).
+
+User Test Results: PASS

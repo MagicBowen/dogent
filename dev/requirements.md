@@ -40,7 +40,7 @@ Here are suggestions for refactoring the code of dogent：
 ## Release 0.9.14
 
 - Issue: when convert markdown file to docx file, all the images referenced in markdown should be shown in docx. The images referenced in markdown use syntax such as : `![](../images/1.png)` or `<div align="center"><img src="../images/2.png" width="70%"></div>`
-- Simplify the content in the startup dogent panel, retaining only the necessary introductions and important reminders. Supplement the help panel in markdown preview mode with as comprehensive a functional introduction as possible.
+- Simplify the content in the startup dogent panel, retaining only the necessary introductions and important reminders. Supplement the help panel (Markdown-rendered in the normal CLI panel) with as comprehensive a functional introduction as possible.
 - Refactor `docs/usage.md` to introduce all functions of dogent in a complete end-to-end manner, step by step, from install to usage with examples;
 
 ---

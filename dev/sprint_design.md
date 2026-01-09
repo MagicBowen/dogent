@@ -163,3 +163,65 @@
 - Update unit tests that import `DogentCLI`, `ConfigManager`, `DogentPaths`, and tool modules.
 - Add tests for new template loader (reading prompt/config files from new paths).
 - Smoke test for help/startup panel output (if CLI snapshot tests exist).
+
+---
+
+## Release 0.9.14
+
+### Goals
+- Ensure Markdown -> DOCX conversion embeds local images referenced via Markdown or HTML.
+- Simplify the startup panel to name/version, model/profile info, and 1-2 key reminders.
+- Render `/help` as Markdown in the normal CLI panel (not editor preview).
+- Rewrite `docs/usage.md` in English as a complete end-to-end guide with examples.
+
+### Current Behavior (Summary)
+- `_markdown_to_docx` calls pandoc with default Markdown parsing and no resource path;
+  HTML `<img>` blocks and some relative image references are not embedded in DOCX.
+- Startup panel contains verbose messaging.
+- `/help` renders through the editor preview workflow instead of a normal CLI panel.
+- `docs/usage.md` is incomplete for end-to-end onboarding.
+
+### Proposed Changes
+1) Markdown -> DOCX image handling
+   - Preprocess Markdown before pandoc conversion:
+     - Convert HTML `<img>` tags (including those nested in `<div align=...>`) into
+       Markdown image syntax with Pandoc attribute blocks.
+     - Parse and preserve all HTML attributes (including `width`, `height`, `style`,
+       `alt`, `title`, `align`, `class`, `id`, and custom `data-*` attributes) by
+       translating them into Pandoc image attributes where possible.
+     - Extract width/height from `style` when present (e.g., `width:70%` or `width:240px`)
+       and include as explicit `width`/`height` attributes alongside any remaining style.
+     - Resolve local relative image paths against the Markdown file directory.
+     - Allow absolute local paths; ignore remote URLs (leave unchanged or emit warning).
+   - Run pandoc with explicit Markdown extensions:
+     - Use `format="markdown+raw_html+link_attributes+pipe_tables+multiline_tables+grid_tables+fenced_code_blocks"`.
+     - Supply `--resource-path` including the Markdown directory (and workspace root if available)
+       to ensure relative image paths resolve correctly.
+     - Keep `--standalone` for DOCX output.
+     - Use a syntax highlight style (e.g. `--highlight-style=tango`) for code blocks.
+   - Use a temporary normalized Markdown copy for conversion to avoid mutating user files.
+
+2) Startup panel simplification
+   - Reduce to a small header with:
+     - Name + version.
+     - Model/fast model and LLM profile.
+     - Web/vision profile (if configured).
+     - 1-2 reminders (proposed: `/help` for usage, `Esc` to interrupt).
+
+3) Help panel rendering
+   - Render `/help` as Markdown directly in the normal CLI panel.
+   - Keep the help content in Markdown format to allow headings, lists, and code blocks.
+
+4) Documentation rewrite
+   - Rewrite `docs/usage.md` in English with end-to-end flow:
+     - Install, initialize, run a task, use templates, attach files, use tools,
+       permissions model, troubleshooting.
+   - Ensure examples include CLI commands and expected outcomes.
+
+### Tests to Add/Update
+- `tests/test_document_io.py`:
+  - Verify HTML `<img>` is converted into Markdown image syntax with attributes.
+  - Verify style width/height extraction logic (percent and px).
+  - Mock `pypandoc.convert_file` to assert `format` and `--resource-path` arguments.
+- Add a small unit test for help rendering to confirm Markdown is passed into the panel
+  (if a panel snapshot or render test pattern exists).
