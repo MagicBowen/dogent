@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import mimetypes
+import os
 import re
 import shutil
 import subprocess
@@ -66,7 +67,7 @@ def export_markdown(
 ) -> list[str]:
     normalized = format.strip().lower()
     if normalized == "docx":
-        _markdown_to_docx(md_path, output_path=output_path)
+        _markdown_to_docx(md_path, output_path=output_path, workspace_root=workspace_root)
         return []
     if normalized == "pdf":
         return _run_async(
@@ -90,7 +91,7 @@ async def export_markdown_async(
 ) -> list[str]:
     normalized = format.strip().lower()
     if normalized == "docx":
-        _markdown_to_docx(md_path, output_path=output_path)
+        _markdown_to_docx(md_path, output_path=output_path, workspace_root=workspace_root)
         return []
     if normalized == "pdf":
         return await _markdown_to_pdf(
@@ -132,7 +133,7 @@ async def convert_document_async(
             extract_media_dir=extract_media_dir,
         )
     elif input_format == "md" and output_format == "docx":
-        _markdown_to_docx(input_path, output_path=output_path)
+        _markdown_to_docx(input_path, output_path=output_path, workspace_root=workspace_root)
     elif input_format == "md" and output_format == "pdf":
         style_notes = await _markdown_to_pdf(
             input_path,
@@ -167,7 +168,7 @@ async def convert_document_async(
         with tempfile.TemporaryDirectory() as tmp:
             tmp_md = Path(tmp) / "source.md"
             tmp_md.write_text(result.content, encoding="utf-8")
-            _markdown_to_docx(tmp_md, output_path=output_path)
+            _markdown_to_docx(tmp_md, output_path=output_path, workspace_root=workspace_root)
     else:
         raise ValueError(f"Unsupported conversion: {input_format} -> {output_format}")
 
@@ -489,17 +490,192 @@ def _ensure_pandoc_available() -> None:
         ) from exc
 
 
-def _markdown_to_docx(md_path: Path, *, output_path: Path) -> None:
+_HTML_IMG_TAG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+_HTML_DIV_IMG_TAG = re.compile(
+    r"<div\b(?P<div_attrs>[^>]*)>\s*(?P<img_tag><img\b[^>]*>)\s*</div>",
+    re.IGNORECASE | re.DOTALL,
+)
+_HTML_ATTR_PATTERN = re.compile(
+    r"([a-zA-Z_:][\w:.-]*)(?:\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s\"'>]+))?"
+)
+
+
+def _normalize_markdown_for_docx(md_text: str) -> tuple[str, list[str]]:
+    warnings: list[str] = []
+
+    def replace_div(match: re.Match[str]) -> str:
+        div_attrs = _parse_html_attrs(match.group("div_attrs") or "")
+        img_tag = match.group("img_tag") or ""
+        rendered = _render_markdown_image(img_tag, div_attrs, warnings)
+        return rendered if rendered else match.group(0)
+
+    text = _HTML_DIV_IMG_TAG.sub(replace_div, md_text)
+
+    def replace_img(match: re.Match[str]) -> str:
+        rendered = _render_markdown_image(match.group(0), None, warnings)
+        return rendered if rendered else match.group(0)
+
+    text = _HTML_IMG_TAG.sub(replace_img, text)
+    return text, warnings
+
+
+def _render_markdown_image(
+    img_tag: str,
+    extra_attrs: dict[str, str] | None,
+    warnings: list[str],
+) -> str | None:
+    attrs = _parse_html_attrs(img_tag)
+    if extra_attrs:
+        for key, value in extra_attrs.items():
+            attrs.setdefault(key, value)
+    src = attrs.pop("src", None)
+    if not src:
+        return None
+    src = _normalize_image_src(src)
+    if src is None:
+        warnings.append("Skipping non-local image reference in DOCX export.")
+        return None
+    alt = attrs.pop("alt", "") or ""
+    title = attrs.pop("title", "")
+    style = attrs.pop("style", "")
+    width_attr = attrs.get("width")
+    height_attr = attrs.get("height")
+    width_style, height_style, style_rest = _extract_style_dimensions(style)
+    if not width_attr and width_style:
+        attrs["width"] = width_style
+    if not height_attr and height_style:
+        attrs["height"] = height_style
+    if style_rest:
+        attrs["style"] = style_rest
+    target = _format_markdown_target(src)
+    title_block = f' "{title}"' if title else ""
+    attrs_block = _format_pandoc_attrs(attrs)
+    return f"![{alt}]({target}{title_block}){attrs_block}"
+
+
+def _parse_html_attrs(raw: str) -> dict[str, str]:
+    if not raw:
+        return {}
+    text = raw.strip()
+    if text.startswith("<"):
+        text = re.sub(r"^<\w+\b", "", text, flags=re.IGNORECASE).strip()
+        if text.endswith(">"):
+            text = text[:-1].strip()
+    attrs: dict[str, str] = {}
+    for match in _HTML_ATTR_PATTERN.finditer(text):
+        key = match.group(1)
+        raw_value = match.group(2)
+        if not key:
+            continue
+        if raw_value is None:
+            continue
+        value = raw_value.strip()
+        if (value.startswith("\"") and value.endswith("\"")) or (
+            value.startswith("'") and value.endswith("'")
+        ):
+            value = value[1:-1]
+        attrs[key] = value
+    return attrs
+
+
+def _extract_style_dimensions(style: str) -> tuple[str | None, str | None, str]:
+    if not style:
+        return None, None, ""
+    width = None
+    height = None
+    remaining: list[str] = []
+    for part in style.split(";"):
+        item = part.strip()
+        if not item:
+            continue
+        if ":" not in item:
+            remaining.append(item)
+            continue
+        key, value = item.split(":", 1)
+        key = key.strip().lower()
+        value = value.strip()
+        if key == "width" and value:
+            width = value
+            continue
+        if key == "height" and value:
+            height = value
+            continue
+        remaining.append(f"{key}: {value}")
+    return width, height, "; ".join(remaining).strip()
+
+
+def _normalize_image_src(src: str) -> str | None:
+    cleaned = src.strip()
+    lowered = cleaned.lower()
+    if lowered.startswith(("http://", "https://", "data:")):
+        return None
+    if lowered.startswith("file://"):
+        parsed = urlparse(cleaned)
+        file_path = unquote(parsed.path or "")
+        if file_path.startswith("/") and re.match(r"^/[a-zA-Z]:/", file_path):
+            file_path = file_path[1:]
+        return file_path or None
+    if re.match(r"^[a-zA-Z]:[\\\\/]", cleaned):
+        return cleaned
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", cleaned):
+        return None
+    return cleaned
+
+
+def _format_markdown_target(src: str) -> str:
+    parsed = urlparse(src)
+    if parsed.scheme:
+        return src
+    raw_path = unquote(parsed.path)
+    if Path(raw_path).is_absolute():
+        return raw_path
+    target = src
+    if re.search(r"[\s()<>]", target):
+        return f"<{target}>"
+    return target
+
+
+def _format_pandoc_attrs(attrs: dict[str, str]) -> str:
+    if not attrs:
+        return ""
+    parts: list[str] = []
+    for key, value in attrs.items():
+        if value == "":
+            parts.append(key)
+            continue
+        escaped = value.replace("\"", "\\\"")
+        parts.append(f'{key}="{escaped}"')
+    return "{" + " ".join(parts) + "}"
+
+
+def _markdown_to_docx(
+    md_path: Path, *, output_path: Path, workspace_root: Path | None = None
+) -> None:
     _ensure_pandoc_available()
     import pypandoc
 
-    pypandoc.convert_file(
-        str(md_path),
-        to="docx",
-        format="md",
-        outputfile=str(output_path),
-        extra_args=["--standalone"],
-    )
+    md_text = md_path.read_text(encoding="utf-8", errors="replace")
+    normalized, _ = _normalize_markdown_for_docx(md_text)
+    resource_paths = [md_path.parent.resolve()]
+    if workspace_root:
+        root_resolved = workspace_root.resolve()
+        if root_resolved not in resource_paths:
+            resource_paths.append(root_resolved)
+    resource_arg = f"--resource-path={os.pathsep.join(str(p) for p in resource_paths)}"
+    extra_args = ["--standalone", resource_arg, "--highlight-style=tango"]
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_md = Path(tmp) / md_path.name
+        tmp_md.write_text(normalized, encoding="utf-8")
+        pypandoc.convert_file(
+            str(tmp_md),
+            to="docx",
+            format=(
+                "markdown+raw_html+link_attributes+pipe_tables"
+                "+multiline_tables+grid_tables+fenced_code_blocks"
+            ),
+            outputfile=str(output_path),
+            extra_args=extra_args,
+        )
 
 
 def _default_pdf_css() -> str:

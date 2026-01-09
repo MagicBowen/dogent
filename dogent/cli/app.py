@@ -324,6 +324,8 @@ class DogentCLI:
         )
 
     def _print_banner(self, settings) -> None:
+        from dogent import __version__
+
         art = r"""
  ██████╗  ██████╗  ██████╗ ███████╗███╗   ██╗████████╗
  ██╔══██╗██╔═══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝
@@ -334,28 +336,24 @@ class DogentCLI:
 """
         model = settings.model or "<not set>"
         fast_model = settings.small_model or "<not set>"
-        base_url = settings.base_url or "<not set>"
         web_label = settings.web_profile or "default (native)"
         project_cfg = self.config_manager.load_project_config()
         vision_profile = project_cfg.get("vision_profile") or "<not set>"
-        commands = ", ".join(self.registry.names()) or "No commands registered"
         helper_lines = [
+            f"Dogent v{__version__}",
             f"Model: {model}",
             f"Fast Model: {fast_model}",
-            f"API: {base_url}",
             f"LLM Profile: {settings.profile or '<not set>'}",
             f"Web Profile: {web_label}",
             f"Vision Profile: {vision_profile}",
-            f"Commands: {commands}",
-            "Shortcuts: Esc interrupt • Ctrl+E editor (Ctrl+P preview, Ctrl+Q return) • Alt/Option+Enter newline",
-            "Ctrl+C exit • !<command> run shell command in workspace",
+            "Reminders: /help for usage • Esc to interrupt (Ctrl+C to exit)",
         ]
         body = Align.center(art.strip("\n"))
-        helper = Align.center("\n".join(helper_lines))
+        helper = Align.left("\n".join(helper_lines))
         content = Group(body, helper)
         self.console.print(
             Panel(
-                Align.center(content),
+                content,
                 title="🐶 Dogent",
                 subtitle=None,
                 expand=True,
@@ -977,7 +975,14 @@ class DogentCLI:
         return "\n".join(padded)
 
     async def _open_multiline_editor(
-        self, initial_text: str, *, title: str, context: str, file_path: Path | None = None
+        self,
+        initial_text: str,
+        *,
+        title: str,
+        context: str,
+        file_path: Path | None = None,
+        read_only: bool = False,
+        start_in_preview: bool = False,
     ) -> EditorOutcome:
         if not self._can_use_multiline_editor():
             return EditorOutcome(action="submit", text=initial_text)
@@ -989,17 +994,31 @@ class DogentCLI:
             preview_title = "Markdown preview (read-only)"
             editor_mode = self._editor_mode()
             editing_mode = EditingMode.VI if editor_mode == "vi" else EditingMode.EMACS
-            editor = TextArea(
-                text=initial_text,
-                multiline=True,
-                wrap_lines=True,
-                scrollbar=True,
-                lexer=SimpleMarkdownLexer(),
-            )
+            editor_kwargs = {
+                "text": initial_text,
+                "multiline": True,
+                "wrap_lines": True,
+                "scrollbar": True,
+                "lexer": SimpleMarkdownLexer(),
+            }
+            if read_only:
+                editor_kwargs["read_only"] = True
+            try:
+                editor = TextArea(**editor_kwargs)
+            except TypeError:
+                editor = TextArea(
+                    text=initial_text,
+                    multiline=True,
+                    wrap_lines=True,
+                    scrollbar=True,
+                    lexer=SimpleMarkdownLexer(),
+                )
+                if read_only and hasattr(editor, "read_only"):
+                    editor.read_only = True
             preview_text = ""
             preview_scroll = 0
             preview_line_count = 0
-            mode = "edit"
+            mode = "preview" if start_in_preview else "edit"
             current_file = file_path if context == "file_edit" else None
             submit_hint = "Ctrl+Enter"
             submit_bound = False
@@ -1086,6 +1105,8 @@ class DogentCLI:
                 return f"{prefix}{mode_label} {dirty_mark} {title} | Ln {row}, Col {col}"
 
             def footer_text() -> str:
+                if read_only:
+                    return "Read-only preview | Esc return | Scroll: Wheel/↑/↓ PgUp/PgDn Home/End"
                 if editing_mode == EditingMode.VI:
                     vi_label = _vi_state_label(app)
                     line1 = f"{vi_label} | {mode.upper()}"
@@ -1248,6 +1269,15 @@ class DogentCLI:
             editor_frame = Frame(editor, title=editor_title)
             preview_frame = Frame(preview_window, title=preview_title, style="class:preview")
 
+            if start_in_preview:
+                columns = shutil.get_terminal_size((80, 20)).columns
+                scrollbar_width = 1 if ScrollbarMargin else 0
+                preview_width = max(20, columns - 4 - scrollbar_width)
+                preview_text = self._render_markdown_preview(editor.text, preview_width)
+                preview_lines = preview_text.splitlines() if preview_text else []
+                preview_line_count = len(preview_lines) if preview_lines else 1
+                preview_scroll = 0
+
             if context == "file_edit":
                 return_options = [
                     ("Save", "save"),
@@ -1379,6 +1409,8 @@ class DogentCLI:
                 height=1,
                 content=FormattedTextControl(
                     "Preview mode • Scroll: Wheel/↑/↓ PgUp/PgDn Home/End • Esc return"
+                    if not read_only
+                    else "Preview mode (read-only) • Scroll: Wheel/↑/↓ PgUp/PgDn Home/End • Esc return"
                 ),
                 style="class:preview_footer",
                 wrap_lines=True,
@@ -1391,7 +1423,7 @@ class DogentCLI:
             body = DynamicContainer(current_root)
             layout = Layout(
                 body,
-                focused_element=editor,
+                focused_element=preview_window if start_in_preview else editor,
             )
             bindings = KeyBindings()
 
@@ -1852,6 +1884,11 @@ class DogentCLI:
             @bindings.add("escape", filter=preview_active, eager=True)
             def _preview_escape(event) -> None:  # type: ignore[no-untyped-def]
                 nonlocal mode
+                if read_only:
+                    event.app.exit(
+                        result=EditorOutcome(action="discard", text=initial_text)
+                    )
+                    return
                 mode = "edit"
                 event.app.layout.focus(editor)
                 event.app.invalidate()
@@ -2010,6 +2047,7 @@ class DogentCLI:
                 clipboard=clipboard,
                 editing_mode=editing_mode,
                 after_render=_sync_selection_clipboard,
+                erase_when_done=read_only,
             )
             return await app.run_async()
         finally:
@@ -3298,29 +3336,50 @@ class DogentCLI:
         settings = self.config_manager.load_settings()
         project_cfg = self.config_manager.load_project_config()
         vision_profile = project_cfg.get("vision_profile") or "<not set>"
-        commands = "\n".join(self.registry.descriptions()) or "No commands registered"
+        commands = self.registry.descriptions()
+        command_list = "\n".join(f"- {line}" for line in commands) or "- (none)"
         body = "\n".join(
             [
-                f"Model: {settings.model or '<not set>'}",
-                f"Fast Model: {settings.small_model or '<not set>'}",
-                f"API: {settings.base_url or '<not set>'}",
-                f"LLM Profile: {settings.profile or '<not set>'}",
-                f"Web Profile: {settings.web_profile or 'default (native)'}",
-                f"Vision Profile: {vision_profile}",
+                "# Dogent Help",
                 "",
-                "Commands:",
-                commands,
+                "## Runtime",
+                f"- **Model:** {settings.model or '<not set>'}",
+                f"- **Fast Model:** {settings.small_model or '<not set>'}",
+                f"- **API:** {settings.base_url or '<not set>'}",
+                f"- **LLM Profile:** {settings.profile or '<not set>'}",
+                f"- **Web Profile:** {settings.web_profile or 'default (native)'}",
+                f"- **Vision Profile:** {vision_profile}",
                 "",
-                "Shortcuts:",
+                "## Commands",
+                command_list,
+                "",
+                "## Shortcuts",
                 "- Esc: interrupt current task",
                 "- Ctrl+E: open markdown editor (Ctrl+P preview, Ctrl+Enter submit, Ctrl+Q return)",
                 "- Alt/Option+Enter: insert newline",
                 "- Alt/Option+Backspace: delete word",
                 "- Ctrl+C: exit gracefully",
-                "- !<command>: run a shell command in the workspace",
+                "- `!<command>`: run a shell command in the workspace",
+                "",
+                "## Workspace Files",
+                "- `.dogent/dogent.json`: workspace config",
+                "- `.dogent/dogent.md`: workspace preferences",
+                "- `.dogent/history.json`: task history",
+                "- `.dogent/lessons.md`: lessons learned",
+                "",
+                "## Templates",
+                "- Workspace: `.dogent/templates/<name>.md`",
+                "- Global: `~/.dogent/templates/<name>.md` (use `global:<name>`)",
+                "- Built-in: `dogent/templates/<name>.md` (use `built-in:<name>`)",
+                "",
+                "## Permissions",
+                "- Access outside workspace and destructive operations require confirmation.",
+                "- Deny => task abort; allow => task continues.",
             ]
         )
-        self.console.print(Panel(body, title="💡 Help", border_style="cyan"))
+        self.console.print(
+            Panel(Markdown(body, code_theme="monokai"), title="💡 Help", border_style="cyan")
+        )
         return True
 
     async def run(self) -> None:
