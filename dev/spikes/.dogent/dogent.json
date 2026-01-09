@@ -1,7 +1,0 @@
-{
-  "llm_profile": "glm",
-  "web_profile": "brave",
-  "doc_template": "general",
-  "primary_language": "Chinese",
-  "learn_auto": true
-}
