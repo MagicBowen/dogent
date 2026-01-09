@@ -104,6 +104,7 @@ from .input import (
     Window,
     button_dialog,
     get_app,
+    get_cwidth,
     input_dialog,
     merge_key_bindings,
     style_from_pygments_cls,
