@@ -15,25 +15,32 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
  
 ---
 
-## Release 0.9.15
+## Release 0.9.16
 
-### Story 1: XLSX Multi-Sheet Markdown Export
-- User Value: Users can convert entire XLSX files into a single Markdown output without manually listing sheets.
-- Acceptance: When `sheet` is omitted, output uses the full filename stem as H1 and includes all sheets in order with H2 sheet titles, blank lines between sheets, and per-sheet truncation notes; when `sheet` is specified, behavior remains single-sheet; `convert_document` supports XLSX -> Markdown.
+### Story 1: Load Claude Commands into CLI
+- User Value: Use project/user `.claude/commands` from Dogent with completion and help.
+- Acceptance: `/help` lists Claude commands; tab completion includes them; unknown slash commands still error.
 - Dev Status: Done
-- Acceptance Status: Pending
-- Verification: `python -m unittest discover -s tests -v`
+- Acceptance Status: Accepted
+- Verification: Manual run in a workspace with `.claude/commands/*.md`.
 
-### Story 2: Windows Terminal Parity
-- User Value: Windows users get the same non-blocking input, selection prompts, and escape handling as Unix users.
-- Acceptance: Terminal functions use Windows console modes with proper get/set/restore; escape listener works; selection prompts and key handling are stable on Windows.
+### Story 2: Resolve Slash Command Conflicts
+- User Value: Claude commands are clearly namespaced in Dogent CLI.
+- Acceptance: All Claude commands (project + user + plugin) appear as `/claude:<name>` and forward to the underlying Claude command.
 - Dev Status: Done
-- Acceptance Status: Pending
-- Verification: Manual Windows CLI run + unit tests (mocked).
+- Acceptance Status: Accepted
+- Verification: Manual run with a conflicting command file.
 
-### Story 3: Full/Lite Packaging for Pandoc + Playwright
-- User Value: Users on poor networks can run conversions without runtime downloads by installing a full package build.
-- Acceptance: `DOGENT_PACKAGE_MODE=full` uses bundled pandoc and Playwright Chromium under `dogent/resources/tools/...` without downloading; `lite` retains download-on-demand; missing bundled tools raise clear errors.
+### Story 3: Load Claude Plugins from Workspace Config
+- User Value: Enable local Claude plugins configured per workspace.
+- Acceptance: `.dogent/dogent.json` plugin paths are validated and passed to SDK; invalid entries warn and are skipped.
 - Dev Status: Done
-- Acceptance Status: Pending
-- Verification: Unit tests for path resolution + manual packaging smoke.
+- Acceptance Status: Accepted
+- Verification: Manual run with a valid plugin directory and an invalid one.
+
+### Story 4: SDK Settings for Claude Assets
+- User Value: Dogent loads project and user-level Claude assets (commands/agents/skills).
+- Acceptance: SDK options include `setting_sources=["user","project"]`; skills/subagents work when configured.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit test for options; manual run with `.claude/skills` and `.claude/agents`.

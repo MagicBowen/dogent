@@ -265,6 +265,60 @@ class ConfigTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_build_options_includes_claude_plugins(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            plugin_root = root / "plugins" / "demo"
+            (plugin_root / ".claude-plugin").mkdir(parents=True, exist_ok=True)
+            (plugin_root / ".claude-plugin" / "plugin.json").write_text(
+                '{"name": "demo-plugin"}',
+                encoding="utf-8",
+            )
+            dogent_dir = root / ".dogent"
+            dogent_dir.mkdir(parents=True, exist_ok=True)
+            (dogent_dir / "dogent.json").write_text(
+                '{"claude_plugins": ["plugins/demo"]}',
+                encoding="utf-8",
+            )
+            paths = DogentPaths(root)
+            manager = ConfigManager(paths)
+            options = manager.build_options("sys")
+
+            self.assertEqual(
+                [{"type": "local", "path": str(plugin_root.resolve())}],
+                options.plugins,
+            )
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_invalid_claude_plugins_warn_and_skip(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            dogent_dir = root / ".dogent"
+            dogent_dir.mkdir(parents=True, exist_ok=True)
+            (dogent_dir / "dogent.json").write_text(
+                '{"claude_plugins": ["missing-plugin"]}',
+                encoding="utf-8",
+            )
+            console = Console(record=True, force_terminal=False, color_system=None)
+            paths = DogentPaths(root)
+            manager = ConfigManager(paths, console=console)
+            options = manager.build_options("sys")
+
+            self.assertEqual([], options.plugins)
+            output = console.export_text()
+            self.assertIn("Claude plugin not found", output)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
     def test_build_options_registers_vision_tools_when_enabled(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:

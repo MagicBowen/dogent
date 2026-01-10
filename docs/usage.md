@@ -27,6 +27,7 @@ Common workspace fields:
 - `primary_language`: response language for the CLI.
 - `learn_auto`: enable automatic lesson capture.
 - `editor_mode`: `default` or `vi`.
+- `claude_plugins`: list of local plugin paths (absolute or workspace-relative).
 
 If `llm_profile` is missing, Dogent falls back to environment variables.
 
@@ -80,6 +81,8 @@ Vision is disabled by default.
 - `/clean [history|lesson|memory|all]` — clear workspace state.
 - `/archive [history|lessons|all]` — archive history or lessons.
 - `/exit` — exit the CLI.
+- `/claude:<name>` — custom Claude command loaded from `.claude/commands`.
+- `/claude:<plugin>:<name>` — custom command loaded from a configured plugin.
 
 Shortcuts:
 - `Esc` interrupts a running task.
@@ -95,6 +98,19 @@ Dogent requires confirmation for sensitive operations:
 - Modifying existing `.dogent/dogent.md` or `.dogent/dogent.json`.
 
 If you deny a prompt, the task is aborted and the agent stops safely.
+
+## Claude Commands & Plugins
+- Place commands in `.claude/commands/*.md` (project) or `~/.claude/commands/*.md` (user).
+- Dogent registers them with a `/claude:` prefix to avoid conflicts.
+- Configure plugin roots in `.dogent/dogent.json` under `claude_plugins`:
+
+```json
+{
+  "claude_plugins": ["./plugins/demo", "~/.claude/plugins/shared"]
+}
+```
+
+- Plugin roots must contain `.claude-plugin/plugin.json`.
 
 ## Troubleshooting
 - DOCX export requires Pandoc. Install Pandoc if auto-download fails.

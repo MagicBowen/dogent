@@ -13,7 +13,7 @@ import time
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Iterable, Tuple
+from typing import Any, Awaitable, Callable, Iterable, Tuple
 
 from rich import box
 from rich.align import Align
@@ -31,6 +31,7 @@ from ..features.clarification import (
     ClarificationOption,
     recommended_index,
 )
+from .claude_commands import ClaudeCommandSpec, load_claude_commands, load_plugin_commands
 from .commands import CommandRegistry
 from ..config import ConfigManager
 from ..features.doc_templates import DocumentTemplateManager
@@ -195,6 +196,7 @@ class DogentCLI:
         self.auto_learn_enabled: bool = bool(project_cfg.get("learn_auto", True))
         self._armed_incident: LessonIncident | None = None
         self._register_commands()
+        self._register_claude_commands()
         self.session: PromptSession | None = None
         self._shutting_down = False
         self._pending_editor_submission: EditorOutcome | None = None
@@ -283,46 +285,75 @@ class DogentCLI:
 
     def _register_commands(self) -> None:
         """Register built-in CLI commands; keeps CLI extensible."""
-        self.registry.register(
+        self._register_builtin_command(
             "/init",
             self._cmd_init,
             "Initialize .dogent (dogent.md + dogent.json) with optional doc template.",
         )
-        self.registry.register(
+        self._register_builtin_command(
             "/edit",
             self._cmd_edit,
             "Edit a local text file in the markdown editor: /edit <path>.",
-        )        
-        self.registry.register(
+        )
+        self._register_builtin_command(
             "/learn",
             self._cmd_learn,
             "Save a lesson: /learn <text> or toggle auto prompt with /learn on|off.",
         )
-        self.registry.register(
+        self._register_builtin_command(
             "/show",
             self._cmd_show,
             "Show info panels: /show history or /show lessons.",
         )
-        self.registry.register(
+        self._register_builtin_command(
             "/clean",
             self._cmd_clean,
             "Clean workspace state: /clean [history|lesson|memory|all].",
         )
-        self.registry.register(
+        self._register_builtin_command(
             "/archive",
             self._cmd_archive,
             "Archive workspace records: /archive [history|lessons|all].",
         )
-        self.registry.register(
+        self._register_builtin_command(
             "/exit",
             self._cmd_exit,
             "Exit Dogent CLI gracefully.",
-        )        
-        self.registry.register(
+        )
+        self._register_builtin_command(
             "/help",
             self._cmd_help,
             "Show Dogent usage, models, API, and available commands.",
         )
+
+    def _register_builtin_command(
+        self, name: str, handler: Callable[[str], Awaitable[bool]], description: str
+    ) -> None:
+        if not name.startswith("/"):
+            name = f"/{name}"
+        self.registry.register(name, handler, description)
+
+    def _register_claude_commands(self) -> None:
+        claude_specs = load_claude_commands(self.root)
+        plugin_paths = self.config_manager.resolve_claude_plugins(warn=False)
+        plugin_specs = load_plugin_commands(plugin_paths)
+        for spec in [*claude_specs, *plugin_specs]:
+            self._register_claude_command(spec)
+
+    def _register_claude_command(self, spec: ClaudeCommandSpec) -> None:
+        if self.registry.get(spec.name):
+            return
+        self._register_forwarded_command(
+            spec.name, spec.description, canonical=spec.canonical
+        )
+
+    def _register_forwarded_command(
+        self, name: str, description: str, *, canonical: str
+    ) -> None:
+        async def handler(command: str) -> bool:
+            return await self._run_claude_command(command, canonical=canonical)
+
+        self.registry.register(name, handler, description)
 
     def _print_banner(self, settings) -> None:
         from dogent import __version__
@@ -3701,6 +3732,41 @@ class DogentCLI:
             )
             return True
         return await cmd.handler(command)
+
+    async def _run_claude_command(self, command: str, *, canonical: str) -> bool:
+        parts = command.split(maxsplit=1)
+        suffix = f" {parts[1]}" if len(parts) > 1 else ""
+        message = f"{canonical}{suffix}"
+        message, template_override = self._extract_template_override(message)
+        template_override = self._normalize_template_override(template_override)
+        _, attachments = self._resolve_attachments(message)
+        message = self._replace_file_references(message, attachments)
+        if template_override:
+            self._show_template_reference(template_override)
+        if attachments:
+            self._show_attachments(attachments)
+        if not message and not attachments:
+            return True
+        if not await self._maybe_auto_init_for_request(message):
+            return True
+        blocked = self._blocked_media_attachments(attachments)
+        if blocked:
+            self._show_vision_disabled_error(blocked)
+            return True
+        if self._armed_incident and self.auto_learn_enabled:
+            try:
+                if await self._confirm_save_lesson():
+                    await self._save_lesson_from_incident(self._armed_incident, message)
+            except SelectionCancelled:
+                self._armed_incident = None
+                return True
+            self._armed_incident = None
+        await self._run_with_interrupt(
+            message,
+            attachments,
+            config_override=self._build_prompt_override(template_override),
+        )
+        return True
 
     async def _run_shell_command(self, raw: str) -> None:
         command = raw[1:].strip()
