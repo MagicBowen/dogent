@@ -28,6 +28,7 @@ DEFAULT_PROJECT_CONFIG: Dict[str, Any] = {
     "learn_auto": True,
     "editor_mode": "default",
     "debug": False,
+    "claude_plugins": [],
 }
 GLOBAL_DEFAULTS_KEY = "workspace_defaults"
 GLOBAL_LLM_PROFILES_KEY = "llm_profiles"
@@ -343,6 +344,20 @@ class ConfigManager:
                 normalized["vision_profile"] = cleaned
         else:
             normalized["vision_profile"] = DEFAULT_PROJECT_CONFIG["vision_profile"]
+        raw_plugins = normalized.get("claude_plugins")
+        if raw_plugins is None:
+            normalized["claude_plugins"] = DEFAULT_PROJECT_CONFIG["claude_plugins"]
+        elif isinstance(raw_plugins, str):
+            cleaned = raw_plugins.strip()
+            normalized["claude_plugins"] = [cleaned] if cleaned else []
+        elif isinstance(raw_plugins, list):
+            normalized["claude_plugins"] = [
+                value.strip()
+                for value in raw_plugins
+                if isinstance(value, str) and value.strip()
+            ]
+        else:
+            normalized["claude_plugins"] = DEFAULT_PROJECT_CONFIG["claude_plugins"]
         return normalized
 
     def build_options(
@@ -360,6 +375,8 @@ class ConfigManager:
 
         use_custom_web = bool(settings.web_profile)
         vision_enabled = self._vision_enabled(project_cfg)
+        plugin_paths = self._load_claude_plugins(project_cfg)
+        plugins = [{"type": "local", "path": str(path)} for path in plugin_paths]
 
         allowed_tools: list[str] | None = None
         if can_use_tool is None:
@@ -431,6 +448,7 @@ class ConfigManager:
             "mcp_servers": mcp_servers,
             "can_use_tool": can_use_tool,
             "hooks": hooks,
+            "plugins": plugins,
         }
         if allowed_tools is not None:
             options_kwargs["allowed_tools"] = allowed_tools
@@ -529,6 +547,56 @@ class ConfigManager:
         if not isinstance(chosen, dict):
             return {}
         return chosen
+
+    def resolve_claude_plugins(self, *, warn: bool = True) -> list[Path]:
+        project_cfg = self.load_project_config()
+        return self._load_claude_plugins(project_cfg, warn=warn)
+
+    def _load_claude_plugins(
+        self, project_cfg: Dict[str, Any], *, warn: bool = True
+    ) -> list[Path]:
+        raw = (project_cfg or {}).get("claude_plugins")
+        if raw is None:
+            return []
+        if isinstance(raw, str):
+            entries = [raw]
+        elif isinstance(raw, list):
+            entries = raw
+        else:
+            if warn:
+                self.console.print(
+                    "[yellow]Ignoring claude_plugins: expected a list of paths.[/yellow]"
+                )
+            return []
+        resolved: list[Path] = []
+        seen: set[str] = set()
+        for entry in entries:
+            if not isinstance(entry, str):
+                if warn:
+                    self.console.print(
+                        "[yellow]Ignoring claude_plugins entry: expected a string path.[/yellow]"
+                    )
+                continue
+            cleaned = entry.strip()
+            if not cleaned:
+                continue
+            path = Path(cleaned).expanduser()
+            if not path.is_absolute():
+                path = self.paths.root / path
+            manifest = path / ".claude-plugin" / "plugin.json"
+            if not manifest.exists():
+                if warn:
+                    self.console.print(
+                        f"[yellow]Claude plugin not found at {path} (missing .claude-plugin/plugin.json).[/yellow]"
+                    )
+                continue
+            resolved_path = path.resolve()
+            key = str(resolved_path)
+            if key in seen:
+                continue
+            seen.add(key)
+            resolved.append(resolved_path)
+        return resolved
     
     def _normalize_web_profile(self, raw: Any) -> Optional[str]:
         if raw is None:

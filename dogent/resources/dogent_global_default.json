@@ -8,7 +8,8 @@
     "doc_template": "general",
     "primary_language": "Chinese",
     "learn_auto": true,
-    "editor_mode": "default"
+    "editor_mode": "default",
+    "claude_plugins": []
   },
   "llm_profiles": {
     "deepseek": {

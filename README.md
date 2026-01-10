@@ -14,6 +14,8 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 - Supports `.dogent/dogent.md` constraints, profiles in `~/.dogent/dogent.json`, and env fallbacks
 - Debug session logging to `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md` when `debug` is enabled
 - Project-only lessons in `.dogent/lessons.md` (auto-captured after failures/interrupts; injected into prompt context)
+- Loads Claude assets from `.claude` (commands/agents/skills) with `/claude:` prefixed commands in the CLI
+- Supports local Claude plugins configured per workspace
 - Ready for packaging via `pyproject.toml` with Rich-based UI
 
 ## Quick Start
@@ -30,17 +32,29 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
    - `/show lessons` → show recent lessons and where to edit `.dogent/lessons.md`
    - `/edit` → open a workspace text file in the Markdown editor; Save/Submit/Save As are supported
    - `/exit` → quit
+   - Claude custom commands from `.claude/commands` show as `/claude:<name>` (plugins as `/claude:<plugin>:<name>`)
    - Typing `/` shows command suggestions; typing `@` offers file completions; `!<command>` runs a shell command; press Esc during a task to interrupt and save progress
    - Press Ctrl+E to open the Markdown editor for multi-line input; Ctrl+P toggles preview, Ctrl+Enter submits, and Ctrl+Q returns (dirty content prompts to discard/submit/save).
 4. Reference files with `@path/to/file` in your message; Dogent injects file metadata and uses MCP tools on demand to read/understand content. Tool results (e.g., WebFetch/WebSearch) show clear success/failure panels with reasons.
 
 ## Configuration
-- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `vision_profile`, `doc_template`, `learn_auto`, `debug`, `editor_mode`)
+- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `vision_profile`, `doc_template`, `learn_auto`, `debug`, `editor_mode`, `claude_plugins`)
 - Global config: `~/.dogent/dogent.json` with version, workspace defaults, and profiles (see `docs/usage.md` for JSON examples)
 - JSON schema: `~/.dogent/dogent.schema.json` (for editor validation)
 - Env fallback: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 - History is stored in `.dogent/history.json` (structured JSON, managed automatically); temporary scratch lives in `.dogent/memory.md` when created on demand.
 - Debug logs (when `debug: true`) are Markdown in `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md` with `role`, `source`, `event`, and `content`.
+
+## Claude Commands & Plugins
+- Project/user commands in `.claude/commands/*.md` load into Dogent as `/claude:<name>`.
+- Plugin commands load as `/claude:<plugin>:<name>`.
+- Configure plugin roots in `.dogent/dogent.json`:
+
+```json
+{
+  "claude_plugins": ["./plugins/demo", "~/.claude/plugins/shared"]
+}
+```
 
 ## Web Search Setup (Release 0.6)
 
