@@ -66,6 +66,19 @@ class DogentCompleterTests(unittest.TestCase):
         texts = [c.text for c in comps]
         self.assertIn("built-in:resume", texts)
 
+    def test_inline_template_completion_without_whitespace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "context.txt").write_text("hi", encoding="utf-8")
+            templates = ["built-in:resume", "global:research-report"]
+            completer = DogentCompleter(
+                root, ["/init"], template_provider=lambda: templates
+            )
+            comps = list(completer.get_completions(Document("hello@@"), None))
+            texts = [c.text for c in comps]
+            self.assertIn("built-in:resume", texts)
+            self.assertNotIn("context.txt", texts)
+
     def test_file_completion(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

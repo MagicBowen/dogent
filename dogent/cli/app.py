@@ -3936,7 +3936,7 @@ class DogentCLI:
             return result
 
     def _extract_template_override(self, message: str) -> Tuple[str, str | None]:
-        pattern = re.compile(r"(^|\s)" + re.escape(DOC_TEMPLATE_TOKEN) + r"([^\s]+)")
+        pattern = re.compile(re.escape(DOC_TEMPLATE_TOKEN) + r"(?!@)([^\s]+)")
         matches = list(pattern.finditer(message))
         if not matches:
             return message, None
@@ -3944,13 +3944,12 @@ class DogentCLI:
 
         def replace(match: re.Match[str]) -> str:
             nonlocal template_key
-            prefix = match.group(1)
-            raw = match.group(2)
+            raw = match.group(1)
             cleaned = raw.rstrip(".,;:!?)]}")
             suffix = raw[len(cleaned) :] if cleaned else ""
             if cleaned:
                 template_key = cleaned
-                return f"{prefix}[doc template]: {cleaned}{suffix}"
+                return f"[doc template]: {cleaned}{suffix}"
             return match.group(0)
 
         replaced_message = pattern.sub(replace, message)
