@@ -22,6 +22,10 @@ class TemplateOverrideTests(unittest.TestCase):
             self.assertEqual(message, "Write [doc template]: demo")
             self.assertEqual(template, "demo")
 
+            message, template = cli._extract_template_override("Write@@demo")
+            self.assertEqual(message, "Write[doc template]: demo")
+            self.assertEqual(template, "demo")
+
             message, template = cli._extract_template_override("Start @@alpha then @@beta")
             self.assertEqual(
                 message,

@@ -427,8 +427,6 @@ class DogentCompleter(Completer):
         token_index = text.rfind(DOC_TEMPLATE_TOKEN)
         if token_index == -1:
             return []
-        if token_index > 0 and not text[token_index - 1].isspace():
-            return []
         partial = text[token_index + len(DOC_TEMPLATE_TOKEN) :]
         if " " in partial or "\n" in partial:
             return []
