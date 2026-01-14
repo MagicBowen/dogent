@@ -144,6 +144,7 @@ class AgentRunner:
         *,
         config_override: Dict[str, Any] | None = None,
     ) -> None:
+        interaction_status: str | None = None
         settings = self.config.load_settings()
         project_config = self.config.load_project_config()
         prompt_config = dict(project_config)
@@ -158,9 +159,6 @@ class AgentRunner:
             settings=settings,
             config=prompt_config,
         )
-        if self._session_logger:
-            self._session_logger.log_system_prompt("agent", system_prompt)
-            self._session_logger.log_user_prompt("agent", user_prompt)
         self._last_summary = None
         self._clarification_text = ""
         self._needs_clarification = False
@@ -181,6 +179,10 @@ class AgentRunner:
             if self._is_clarification_answers(user_message)
             else self._shorten(user_message, limit=240)
         )
+        if self._session_logger:
+            self._session_logger.start_interaction("agent", summary=preview)
+            self._session_logger.log_system_prompt("agent", system_prompt)
+            self._session_logger.log_user_prompt("agent", user_prompt)
         self.console.print(
             Panel(
                 f"Received request:\n{preview}",
@@ -213,10 +215,15 @@ class AgentRunner:
             await self._stream_responses()
             if not self._needs_clarification:
                 await self._safe_disconnect()
+            if self.last_outcome:
+                interaction_status = self.last_outcome.status
+            else:
+                interaction_status = "completed"
         except Exception as exc:  # noqa: BLE001
             await self._stop_wait_indicator()
             if self._session_logger:
                 self._session_logger.log_exception("agent", exc)
+            interaction_status = "error"
             if self._aborted_reason:
                 self._finalize_aborted()
             else:
@@ -250,6 +257,8 @@ class AgentRunner:
             await self._safe_disconnect()
         finally:
             await self._stop_wait_indicator()
+            if self._session_logger:
+                self._session_logger.end_interaction("agent", status=interaction_status)
 
     async def abort(self, reason: str) -> None:
         async with self._lock:

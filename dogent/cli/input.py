@@ -279,10 +279,12 @@ class DogentCompleter(Completer):
         commands: list[str],
         *,
         template_provider: Callable[[], Iterable[str]] | None = None,
+        profile_provider: Callable[[str], Iterable[str]] | None = None,
     ) -> None:
         self.root = root
         self.commands = commands
         self.template_provider = template_provider
+        self.profile_provider = profile_provider
 
     def get_completions(self, document: Document, complete_event):  # type: ignore[override]
         text = document.text_before_cursor
@@ -317,12 +319,18 @@ class DogentCompleter(Completer):
         # If the user has already started typing arguments and then types spaces,
         # do not keep re-suggesting "fixed" args on every subsequent space.
         if len(tokens) >= 2 and text.endswith(" "):
+            if command == "/profile":
+                if len(tokens) == 2:
+                    return self._profile_value_completions(tokens[1], "")
+                return []
             return []
 
         if len(tokens) == 1 and text.endswith(" "):
             return self._arg_completions(command, "")
 
         arg_prefix = "" if text.endswith(" ") else tokens[-1]
+        if command == "/profile" and len(tokens) >= 2:
+            return self._profile_value_completions(tokens[1], arg_prefix)
         return self._arg_completions(command, arg_prefix)
 
     def _arg_completions(self, command: str, arg_prefix: str) -> Iterable[Completion]:
@@ -335,6 +343,20 @@ class DogentCompleter(Completer):
             options = ["history", "lessons"]
         elif command == "/archive":
             options = ["history", "lessons", "all"]
+        elif command == "/profile":
+            options = ["llm", "web", "vision", "show"]
+        elif command == "/debug":
+            options = [
+                "off",
+                "session",
+                "error",
+                "session-errors",
+                "warn",
+                "info",
+                "debug",
+                "all",
+                "custom",
+            ]
         elif command == "/init" and self.template_provider:
             options = list(self.template_provider())
         elif command == "/edit":
@@ -349,6 +371,13 @@ class DogentCompleter(Completer):
                     matches.append(opt)
         else:
             matches = [opt for opt in options if opt.startswith(arg_prefix)]
+        return [Completion(opt, start_position=-len(arg_prefix)) for opt in matches]
+
+    def _profile_value_completions(self, target: str, arg_prefix: str) -> Iterable[Completion]:
+        if not self.profile_provider:
+            return []
+        values = [val for val in self.profile_provider(target.lower()) if isinstance(val, str)]
+        matches = [opt for opt in values if opt.startswith(arg_prefix)]
         return [Completion(opt, start_position=-len(arg_prefix)) for opt in matches]
 
     def _match_files(self, text: str) -> Iterable[Completion]:

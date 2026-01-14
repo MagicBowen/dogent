@@ -4,6 +4,8 @@ from importlib import resources
 from importlib.abc import Traversable
 from typing import Iterable, Optional
 
+from ..core.session_log import log_exception
+
 RESOURCES_DIR = "resources"
 PROMPTS_DIR = "prompts"
 SCHEMA_DIR = "schema"
@@ -13,7 +15,8 @@ TEMPLATES_DIR = "templates"
 def resource_path(*parts: str) -> Optional[Traversable]:
     try:
         data = resources.files("dogent")
-    except Exception:
+    except Exception as exc:
+        log_exception("config.resources", exc)
         return None
     for part in parts:
         data = data.joinpath(part)
@@ -26,7 +29,8 @@ def read_text(*parts: str) -> str:
         return ""
     try:
         return data.read_text(encoding="utf-8")
-    except Exception:
+    except Exception as exc:
+        log_exception("config.resources", exc)
         return ""
 
 
@@ -36,7 +40,8 @@ def iter_dir(*parts: str) -> Iterable[Traversable]:
         return []
     try:
         return list(root.iterdir())
-    except Exception:
+    except Exception as exc:
+        log_exception("config.resources", exc)
         return []
 
 

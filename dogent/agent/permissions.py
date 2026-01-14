@@ -4,6 +4,8 @@ import shlex
 from pathlib import Path
 from typing import Iterable
 
+from ..core.session_log import log_exception
+
 BASH_TOOLS = {"Bash", "BashOutput"}
 DELETE_COMMANDS = {"rm", "rmdir", "del", "mv"}
 FILE_TOOLS = {"Read", "Write", "Edit"}
@@ -110,7 +112,8 @@ def _split_command(command: str) -> list[str]:
         return []
     try:
         return shlex.split(command)
-    except ValueError:
+    except ValueError as exc:
+        log_exception("permissions", exc)
         return command.split()
 
 
@@ -210,7 +213,8 @@ def _is_outside_allowed_roots(path: Path, roots: Iterable[Path]) -> bool:
         try:
             path.relative_to(root)
             return False
-        except Exception:
+        except Exception as exc:
+            log_exception("permissions", exc)
             continue
     return True
 

@@ -49,6 +49,39 @@ class DogentCompleterTests(unittest.TestCase):
         self.assertIn("history", texts)
         self.assertIn("lessons", texts)
 
+    def test_profile_command_shows_targets(self) -> None:
+        completer = DogentCompleter(Path("."), ["/profile"])
+        comps = list(completer.get_completions(Document("/profile "), None))
+        texts = [c.text for c in comps]
+        self.assertIn("llm", texts)
+        self.assertIn("web", texts)
+        self.assertIn("vision", texts)
+        self.assertIn("show", texts)
+
+    def test_profile_command_shows_profile_names(self) -> None:
+        completer = DogentCompleter(
+            Path("."),
+            ["/profile"],
+            profile_provider=lambda target: ["default", "alpha"] if target == "llm" else [],
+        )
+        comps = list(completer.get_completions(Document("/profile llm "), None))
+        texts = [c.text for c in comps]
+        self.assertIn("default", texts)
+        self.assertIn("alpha", texts)
+
+    def test_debug_command_shows_presets(self) -> None:
+        completer = DogentCompleter(Path("."), ["/debug"])
+        comps = list(completer.get_completions(Document("/debug "), None))
+        texts = [c.text for c in comps]
+        self.assertIn("off", texts)
+        self.assertIn("session", texts)
+        self.assertIn("session-errors", texts)
+        self.assertIn("warn", texts)
+        self.assertIn("info", texts)
+        self.assertIn("debug", texts)
+        self.assertIn("all", texts)
+        self.assertIn("custom", texts)
+
     def test_archive_command_shows_targets(self) -> None:
         completer = DogentCompleter(Path("."), ["/archive"])
         comps = list(completer.get_completions(Document("/archive "), None))

@@ -3,14 +3,14 @@ import unittest
 from pathlib import Path
 
 from dogent.config.paths import DogentPaths
-from dogent.core.session_log import SessionLogger
+from dogent.core.session_log import SessionLogger, resolve_debug_config
 
 
 class SessionLoggerTests(unittest.TestCase):
     def test_logger_disabled_creates_no_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = DogentPaths(Path(tmp))
-            logger = SessionLogger(paths, enabled=False)
+            logger = SessionLogger(paths, None)
             logger.log_user_prompt("agent", "hello")
             logs_dir = paths.dogent_dir / "logs"
             self.assertFalse(logs_dir.exists())
@@ -18,7 +18,7 @@ class SessionLoggerTests(unittest.TestCase):
     def test_log_system_prompt_once(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = DogentPaths(Path(tmp))
-            logger = SessionLogger(paths, enabled=True)
+            logger = SessionLogger(paths, "session")
             logger.log_system_prompt("agent", "system text")
             logger.log_system_prompt("agent", "system text")
             logger.close()
@@ -33,7 +33,7 @@ class SessionLoggerTests(unittest.TestCase):
     def test_log_user_prompt_writes_markdown(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = DogentPaths(Path(tmp))
-            logger = SessionLogger(paths, enabled=True)
+            logger = SessionLogger(paths, "session")
             logger.log_user_prompt("agent", "hello")
             logger.close()
             logs_dir = paths.dogent_dir / "logs"
@@ -46,7 +46,7 @@ class SessionLoggerTests(unittest.TestCase):
     def test_log_block_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = DogentPaths(Path(tmp))
-            logger = SessionLogger(paths, enabled=True)
+            logger = SessionLogger(paths, "session")
             logger.log_assistant_text("agent", "text")
             logger.log_assistant_thinking("agent", "thinking")
             logger.log_tool_use("agent", name="Read", tool_id="1", input_data={"path": "a"})
@@ -68,7 +68,7 @@ class SessionLoggerTests(unittest.TestCase):
     def test_log_exception(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = DogentPaths(Path(tmp))
-            logger = SessionLogger(paths, enabled=True)
+            logger = SessionLogger(paths, "error")
             try:
                 raise ValueError("boom")
             except Exception as exc:  # noqa: BLE001
@@ -80,6 +80,27 @@ class SessionLoggerTests(unittest.TestCase):
             text = files[0].read_text(encoding="utf-8")
             self.assertIn("exception", text)
             self.assertIn("ValueError", text)
+
+    def test_log_order_newest_first(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = DogentPaths(Path(tmp))
+            logger = SessionLogger(paths, "session")
+            logger.log_user_prompt("agent", "first")
+            logger.log_assistant_text("agent", "second")
+            logger.close()
+            logs_dir = paths.dogent_dir / "logs"
+            files = list(logs_dir.glob("dogent_session_*.md"))
+            self.assertEqual(len(files), 1)
+            text = files[0].read_text(encoding="utf-8")
+            self.assertLess(text.index("assistant.text"), text.index("prompt.user"))
+
+    def test_resolve_debug_config_levels(self) -> None:
+        selection = resolve_debug_config(["session", "info"])
+        self.assertIn("session", selection.enabled_types)
+        self.assertIn("error", selection.enabled_levels)
+        self.assertIn("warn", selection.enabled_levels)
+        self.assertIn("info", selection.enabled_levels)
+        self.assertNotIn("debug", selection.enabled_levels)
 
 
 if __name__ == "__main__":

@@ -42,7 +42,14 @@ from ..features.lesson_drafter import ClaudeLessonDrafter, LessonDrafter
 from ..features.lessons import LessonIncident, LessonsManager
 from ..config.paths import DogentPaths
 from ..prompts import PromptBuilder
-from ..core.session_log import SessionLogger
+from ..core.session_log import (
+    SessionLogger,
+    set_active_logger,
+    resolve_debug_config,
+    LOG_LEVELS,
+    log_error,
+    log_exception,
+)
 from ..core.todo import TodoManager
 from .terminal import (
     TCSADRAIN,
@@ -136,6 +143,8 @@ class SelectionCancelled(Exception):
 CLARIFICATION_SKIP = object()
 CLARIFICATION_SKIP_TEXT = "user chose not to answer this question"
 INPUT_CANCELLED = object()
+DEBUG_CANCELLED = object()
+DEBUG_OFF = object()
 
 class DogentCLI:
     """Interactive CLI interface for Dogent."""
@@ -158,9 +167,8 @@ class DogentCLI:
         self.file_resolver = FileReferenceResolver(self.root)
         self.history_manager = HistoryManager(self.paths)
         project_cfg = self.config_manager.load_project_config()
-        self.session_logger = SessionLogger(
-            self.paths, enabled=bool(project_cfg.get("debug", False))
-        )
+        self.session_logger = SessionLogger(self.paths, project_cfg.get("debug"))
+        set_active_logger(self.session_logger)
         self.init_wizard = InitWizard(
             config=self.config_manager,
             paths=self.paths,
@@ -278,6 +286,7 @@ class DogentCLI:
                     self.root,
                     self.registry.names(),
                     template_provider=self.doc_templates.list_display_names,
+                    profile_provider=self._profile_completion_options,
                 ),
                 complete_while_typing=True,
                 key_bindings=bindings,
@@ -294,6 +303,16 @@ class DogentCLI:
             "/edit",
             self._cmd_edit,
             "Edit a local text file in the markdown editor: /edit <path>.",
+        )
+        self._register_builtin_command(
+            "/profile",
+            self._cmd_profile,
+            "Manage profiles: /profile [llm|web|vision|show].",
+        )
+        self._register_builtin_command(
+            "/debug",
+            self._cmd_debug,
+            "Configure debug logging presets or custom levels.",
         )
         self._register_builtin_command(
             "/learn",
@@ -458,7 +477,8 @@ class DogentCLI:
                 return True
             try:
                 initial_text = target.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
+            except UnicodeDecodeError as exc:
+                log_exception("cli", exc)
                 self.console.print(
                     Panel(
                         "File is not valid UTF-8 text.",
@@ -468,6 +488,7 @@ class DogentCLI:
                 )
                 return True
             except OSError as exc:
+                log_exception("cli", exc)
                 self.console.print(
                     Panel(
                         f"Failed to read file: {exc}",
@@ -493,6 +514,7 @@ class DogentCLI:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text("", encoding="utf-8")
             except OSError as exc:
+                log_exception("cli", exc)
                 self.console.print(
                     Panel(
                         f"Failed to create file: {exc}",
@@ -554,6 +576,7 @@ class DogentCLI:
                 save_path.parent.mkdir(parents=True, exist_ok=True)
                 save_path.write_text(editor_outcome.text, encoding="utf-8")
             except OSError as exc:
+                log_exception("cli", exc)
                 self.console.print(
                     Panel(
                         f"Failed to save file: {exc}",
@@ -598,6 +621,433 @@ class DogentCLI:
             )
             return True
         return True
+
+    async def _prompt_choice(
+        self, *, title: str, prompt_text: str, options: list[str]
+    ) -> int | None:
+        if self._interactive_prompts:
+            return await self._prompt_inline_choice(
+                title=title, prompt_text=prompt_text, options=options
+            )
+        return await self._prompt_text_choice(
+            title=title, prompt_text=prompt_text, options=options
+        )
+
+    async def _cmd_profile(self, command: str) -> bool:
+        parts = command.split(maxsplit=2)
+        arg = parts[1].strip().lower() if len(parts) > 1 else ""
+        profile_arg = parts[2].strip() if len(parts) > 2 else ""
+        if arg == "show":
+            self._show_profile_table()
+            return True
+        if arg in {"llm", "web", "vision"}:
+            if profile_arg:
+                return await self._apply_profile_value(arg, profile_arg)
+            self._show_profile_target_options(arg)
+            return True
+        if arg:
+            self.console.print(
+                Panel(
+                    "\n".join(
+                        [
+                            f"Unknown profile target: {arg}",
+                            "Valid targets: llm, web, vision, show",
+                            "Example: /profile llm",
+                        ]
+                    ),
+                    title="🏷️ Profile",
+                    border_style="red",
+                )
+            )
+            return True
+        self._show_profile_table(show_available=False)
+        return True
+
+    async def _select_profile(self, target: str) -> bool:
+        options = self._profile_options(target)
+        if not options:
+            self.console.print(
+                Panel(
+                    "No profiles available for the selected category.",
+                    title="🏷️ Profile",
+                    border_style="yellow",
+                )
+            )
+            return True
+        labels = [label for label, _ in options]
+        title = "LLM Profile" if target == "llm" else "Web Profile"
+        if target == "vision":
+            title = "Vision Profile"
+        selection = await self._prompt_choice(
+            title=title,
+            prompt_text="Select a profile:",
+            options=labels,
+        )
+        if selection is None:
+            return True
+        chosen_label, chosen_value = options[selection]
+        return await self._set_profile_value(target, chosen_value, chosen_label)
+
+    async def _apply_profile_value(self, target: str, raw_value: str) -> bool:
+        value_map = self._profile_value_map(target)
+        key = raw_value.strip().lower()
+        if not key:
+            return True
+        if target == "vision" and key in {"none", "null"} and "none" not in value_map:
+            self.console.print(
+                Panel(
+                    "The 'none' option is only available when no vision profiles exist.",
+                    title="🏷️ Profile",
+                    border_style="red",
+                )
+            )
+            return True
+        if key not in value_map:
+            available = ", ".join(sorted(value_map.keys())) if value_map else "(none)"
+            self.console.print(
+                Panel(
+                    "\n".join(
+                        [
+                            f"Unknown {target} profile: {raw_value}",
+                            f"Available: {available}",
+                        ]
+                    ),
+                    title="🏷️ Profile",
+                    border_style="red",
+                )
+            )
+            return True
+        chosen_value = value_map[key]
+        chosen_label = self._profile_display_label(target, chosen_value)
+        return await self._set_profile_value(target, chosen_value, chosen_label)
+
+    def _profile_options(self, target: str) -> list[tuple[str, str | None]]:
+        if target == "llm":
+            options = [("default", "default")]
+            for name in self.config_manager.list_llm_profiles():
+                if name.lower() == "default":
+                    continue
+                options.append((name, name))
+            return options
+        if target == "web":
+            options = [("default (native)", "default")]
+            for name in self.config_manager.list_web_profiles():
+                if name.lower() == "default":
+                    continue
+                options.append((name, name))
+            return options
+        options = []
+        for name in self.config_manager.list_vision_profiles():
+            options.append((name, name))
+        if not options:
+            options.append(("none (null)", None))
+        return options
+
+    def _show_profile_target_options(self, target: str) -> None:
+        options = self._profile_completion_options(target)
+        if not options:
+            self.console.print(
+                Panel(
+                    "No profiles available for the selected category.",
+                    title="🏷️ Profile",
+                    border_style="yellow",
+                )
+            )
+            return
+        label = "LLM" if target == "llm" else "Web"
+        if target == "vision":
+            label = "Vision"
+        lines = [
+            f"{label} profiles:",
+            ", ".join(options),
+            "",
+            f"Usage: /profile {target} <name>",
+        ]
+        self.console.print(
+            Panel(
+                "\n".join(lines),
+                title="🏷️ Profile",
+                border_style="cyan",
+            )
+        )
+
+    def _profile_value_map(self, target: str) -> dict[str, str | None]:
+        if target == "llm":
+            values = ["default", *self.config_manager.list_llm_profiles()]
+        elif target == "web":
+            values = ["default", *self.config_manager.list_web_profiles()]
+        elif target == "vision":
+            values = [*self.config_manager.list_vision_profiles()]
+            if not values:
+                return {"none": None, "null": None}
+        else:
+            return {}
+        mapping: dict[str, str | None] = {}
+        for value in values:
+            if not value:
+                continue
+            mapping[value.strip().lower()] = value
+        return mapping
+
+    def _profile_display_label(self, target: str, value: str | None) -> str:
+        if target == "web":
+            if not value or value.strip().lower() == "default":
+                return "default (native)"
+        if target == "vision" and value is None:
+            return "none (null)"
+        return value or "default"
+
+    async def _set_profile_value(
+        self, target: str, chosen_value: str | None, chosen_label: str
+    ) -> bool:
+        if not await self._confirm_dogent_file_update(self.paths.config_file):
+            self.console.print(
+                Panel(
+                    "Profile update cancelled.",
+                    title="🏷️ Profile",
+                    border_style="yellow",
+                )
+            )
+            return True
+        try:
+            if target == "llm":
+                self.config_manager.set_llm_profile(chosen_value)
+            elif target == "web":
+                self.config_manager.set_web_profile(chosen_value)
+            else:
+                self.config_manager.set_vision_profile(chosen_value)
+        except Exception as exc:  # noqa: BLE001
+            self.session_logger.log_exception("cli", exc)
+            self.console.print(
+                Panel(
+                    f"Failed to update profile: {exc}",
+                    title="🏷️ Profile",
+                    border_style="red",
+                )
+            )
+            return True
+        await self.agent.reset()
+        title = "LLM Profile" if target == "llm" else "Web Profile"
+        if target == "vision":
+            title = "Vision Profile"
+        self.console.print(
+            Panel(
+                f"Set {title.lower()} to {chosen_label}.",
+                title="🏷️ Profile",
+                border_style="green",
+            )
+        )
+        return True
+
+    def _profile_completion_options(self, target: str) -> list[str]:
+        if target == "llm":
+            options = ["default", *self.config_manager.list_llm_profiles()]
+        elif target == "web":
+            options = ["default", *self.config_manager.list_web_profiles()]
+        elif target == "vision":
+            options = [*self.config_manager.list_vision_profiles()]
+            if not options:
+                options = ["none"]
+        else:
+            return []
+        seen: set[str] = set()
+        results: list[str] = []
+        for name in options:
+            lowered = name.strip()
+            if not lowered or lowered in seen:
+                continue
+            seen.add(lowered)
+            results.append(lowered)
+        return results
+
+    def _show_profile_table(self, *, show_available: bool = True) -> None:
+        project_cfg = self.config_manager.load_project_config()
+        llm_current = project_cfg.get("llm_profile") or "default"
+        web_current = project_cfg.get("web_profile") or "default"
+        web_display = (
+            "default (native)"
+            if not isinstance(web_current, str)
+            or web_current.strip().lower() == "default"
+            else web_current
+        )
+        vision_current = project_cfg.get("vision_profile")
+        vision_display = (
+            vision_current if isinstance(vision_current, str) and vision_current else "null"
+        )
+
+        table = Table(
+            show_header=True,
+            expand=True,
+            box=box.MINIMAL_DOUBLE_HEAD,
+            header_style="bold",
+        )
+        table.add_column("Profile", style="cyan", no_wrap=True)
+        table.add_column("Current", style="magenta")
+        if show_available:
+            table.add_column("Available", style="white")
+
+        llm_options = self._profile_options("llm")
+        web_options = self._profile_options("web")
+        vision_options = self._profile_options("vision")
+        rows = [
+            ("LLM", llm_current, llm_options),
+            ("Web", web_display, web_options),
+            ("Vision", vision_display, vision_options),
+        ]
+        for name, current, options in rows:
+            if show_available:
+                available = ", ".join(label for label, _ in options)
+                table.add_row(name, str(current), available)
+            else:
+                table.add_row(name, str(current))
+        title = "🏷️ Profiles" if show_available else "🏷️ Current Profiles"
+        self.console.print(Panel(table, title=title, border_style="cyan"))
+
+    async def _cmd_debug(self, command: str) -> bool:
+        parts = command.split(maxsplit=1)
+        arg = parts[1].strip().lower() if len(parts) > 1 else ""
+        if arg:
+            debug_value = self._resolve_debug_arg(arg)
+            if debug_value is None:
+                self.console.print(
+                    Panel(
+                        "\n".join(
+                            [
+                                f"Unknown debug option: {arg}",
+                                "Valid options: off, session, error, session-errors, warn, info, debug, all, custom",
+                                "Example: /debug session-errors",
+                            ]
+                        ),
+                        title="🗂️ Debug",
+                        border_style="red",
+                    )
+                )
+                return True
+            if debug_value == "__custom__":
+                debug_value = await self._debug_custom_selection()
+                if debug_value is DEBUG_CANCELLED:
+                    return True
+            if debug_value is DEBUG_OFF:
+                debug_value = None
+            await self._apply_debug_config(debug_value)
+            return True
+        self._show_debug_config()
+        return True
+
+    def _resolve_debug_arg(self, arg: str) -> object | None:
+        normalized = arg.replace("_", "-")
+        if normalized in {"off", "none", "null"}:
+            return DEBUG_OFF
+        if normalized == "session":
+            return "session"
+        if normalized in {"error", "errors"}:
+            return "error"
+        if normalized in {"session-errors", "session-error", "session+errors", "session+error"}:
+            return ["session", "error"]
+        if normalized in {"warn", "warning", "warnings"}:
+            return "warn"
+        if normalized == "info":
+            return "info"
+        if normalized == "debug":
+            return "debug"
+        if normalized == "all":
+            return "all"
+        if normalized == "custom":
+            return "__custom__"
+        return None
+
+    def _show_debug_config(self) -> None:
+        project_cfg = self.config_manager.load_project_config()
+        raw_debug = project_cfg.get("debug")
+        selection = resolve_debug_config(raw_debug)
+        enabled_types = ", ".join(sorted(selection.enabled_types)) or "none"
+        enabled_levels = [level for level in LOG_LEVELS if level in selection.enabled_levels]
+        enabled_levels_text = ", ".join(enabled_levels) or "none"
+        body = "\n".join(
+            [
+                f"Config value: {raw_debug!r}",
+                f"Types: {enabled_types}",
+                f"Levels: {enabled_levels_text}",
+            ]
+        )
+        self.console.print(Panel(body, title="🗂️ Debug", border_style="cyan"))
+
+    async def _debug_custom_selection(self) -> object:
+        session_options = ["Session on", "Session off"]
+        session_choice = await self._prompt_choice(
+            title="Debug Logging",
+            prompt_text="Include session logs?",
+            options=session_options,
+        )
+        if session_choice is None:
+            return DEBUG_CANCELLED
+        session_enabled = session_choice == 0
+
+        level_options = [
+            ("None", None),
+            ("Error (error only)", "error"),
+            ("Warn (warn + error)", "warn"),
+            ("Info (info + warn + error)", "info"),
+            ("Debug (debug + info + warn + error)", "debug"),
+        ]
+        level_choice = await self._prompt_choice(
+            title="Debug Logging",
+            prompt_text="Select a minimum level:",
+            options=[label for label, _ in level_options],
+        )
+        if level_choice is None:
+            return DEBUG_CANCELLED
+        _, level = level_options[level_choice]
+
+        if session_enabled and level == "debug":
+            return "all"
+        if session_enabled and level:
+            return ["session", level]
+        if session_enabled:
+            return "session"
+        return level
+
+    async def _apply_debug_config(self, debug_value: object) -> None:
+        if not await self._confirm_dogent_file_update(self.paths.config_file):
+            self.console.print(
+                Panel(
+                    "Debug configuration update cancelled.",
+                    title="🗂️ Debug",
+                    border_style="yellow",
+                )
+            )
+            return
+        try:
+            self.config_manager.set_debug_config(debug_value)
+            self.session_logger.configure(debug_value)
+        except Exception as exc:  # noqa: BLE001
+            self.session_logger.log_exception("cli", exc)
+            self.console.print(
+                Panel(
+                    f"Failed to update debug configuration: {exc}",
+                    title="🗂️ Debug",
+                    border_style="red",
+                )
+            )
+            return
+
+        selection = resolve_debug_config(debug_value)
+        enabled_types = ", ".join(sorted(selection.enabled_types)) or "none"
+        enabled_levels = [level for level in LOG_LEVELS if level in selection.enabled_levels]
+        enabled_levels_text = ", ".join(enabled_levels) or "none"
+        self.console.print(
+            Panel(
+                "\n".join(
+                    [
+                        "Debug configuration updated.",
+                        f"Types: {enabled_types}",
+                        f"Levels: {enabled_levels_text}",
+                    ]
+                ),
+                title="🗂️ Debug",
+                border_style="green",
+            )
+        )
 
     async def _run_init(self, command_text: str, *, force_wizard: bool = False) -> bool:
         parts = command_text.split(maxsplit=1)
@@ -3722,6 +4172,7 @@ class DogentCLI:
         cmd_name = command.split(maxsplit=1)[0]
         cmd = self.registry.get(cmd_name)
         if not cmd:
+            log_error("cli", "command.unknown", {"command": command})
             available = "\n".join(self.registry.descriptions())
             self.console.print(
                 Panel(
@@ -3784,6 +4235,7 @@ class DogentCLI:
             )
             stdout, stderr = await proc.communicate()
         except Exception as exc:  # noqa: BLE001
+            log_exception("cli", exc)
             self.console.print(Panel(str(exc), title="ᯓ➤ Shell", border_style="red"))
             return
 
@@ -4027,6 +4479,7 @@ class DogentCLI:
             await self.agent.reset()
         with suppress(Exception):
             self.session_logger.close()
+        set_active_logger(None)
         try:
             self.console.print(
                 Panel("Exiting Dogent. See you soon!", title="Goodbye", border_style="cyan")
@@ -4036,6 +4489,7 @@ class DogentCLI:
         except OSError as exc:
             if exc.errno == errno.EPIPE:
                 return
+            log_exception("cli", exc)
             raise
 
     def _show_attachments(self, attachments: Iterable[FileAttachment]) -> None:
@@ -4169,6 +4623,7 @@ class DogentCLI:
                 return await self.lesson_drafter.draft_from_incident(incident, user_text)
             return await self.lesson_drafter.draft_from_free_text(user_text)
         except Exception as exc:  # noqa: BLE001
+            log_exception("cli", exc)
             summary = incident.summary if incident else "(manual)"
             todos = incident.todos_markdown if incident else ""
             return "\n".join(
@@ -4248,6 +4703,7 @@ def main() -> None:
     except OSError as exc:
         if exc.errno == errno.EPIPE:
             return
+        log_exception("cli", exc)
         raise
 
 

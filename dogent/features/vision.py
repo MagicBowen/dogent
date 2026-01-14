@@ -14,6 +14,7 @@ from rich.console import Console
 
 from ..config.paths import DogentPaths
 from ..config.resources import read_prompt_text
+from ..core.session_log import log_exception
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
@@ -106,6 +107,7 @@ class VisionManager:
         try:
             return json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
+            log_exception("vision", exc)
             raise VisionAnalysisError(
                 f"Failed to parse JSON at {path}. Please fix the file and retry."
             ) from exc
@@ -154,15 +156,18 @@ class GLM4VClient:
             with urllib.request.urlopen(request, timeout=60) as response:
                 body = response.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
+            log_exception("vision", exc)
             detail = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
             raise VisionAnalysisError(
                 f"Vision request failed ({exc.code}). {detail or exc.reason}"
             ) from exc
         except urllib.error.URLError as exc:
+            log_exception("vision", exc)
             raise VisionAnalysisError(f"Vision request failed: {exc.reason}") from exc
         try:
             return json.loads(body)
         except json.JSONDecodeError as exc:
+            log_exception("vision", exc)
             raise VisionAnalysisError("Vision API returned invalid JSON.") from exc
 
 
@@ -206,6 +211,7 @@ def _parse_json_payload(text: str) -> dict[str, Any]:
     try:
         data = json.loads(snippet)
     except json.JSONDecodeError as exc:
+        log_exception("vision", exc)
         raise VisionAnalysisError("Vision output was not valid JSON.") from exc
     if not isinstance(data, dict):
         raise VisionAnalysisError("Vision output JSON must be an object.")

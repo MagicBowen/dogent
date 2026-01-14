@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool
 
 from .. import __version__
+from ..core.session_log import log_exception
 
 DOGENT_WEB_ALLOWED_TOOLS = ["mcp__dogent__web_search", "mcp__dogent__web_fetch"]
 DOGENT_WEB_TOOL_DISPLAY_NAMES = {
@@ -74,6 +75,7 @@ def _resolve_output_dir(root: Path, output_dir: str) -> Path:
     try:
         resolved.relative_to(root_resolved)
     except Exception as exc:  # noqa: BLE001
+        log_exception("web_tools", exc)
         raise ValueError("output_dir must stay within the workspace.") from exc
     return resolved
 
@@ -81,7 +83,8 @@ def _resolve_output_dir(root: Path, output_dir: str) -> Path:
 def _readable_output_path(root: Path, path: Path) -> str:
     try:
         return str(path.resolve().relative_to(root.resolve()))
-    except Exception:
+    except Exception as exc:
+        log_exception("web_tools", exc)
         return str(path)
 
 
@@ -372,6 +375,7 @@ def create_dogent_web_tools(
                     f"Unsupported provider '{provider}'. Use 'google_cse', 'bing', or 'brave'."
                 )
         except Exception as exc:  # noqa: BLE001
+            log_exception("web_tools", exc)
             return {
                 "content": [{"type": "text", "text": f"WebSearch failed: {exc}"}],
                 "is_error": True,
@@ -416,6 +420,7 @@ def create_dogent_web_tools(
         try:
             resp = http_get(url, headers, timeout_s)
         except Exception as exc:  # noqa: BLE001
+            log_exception("web_tools", exc)
             return {"content": [{"type": "text", "text": f"WebFetch failed: {exc}"}], "is_error": True}
         if resp.status >= 400:
             return {
@@ -428,7 +433,8 @@ def create_dogent_web_tools(
         if str(resp.headers.get("Content-Encoding") or "").lower() == "gzip":
             try:
                 body = gzip.decompress(body)
-            except Exception:
+            except Exception as exc:
+                log_exception("web_tools", exc)
                 body = resp.body
 
         is_image = content_type.startswith("image/")
@@ -436,6 +442,7 @@ def create_dogent_web_tools(
             try:
                 out_dir = _resolve_output_dir(root, output_dir)
             except ValueError as exc:
+                log_exception("web_tools", exc)
                 return {"content": [{"type": "text", "text": str(exc)}], "is_error": True}
             out_dir.mkdir(parents=True, exist_ok=True)
 

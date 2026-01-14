@@ -11,6 +11,19 @@ from dogent.features.document_io import read_document
 
 
 class DocumentIOTests(unittest.TestCase):
+    def test_read_text_with_offset_and_length(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sample.txt"
+            path.write_text("0123456789", encoding="utf-8")
+
+            result = read_document(path, max_chars=2, offset=3, length=4)
+            self.assertEqual(result.content, "3456")
+            self.assertTrue(result.truncated)
+            self.assertEqual(result.metadata.get("total_chars"), 10)
+            self.assertEqual(result.metadata.get("offset"), 3)
+            self.assertEqual(result.metadata.get("returned"), 4)
+            self.assertEqual(result.metadata.get("next_offset"), 7)
+
     def test_read_pdf_text(self) -> None:
         try:
             import fitz  # type: ignore
