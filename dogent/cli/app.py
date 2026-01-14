@@ -24,7 +24,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 from rich.theme import Theme
 
-from ..agent import AgentRunner
+from ..agent import AgentRunner, RunOutcome, PermissionDecision
 from ..features.clarification import (
     ClarificationPayload,
     ClarificationQuestion,
@@ -145,6 +145,24 @@ CLARIFICATION_SKIP_TEXT = "user chose not to answer this question"
 INPUT_CANCELLED = object()
 DEBUG_CANCELLED = object()
 DEBUG_OFF = object()
+
+EXIT_CODE_USAGE = 2
+EXIT_CODE_PERMISSION_REQUIRED = 10
+EXIT_CODE_NEEDS_CLARIFICATION = 11
+EXIT_CODE_NEEDS_OUTLINE_EDIT = 12
+EXIT_CODE_AWAITING_INPUT = 13
+EXIT_CODE_INTERRUPTED = 14
+EXIT_CODE_ABORTED = 15
+
+EXIT_CODE_BY_STATUS = {
+    "completed": 0,
+    "error": 1,
+    "needs_clarification": EXIT_CODE_NEEDS_CLARIFICATION,
+    "needs_outline_edit": EXIT_CODE_NEEDS_OUTLINE_EDIT,
+    "awaiting_input": EXIT_CODE_AWAITING_INPUT,
+    "interrupted": EXIT_CODE_INTERRUPTED,
+    "aborted": EXIT_CODE_ABORTED,
+}
 
 class DogentCLI:
     """Interactive CLI interface for Dogent."""
@@ -1265,6 +1283,11 @@ class DogentCLI:
             return str(path)
 
     async def _confirm_dogent_file_update(self, path: Path) -> bool:
+        try:
+            if path.resolve() == self.paths.config_file.resolve():
+                return True
+        except Exception:
+            pass
         if not path.exists():
             return True
         rel = self._display_relpath(path)
@@ -1290,17 +1313,32 @@ class DogentCLI:
             show_panel=False,
         )
 
-    async def _prompt_tool_permission(self, title: str, message: str) -> bool:
+    async def _prompt_tool_permission(
+        self, title: str, message: str
+    ) -> PermissionDecision:
+        options = ["Allow", "Allow and remember", "Deny"]
+        prompt_text = f"{message}\n\nSelect a permission option:"
+        was_active = self._selection_prompt_active.is_set()
+        if not was_active:
+            self._selection_prompt_active.set()
         try:
-            return await self._prompt_yes_no(
+            selection = await self._prompt_choice(
                 title=title,
-                message=message,
-                prompt="Allow? [Y/n] ",
-                default=True,
-                show_panel=True,
+                prompt_text=prompt_text,
+                options=options,
             )
         except SelectionCancelled:
-            return False
+            return PermissionDecision(False)
+        finally:
+            if not was_active:
+                self._selection_prompt_active.clear()
+        if selection is None:
+            return PermissionDecision(False)
+        if selection == 0:
+            return PermissionDecision(True)
+        if selection == 1:
+            return PermissionDecision(True, remember=True)
+        return PermissionDecision(False)
 
     def _build_start_writing_prompt(self, init_prompt: str) -> str:
         cleaned = init_prompt.strip().replace("\n", " ").strip()
@@ -3088,7 +3126,14 @@ class DogentCLI:
             full_screen=False,
             style=style,
         )
-        return await app.run_async()
+        was_active = self._selection_prompt_active.is_set()
+        if not was_active:
+            self._selection_prompt_active.set()
+        try:
+            return await app.run_async()
+        finally:
+            if not was_active:
+                self._selection_prompt_active.clear()
 
     async def _prompt_text_choice(
         self, *, title: str, prompt_text: str, options: list[str]
@@ -3939,6 +3984,138 @@ class DogentCLI:
         finally:
             await self._graceful_exit()
 
+    async def run_prompt(self, prompt: str, *, auto: bool = False) -> int:
+        raw = (prompt or "").strip()
+        if not raw:
+            self.console.print(
+                Panel("Prompt is required.", title="Error", border_style="red")
+            )
+            return EXIT_CODE_USAGE
+        self._auto_init_noninteractive()
+        message, template_override = self._extract_template_override(raw)
+        template_override = self._normalize_template_override(template_override)
+        _, attachments = self._resolve_attachments(message)
+        message = self._replace_file_references(message, attachments)
+        if template_override:
+            self._show_template_reference(template_override)
+        if attachments:
+            self._show_attachments(attachments)
+        if not message and not attachments:
+            self.console.print(
+                Panel("Prompt is required.", title="Error", border_style="red")
+            )
+            return EXIT_CODE_USAGE
+        blocked = self._blocked_media_attachments(attachments)
+        if blocked:
+            self._show_vision_disabled_error(blocked)
+            return 1
+        permission_prompt = (
+            self._auto_permission_prompt if auto else self._deny_permission_prompt
+        )
+        self.agent.set_permission_prompt(permission_prompt)
+        outcome = await self._run_noninteractive(
+            message,
+            attachments,
+            config_override=self._build_prompt_override(template_override),
+            auto=auto,
+        )
+        code = self._exit_code_for_outcome(outcome)
+        if code == 0:
+            self.console.print("Completed.")
+        else:
+            self._print_noninteractive_error(outcome)
+        return code
+
+    def _auto_init_noninteractive(self) -> None:
+        if not self.paths.config_file.exists():
+            self.config_manager.create_init_files()
+            self.config_manager.create_config_template()
+            return
+        self.config_manager.create_init_files()
+
+    async def _run_noninteractive(
+        self,
+        message: str,
+        attachments: list[FileAttachment],
+        *,
+        config_override: dict[str, Any] | None = None,
+        auto: bool = False,
+    ) -> RunOutcome | None:
+        next_message = message
+        next_attachments = attachments
+        while True:
+            await self.agent.send_message(
+                next_message,
+                next_attachments,
+                config_override=config_override,
+            )
+            outcome = self.agent.last_outcome
+            if not outcome:
+                return None
+            if outcome.status in {"error", "aborted", "interrupted"}:
+                return outcome
+            outline_payload = self.agent.pop_outline_edit_payload()
+            if outline_payload:
+                return outcome
+            payload = self.agent.pop_clarification_payload()
+            if payload:
+                if not auto:
+                    return outcome
+                answers = self._build_skipped_clarification_answers(payload)
+                answers_text = self._format_clarification_answers(payload, answers)
+                self._record_clarification_history(payload, answers_text)
+                next_message = answers_text
+                next_attachments = []
+                continue
+            if outcome.status in {
+                "needs_clarification",
+                "needs_outline_edit",
+                "awaiting_input",
+            }:
+                return outcome
+            return outcome
+
+    def _build_skipped_clarification_answers(
+        self, payload: ClarificationPayload
+    ) -> list[dict[str, str]]:
+        return [
+            {
+                "id": question.question_id,
+                "question": question.question,
+                "answer": CLARIFICATION_SKIP_TEXT,
+            }
+            for question in payload.questions
+        ]
+
+    async def _auto_permission_prompt(
+        self, _title: str, _message: str
+    ) -> PermissionDecision:
+        return PermissionDecision(True)
+
+    async def _deny_permission_prompt(
+        self, _title: str, message: str
+    ) -> PermissionDecision:
+        return PermissionDecision(False, message=f"Permission required: {message}")
+
+    def _exit_code_for_outcome(self, outcome: RunOutcome | None) -> int:
+        if outcome is None:
+            return 1
+        status = outcome.status
+        if status == "aborted":
+            summary = (outcome.summary or "").lower()
+            if summary.startswith("permission required:") or summary.startswith(
+                "user denied permission:"
+            ):
+                return EXIT_CODE_PERMISSION_REQUIRED
+        return EXIT_CODE_BY_STATUS.get(status, 1)
+
+    def _print_noninteractive_error(self, outcome: RunOutcome | None) -> None:
+        if not outcome:
+            self.console.print("Error: no outcome returned.")
+            return
+        summary = outcome.summary or outcome.status
+        self.console.print(f"Error ({outcome.status}): {summary}")
+
     async def _run_with_interrupt(
         self,
         message: str,
@@ -4688,13 +4865,29 @@ class DogentCLI:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Dogent CLI - interactive document-writing agent")
     parser.add_argument("-v", "--version", action="store_true", help="Show version and exit")
+    parser.add_argument(
+        "-p",
+        "--prompt",
+        help="Run a single prompt without entering the interactive UI",
+    )
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="Auto-approve permissions and skip clarifications in prompt mode",
+    )
     args, _ = parser.parse_known_args()
     if args.version:
         from dogent import __version__
 
         print(f"dogent {__version__}")
         return
+    if args.auto and not args.prompt:
+        parser.error("--auto requires --prompt")
     try:
+        if args.prompt:
+            cli = DogentCLI(interactive_prompts=False)
+            code = asyncio.run(cli.run_prompt(args.prompt, auto=args.auto))
+            raise SystemExit(code)
         asyncio.run(DogentCLI().run())
     except BrokenPipeError:
         return

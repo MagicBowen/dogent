@@ -6,5 +6,6 @@
   "primary_language": "Chinese",
   "learn_auto": true,
   "editor_mode": "default",
+  "authorizations": {},
   "claude_plugins": []
 }

@@ -8,6 +8,7 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 - Todo panel synced to `TodoWrite` tool calls/results (no seeded todos)
 - @file references list core file metadata; the agent calls MCP tools to read content or analyze media on demand
 - Tool access confirmation for out-of-workspace reads/writes and delete commands (inline yes/no selector)
+- One-shot mode: `dogent -p "prompt"` (fails fast on permission/clarification prompts; `--auto` auto-approves and skips; exit codes in `docs/usage.md`)
 - Clarification and confirmation prompts share a single selection UI with Esc-to-cancel and text fallback
 - Multiline Markdown editor for prompts, outlines, and free-form clarification answers (Ctrl+E) with live highlighting, full preview toggle, Ctrl+Enter submit, and Ctrl+Q return/save
 - Configurable vi editor mode (`editor_mode: "vi"`) with command hints and outline review options in a scrollable panel
@@ -15,6 +16,7 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 - Debug session logging to `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md` when `debug` is enabled
 - Chunked document reads via `mcp__dogent__read_document` with `offset` + `length` for long files
 - Project-only lessons in `.dogent/lessons.md` (auto-captured after failures/interrupts; injected into prompt context)
+- Optional authorization memory in `.dogent/dogent.json` (`authorizations` map with wildcard paths)
 - Loads Claude assets from `.claude` (commands/agents/skills) with `/claude:` prefixed commands in the CLI
 - Supports local Claude plugins configured per workspace
 - Ready for packaging via `pyproject.toml` with Rich-based UI
@@ -22,7 +24,8 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 ## Quick Start
 1. Install: `pip install .` (Python 3.10+)
 2. Run: `dogent` (or `dogent -h/-v`) in your project directory — ASCII banner shows model/API.
-3. If `.dogent/dogent.json` is missing, Dogent will offer to initialize the workspace before the first request.
+   - One-shot mode: `dogent -p "prompt"` (add `--auto` to auto-approve permissions and skip clarifications; success prints `Completed.`).
+3. If `.dogent/dogent.json` is missing, Dogent will offer to initialize the workspace before the first request (one-shot mode auto-initializes defaults).
 4. Commands:
    - `/init` → create/update `.dogent/dogent.md` and `.dogent/dogent.json` (template picker or wizard)
    - `/profile` → show current profiles; `/profile llm|web|vision <name>` to update
@@ -41,13 +44,14 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 4. Reference files with `@path/to/file` in your message; Dogent injects file metadata and uses MCP tools on demand to read/understand content. Tool results (e.g., WebFetch/WebSearch) show clear success/failure panels with reasons.
 
 ## Configuration
-- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `vision_profile`, `doc_template`, `learn_auto`, `debug`, `editor_mode`, `claude_plugins`)
+- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `vision_profile`, `doc_template`, `learn_auto`, `debug`, `editor_mode`, `authorizations`, `claude_plugins`)
 - Global config: `~/.dogent/dogent.json` with version, workspace defaults, and profiles (see `docs/usage.md` for JSON examples)
 - JSON schema: `~/.dogent/dogent.schema.json` (for editor validation)
 - Env fallback: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 - History is stored in `.dogent/history.json` (structured JSON, managed automatically); temporary scratch lives in `.dogent/memory.md` when created on demand.
 - Debug config accepts `null`, booleans, `"session"`, `"error"`, `"warn"`, `"info"`, `"debug"`, `"all"`, or lists like `["session", "error"]`.
 - Debug logs (when `debug` is enabled) are Markdown in `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md` with `role`, `source`, `event`, and `content`.
+- Authorization memory: `authorizations` maps tool names to allowed paths (supports wildcards). Choosing “Allow and remember” records entries.
 
 ## Claude Commands & Plugins
 - Project/user commands in `.claude/commands/*.md` load into Dogent as `/claude:<name>`.

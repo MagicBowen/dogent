@@ -12,6 +12,22 @@
 4) Ask a request (for example: “Draft a project README outline”).
 5) Use `/exit` to leave the CLI.
 
+One-shot mode:
+- `dogent -p "prompt"` runs once without the interactive shell.
+- Add `--auto` to auto-approve permissions and skip clarifications.
+- If `.dogent/dogent.json` is missing, one-shot mode initializes defaults automatically.
+
+One-shot exit codes:
+- `0`: completed successfully (prints `Completed.` after the summary).
+- `1`: error.
+- `2`: usage error.
+- `10`: permission required (default `-p` fails fast).
+- `11`: clarification required.
+- `12`: outline edit required.
+- `13`: awaiting input.
+- `14`: interrupted.
+- `15`: aborted.
+
 ## Configuration
 Dogent reads configuration from both a global file and the workspace:
 
@@ -27,6 +43,7 @@ Common workspace fields:
 - `primary_language`: response language for the CLI.
 - `learn_auto`: enable automatic lesson capture.
 - `editor_mode`: `default` or `vi`.
+- `authorizations`: tool -> path patterns for remembered permissions (wildcards supported).
 - `claude_plugins`: list of local plugin paths (absolute or workspace-relative).
 
 If `llm_profile` is missing, Dogent falls back to environment variables.
@@ -114,9 +131,10 @@ Shortcuts:
 Dogent requires confirmation for sensitive operations:
 - File access outside the workspace root.
 - Destructive commands (rm/rmdir/del/mv).
-- Modifying existing `.dogent/dogent.md` or `.dogent/dogent.json`.
+- Modifying existing `.dogent/dogent.md`.
 
 If you deny a prompt, the task is aborted and the agent stops safely.
+Choosing “Allow and remember” records the paths under `authorizations` in `.dogent/dogent.json` so future runs skip the prompt.
 
 ## Claude Commands & Plugins
 - Place commands in `.claude/commands/*.md` (project) or `~/.claude/commands/*.md` (user).

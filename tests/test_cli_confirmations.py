@@ -74,10 +74,20 @@ class ConfirmationPromptTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result)
         prompt_mock.assert_not_called()
 
-    async def test_confirm_dogent_file_update_prompts_when_exists(self) -> None:
+    async def test_confirm_dogent_file_update_skips_for_config(self) -> None:
         target = self.cli.paths.config_file
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("{}", encoding="utf-8")
+        prompt_mock = mock.AsyncMock(return_value=True)
+        self.cli._prompt_yes_no = prompt_mock  # type: ignore[assignment]
+        result = await self.cli._confirm_dogent_file_update(target)
+        self.assertTrue(result)
+        prompt_mock.assert_not_called()
+
+    async def test_confirm_dogent_file_update_prompts_for_doc(self) -> None:
+        target = self.cli.paths.doc_preferences
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# config", encoding="utf-8")
         prompt_mock = mock.AsyncMock(return_value=True)
         self.cli._prompt_yes_no = prompt_mock  # type: ignore[assignment]
         result = await self.cli._confirm_dogent_file_update(target)
@@ -97,10 +107,10 @@ class ConfirmationPromptTests(unittest.IsolatedAsyncioTestCase):
             return "esc"
 
         self.cli._read_input = fake_read_input  # type: ignore[assignment]
-        allowed = await self.cli._prompt_tool_permission(
+        decision = await self.cli._prompt_tool_permission(
             "Permission required: Read", "Read path outside workspace."
         )
-        self.assertFalse(allowed)
+        self.assertFalse(decision.allow)
 
 
 if __name__ == "__main__":
