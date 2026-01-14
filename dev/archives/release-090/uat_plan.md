@@ -926,3 +926,62 @@ User Test Results: PASS
 4) Expect the agent to invoke the skill/subagent when appropriate.
 
 User Test Results: PASS
+
+---
+
+## Release 0.9.17
+
+### Story 1 – Profile Command & Config Updates
+1) Edit `~/.dogent/dogent.json` to include sample profiles under `llm_profiles`, `web_profiles`, and optionally `vision_profiles`.
+2) Run `dogent` in a workspace and execute `/profile`; verify it only shows current selections.
+3) Run `/profile show`; verify current selections and available profile keys are listed.
+4) Run `/profile llm ` (note trailing space) and choose a non-default profile from the drop list; verify `.dogent/dogent.json` updates `llm_profile` and the next request uses the new profile (banner or settings).
+5) Run `/profile web ` and choose a custom profile; verify `.dogent/dogent.json` updates `web_profile`.
+6) Remove all `vision_profiles` entries, run `/profile vision ` and choose `none`; confirm `.dogent/dogent.json` stores `"vision_profile": null`.
+
+User Test Results: PASS
+
+### Story 2 – Debug Command & Config Normalization
+1) Run `/debug`; verify it shows the current debug configuration (no selection prompt).
+2) Run `/debug session-errors`; verify `.dogent/dogent.json` contains `"debug": ["session", "error"]`.
+3) Run `/debug warn`; verify `.dogent/dogent.json` contains `"debug": "warn"`.
+4) Run `/debug off`; verify `.dogent/dogent.json` contains `"debug": null`.
+
+User Test Results: PASS
+
+### Story 3 – Logging Output + Instrumentation
+1) Run `/debug`, choose “All (session + all levels)”.
+2) Run a normal prompt and confirm a log file appears in `.dogent/logs/dogent_session_<timestamp>.md`.
+3) Open the log file and verify newest entries are at the top, session entries are tagged with `session/...`, and level entries are tagged with `error/warn/info/debug`.
+4) Trigger an error (e.g., run `!false` or open a missing file) and verify a corresponding level log entry appears near the top with the same interaction id as nearby session logs.
+
+User Test Results: PASS
+
+### Story 4 – Document Read Offsets
+1) Place a long text file in the workspace (e.g., `sample.txt` with > 200 chars).
+2) Call `mcp__dogent__read_document` with `offset: 0`, `length: 100`; verify the content is the first 100 chars and metadata includes `total_chars` and `next_offset`.
+3) Call `mcp__dogent__read_document` with `offset: <next_offset>`, `length: 100`; verify the next segment is returned and `next_offset` advances.
+
+User Test Results: PASS
+
+---
+
+## Release 0.9.18
+
+### Story 1 – Non-Interactive Prompt Mode
+1) In a new workspace without `.dogent/dogent.json`, run `dogent -p "summarize the repo"`. Verify `.dogent/dogent.json` and `.dogent/dogent.md` are created.
+2) Confirm the run exits with code `0` and prints `Completed.` after the normal agent summary.
+3) Run `dogent -p "do something that needs a clarification"` and verify it exits with code `11` and prints an error reason.
+4) Run `dogent -p "do something that needs a clarification" --auto` and verify clarifications are skipped and the run proceeds until completion or another non-zero exit reason.
+
+User Test Results: PASS
+
+### Story 2 – Authorization Persistence + dogent.json Exceptions
+1) Start `dogent` and trigger a permission prompt (e.g., read a file outside the workspace).
+2) Choose “Allow and remember.” Verify `.dogent/dogent.json` now contains an `authorizations` entry for the tool and exact path.
+3) Repeat the same action; verify no prompt appears.
+4) Attempt an action that touches multiple delete targets (e.g., `rm a b`) and confirm all paths are recorded when selecting “Allow and remember.”
+5) Run `/debug on` or `/profile llm default` and confirm no permission prompt appears for `.dogent/dogent.json`.
+6) From the agent, edit `.dogent/dogent.json`; verify no permission prompt appears.
+
+User Test Results: PASS

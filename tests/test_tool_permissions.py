@@ -141,8 +141,8 @@ class ToolPermissionTests(unittest.TestCase):
             cwd=self.cwd,
             allowed_roots=self.allowed,
         )
-        self.assertTrue(needs)
-        self.assertIn("protected", reason)
+        self.assertFalse(needs)
+        self.assertEqual(reason, "")
 
     def test_protected_dogent_creation_no_confirmation(self) -> None:
         protected = self.cwd / ".dogent" / "dogent.md"
@@ -166,6 +166,44 @@ class ToolPermissionTests(unittest.TestCase):
         )
         self.assertTrue(needs)
         self.assertIn("protected", reason)
+
+    def test_authorizations_skip_outside_read(self) -> None:
+        resolved_hosts = Path("/etc/hosts").resolve()
+        pattern = str(resolved_hosts.parent / "*")
+        needs, reason = should_confirm_tool_use(
+            "Read",
+            {"file_path": "/etc/hosts"},
+            cwd=self.cwd,
+            allowed_roots=self.allowed,
+            authorizations={"Read": [pattern]},
+        )
+        self.assertFalse(needs)
+        self.assertEqual(reason, "")
+
+    def test_authorizations_skip_protected_file(self) -> None:
+        protected = self.cwd / ".dogent" / "dogent.md"
+        protected.parent.mkdir(parents=True, exist_ok=True)
+        protected.write_text("x", encoding="utf-8")
+        needs, _ = should_confirm_tool_use(
+            "Write",
+            {"file_path": str(protected)},
+            cwd=self.cwd,
+            allowed_roots=self.allowed,
+            authorizations={"Write": [str(protected)]},
+        )
+        self.assertFalse(needs)
+
+    def test_authorizations_require_all_targets(self) -> None:
+        first = self.cwd / "a.txt"
+        second = self.cwd / "b.txt"
+        needs, _ = should_confirm_tool_use(
+            "Bash",
+            {"command": f"rm -f {first} {second}"},
+            cwd=self.cwd,
+            allowed_roots=self.allowed,
+            authorizations={"Bash": [str(first)]},
+        )
+        self.assertTrue(needs)
 
 
 if __name__ == "__main__":

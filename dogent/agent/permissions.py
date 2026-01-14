@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import shlex
+from dataclasses import dataclass
 from pathlib import Path
+import fnmatch
+import os
 from typing import Iterable
 
 from ..core.session_log import log_exception
@@ -9,7 +12,14 @@ from ..core.session_log import log_exception
 BASH_TOOLS = {"Bash", "BashOutput"}
 DELETE_COMMANDS = {"rm", "rmdir", "del", "mv"}
 FILE_TOOLS = {"Read", "Write", "Edit"}
-PROTECTED_DOGENT_FILES = {Path(".dogent/dogent.md"), Path(".dogent/dogent.json")}
+PROTECTED_DOGENT_FILES = {Path(".dogent/dogent.md")}
+
+
+@dataclass(frozen=True)
+class PermissionCheck:
+    needs_confirm: bool
+    reason: str
+    targets: list[Path]
 
 
 def should_confirm_tool_use(
@@ -19,21 +29,70 @@ def should_confirm_tool_use(
     cwd: Path,
     allowed_roots: Iterable[Path],
     delete_whitelist: Iterable[Path] | None = None,
+    authorizations: dict[str, list[str]] | None = None,
 ) -> tuple[bool, str]:
+    check = evaluate_tool_permission(
+        tool_name,
+        input_data,
+        cwd=cwd,
+        allowed_roots=allowed_roots,
+        delete_whitelist=delete_whitelist,
+        authorizations=authorizations,
+    )
+    return check.needs_confirm, check.reason
+
+
+def evaluate_tool_permission(
+    tool_name: str,
+    input_data: dict,
+    *,
+    cwd: Path,
+    allowed_roots: Iterable[Path],
+    delete_whitelist: Iterable[Path] | None = None,
+    authorizations: dict[str, list[str]] | None = None,
+) -> PermissionCheck:
+    check = _collect_permission_targets(
+        tool_name,
+        input_data,
+        cwd=cwd,
+        allowed_roots=allowed_roots,
+        delete_whitelist=delete_whitelist,
+    )
+    if not check.needs_confirm:
+        return check
+    if not authorizations or not check.targets:
+        return check
+    if _targets_authorized(tool_name, check.targets, authorizations, cwd):
+        return PermissionCheck(False, "", check.targets)
+    return check
+
+
+def _collect_permission_targets(
+    tool_name: str,
+    input_data: dict,
+    *,
+    cwd: Path,
+    allowed_roots: Iterable[Path],
+    delete_whitelist: Iterable[Path] | None = None,
+) -> PermissionCheck:
     if tool_name in FILE_TOOLS:
         raw_path = _extract_file_path(input_data)
         if not raw_path:
-            return False, ""
+            return PermissionCheck(False, "", [])
         resolved = _resolve_path(raw_path, cwd)
         if not resolved:
-            return False, ""
+            return PermissionCheck(False, "", [])
         if tool_name in {"Write", "Edit"} and _is_existing_protected_file(
             resolved, cwd
         ):
-            return True, f"Modify protected file: {resolved}"
+            return PermissionCheck(True, f"Modify protected file: {resolved}", [resolved])
         if _is_outside_allowed_roots(resolved, allowed_roots):
-            return True, f"{tool_name} path outside workspace: {resolved}"
-        return False, ""
+            return PermissionCheck(
+                True,
+                f"{tool_name} path outside workspace: {resolved}",
+                [resolved],
+            )
+        return PermissionCheck(False, "", [])
 
     if tool_name in BASH_TOOLS:
         command = str(input_data.get("command") or "")
@@ -41,20 +100,73 @@ def should_confirm_tool_use(
         if targets:
             remaining = _exclude_whitelisted_targets(targets, delete_whitelist)
             if not remaining:
-                return False, ""
+                return PermissionCheck(False, "", [])
             joined = ", ".join(str(path) for path in remaining)
-            return True, f"Delete command targets: {joined}"
+            return PermissionCheck(True, f"Delete command targets: {joined}", remaining)
         redirections = extract_redirection_targets(command, cwd=cwd)
-        for target in redirections:
-            if _is_existing_protected_file(target, cwd):
-                return True, f"Modify protected file via redirection: {target}"
+        protected_redirections = [
+            target for target in redirections if _is_existing_protected_file(target, cwd)
+        ]
+        if protected_redirections:
+            joined = ", ".join(str(path) for path in protected_redirections)
+            return PermissionCheck(
+                True,
+                f"Modify protected file via redirection: {joined}",
+                protected_redirections,
+            )
         paths = extract_command_paths(command, cwd=cwd)
-        for path in paths + redirections:
-            if _is_outside_allowed_roots(path, allowed_roots):
-                return True, f"Bash command targets outside workspace: {path}"
-        return False, ""
+        outside = [
+            path
+            for path in paths + redirections
+            if _is_outside_allowed_roots(path, allowed_roots)
+        ]
+        if outside:
+            joined = ", ".join(str(path) for path in outside)
+            return PermissionCheck(
+                True,
+                f"Bash command targets outside workspace: {joined}",
+                outside,
+            )
+        return PermissionCheck(False, "", [])
 
-    return False, ""
+    return PermissionCheck(False, "", [])
+
+
+def _targets_authorized(
+    tool_name: str,
+    targets: Iterable[Path],
+    authorizations: dict[str, list[str]],
+    cwd: Path,
+) -> bool:
+    patterns = authorizations.get(tool_name)
+    if not patterns:
+        return False
+    normalized_patterns = [
+        _normalize_authorization_pattern(pattern, cwd) for pattern in patterns
+    ]
+    normalized_patterns = [pattern for pattern in normalized_patterns if pattern]
+    if not normalized_patterns:
+        return False
+    for target in targets:
+        target_str = target.resolve().as_posix()
+        if not any(
+            fnmatch.fnmatchcase(target_str, pattern)
+            for pattern in normalized_patterns
+        ):
+            return False
+    return True
+
+
+def _normalize_authorization_pattern(pattern: str, cwd: Path) -> str:
+    raw = pattern.strip()
+    if not raw:
+        return ""
+    expanded = os.path.expanduser(raw)
+    if os.path.isabs(expanded):
+        normalized = os.path.normpath(expanded)
+    else:
+        normalized = os.path.normpath(str(cwd / expanded))
+    return Path(normalized).as_posix()
 
 
 def extract_delete_targets(command: str, *, cwd: Path) -> list[Path]:

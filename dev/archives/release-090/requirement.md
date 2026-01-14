@@ -392,3 +392,23 @@ Here are suggestions for refactoring the code of dogent：
     - Claude commands and subagents are not supported by dogent, should register the user configured claude's slash command to dogent commands with a `claude:` prefix.
 - Dogent supports loading Claude's plugins;
 - For how to support claude's plugins and  commands, subagents, and skills, should according the tutorials under `claude-agent-sdk/tutorials`, In particular, the following documents：`slash_commands_in_the_SDK.md`, `subagents_in_the_SDK.md`, `plugins_in_the_SDK.md`, Other tutorial files can also be consulted if needed.
+
+---
+
+## Release 0.9.17
+
+- The various profiles currently supported by Dogent: llm_profile, web_profile..., users need to manually configure them in the configuration file `.dogent/dogent.json`, and often do not know the names of the profiles that can be filled in when configuring; I need a command-based way to change profiles, allowing users to choose from the available range; I hope that the configuration method and UI behavior of this dogent's commands are consistent with other commands, with easy-to-understand names and a user-friendly and beautiful UI;
+
+- To make it easier to locate code problems with Dogent, I hope that Dogent's code supports logging capabilities, which can be used to record code actions or exceptions. The `debug` configuration in the current configuration file `.dogent/dogent.json` can be reused. If it is not configured (or is `null`), it means logging is turned off; otherwise, it indicates the enabled log types. For example, the currently supported type that records the interaction process between users and agents in the session can be called `info`(or other suitable name you recommended) level. Other log types can be classified according to log levels; after adding this logging function, it is necessary to insert logging in all places where exceptions and errors occur in the current dogent code. When the log configuration is turned on, these should be recorded. Logs are uniformly saved in `.dogent/logs` in the current working directory;
+
+- The mcp__dogent__read_document tool currently does not support offsets. When it is necessary to read long documents, it is impossible to read them in multiple segments by the specified offset and length. Please help me modify the implementation of mcp__dogent__read_document and re-register its usage with the agent.
+
+---
+
+## Release 0.9.18
+
+- Supports a fully automatic execution mode that does not require entering the dogent interactive interface; such as `dogent -p "user prompt"`, no authorization required, one-click execution to the end, equivalent to a pure shell command, indicating success or failure to the user through the return value (`0` indicates success)
+- It is necessary to support the design of an authorization configuration method in dogent.json, so that when users are in non-interactive and interactive modes, they will no longer be prompted for authorization for operations that have already been authorized in dogent.json. If the user is in the interactive mode, when the agent requests authorization, in addition to the yes/no options, there should also be a "yes (record, authorize for all subsequent times)" option. If the user selects this option, it will be recorded in the configuration.
+- Simplify the authorization request for dogent.json. If the user modifies the configuration by executing commands such as init, profile, debug, lesson..., there is no need to ask the user for permission to modify dogent.json, and the modification can be done directly.
+- When a user executes via `dogent -p "user prompt"`, if file operation authorization is required, or if the agent needs clarification, resulting in incomplete execution, an error should be returned. The error codes need to be designed to be distinguishable, and the error reason should be output simultaneously. For successful execution, a simple output should also be provided to indicate that the task is completed.
+- Support specifying a parameter in the `dogent -p "user prompt"` mode, which can by default agree to all file authorizations, skip all question clarifications (all questions are equivalent to being ignored by the user), and try to make the agent complete the process with one click.

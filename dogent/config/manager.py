@@ -5,7 +5,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, Optional
 
 from rich.console import Console
 
@@ -29,6 +29,7 @@ DEFAULT_PROJECT_CONFIG: Dict[str, Any] = {
     "learn_auto": True,
     "editor_mode": "default",
     "debug": False,
+    "authorizations": {},
     "claude_plugins": [],
 }
 GLOBAL_DEFAULTS_KEY = "workspace_defaults"
@@ -196,6 +197,52 @@ class ConfigManager:
             encoding="utf-8",
         )
 
+    def add_authorizations(self, tool_name: str, paths: Iterable[Path]) -> None:
+        """Record authorized tool paths in .dogent/dogent.json."""
+        cleaned_tool = (tool_name or "").strip()
+        if not cleaned_tool:
+            return
+        path_list = [path for path in paths if path]
+        if not path_list:
+            return
+        self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+        if not self.paths.config_file.exists():
+            self.create_config_template()
+        data = self._read_json(self.paths.config_file) or {}
+        if not isinstance(data, dict):
+            data = {}
+        authorizations = data.get("authorizations")
+        if not isinstance(authorizations, dict):
+            authorizations = {}
+        existing = authorizations.get(cleaned_tool)
+        if not isinstance(existing, list):
+            existing = []
+        cleaned_existing = []
+        seen = set()
+        for item in existing:
+            if not isinstance(item, str):
+                continue
+            value = item.strip()
+            if not value or value in seen:
+                continue
+            cleaned_existing.append(value)
+            seen.add(value)
+        for path in path_list:
+            formatted = self._format_authorization_path(path)
+            if not formatted or formatted in seen:
+                continue
+            cleaned_existing.append(formatted)
+            seen.add(formatted)
+        if cleaned_existing:
+            authorizations[cleaned_tool] = cleaned_existing
+        else:
+            authorizations.pop(cleaned_tool, None)
+        data["authorizations"] = authorizations
+        self.paths.config_file.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
     def list_llm_profiles(self) -> list[str]:
         profiles = self._read_profiles_section(GLOBAL_LLM_PROFILES_KEY)
         return sorted(profiles.keys())
@@ -234,7 +281,11 @@ class ConfigManager:
     def _global_defaults(self) -> Dict[str, Any]:
         data = self._read_global_config()
         defaults = data.get(GLOBAL_DEFAULTS_KEY, {})
-        return defaults if isinstance(defaults, dict) else {}
+        if not isinstance(defaults, dict):
+            return {}
+        cleaned = dict(defaults)
+        cleaned.pop("authorizations", None)
+        return cleaned
 
     def _default_global_config(self) -> Dict[str, Any]:
         template = self._read_template_json("dogent_global_default.json")
@@ -403,6 +454,8 @@ class ConfigManager:
             normalized["editor_mode"] = DEFAULT_PROJECT_CONFIG["editor_mode"]
         raw_debug = normalized.get("debug")
         normalized["debug"] = self._normalize_debug(raw_debug)
+        raw_authorizations = normalized.get("authorizations")
+        normalized["authorizations"] = self._normalize_authorizations(raw_authorizations)
         raw_vision_profile = normalized.get("vision_profile")
         if raw_vision_profile is None:
             normalized["vision_profile"] = DEFAULT_PROJECT_CONFIG["vision_profile"]
@@ -454,6 +507,44 @@ class ConfigManager:
                     cleaned.append(item)
             return cleaned or None
         return None
+
+    def _normalize_authorizations(self, raw_authorizations: Any) -> Dict[str, list[str]]:
+        if not isinstance(raw_authorizations, dict):
+            return {}
+        cleaned: Dict[str, list[str]] = {}
+        for tool, patterns in raw_authorizations.items():
+            if not isinstance(tool, str):
+                continue
+            tool_key = tool.strip()
+            if not tool_key:
+                continue
+            if isinstance(patterns, str):
+                items = [patterns]
+            elif isinstance(patterns, list):
+                items = patterns
+            else:
+                continue
+            cleaned_patterns: list[str] = []
+            for pattern in items:
+                if not isinstance(pattern, str):
+                    continue
+                value = pattern.strip()
+                if value:
+                    cleaned_patterns.append(value)
+            if cleaned_patterns:
+                cleaned[tool_key] = cleaned_patterns
+        return cleaned
+
+    def _format_authorization_path(self, path: Path) -> str:
+        try:
+            resolved = path.resolve()
+        except Exception:
+            resolved = path
+        try:
+            rel = resolved.relative_to(self.paths.root.resolve())
+            return str(rel)
+        except Exception:
+            return str(resolved)
 
     def build_options(
         self,

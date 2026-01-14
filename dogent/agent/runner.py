@@ -31,7 +31,7 @@ from .wait import LLMWaitIndicator
 from ..features.document_tools import DOGENT_DOC_TOOL_DISPLAY_NAMES
 from ..features.vision_tools import DOGENT_VISION_TOOL_DISPLAY_NAMES
 from ..features.web_tools import DOGENT_WEB_TOOL_DISPLAY_NAMES
-from .permissions import should_confirm_tool_use
+from .permissions import evaluate_tool_permission
 from ..features.clarification import (
     ClarificationPayload,
     CLARIFICATION_JSON_TAG,
@@ -63,6 +63,13 @@ class RunOutcome:
     remaining_todos_markdown: str
 
 
+@dataclass(frozen=True)
+class PermissionDecision:
+    allow: bool
+    remember: bool = False
+    message: str | None = None
+
+
 class AgentRunner:
     """Maintains a Claude Agent SDK session and streams responses to the CLI."""
 
@@ -74,7 +81,9 @@ class AgentRunner:
         history: HistoryManager,
         console: Optional[Console] = None,
         *,
-        permission_prompt: Optional[Callable[[str, str], Awaitable[bool]]] = None,
+        permission_prompt: Optional[
+            Callable[[str, str], Awaitable[bool | PermissionDecision]]
+        ] = None,
         session_logger: SessionLogger | None = None,
     ) -> None:
         self.config = config
@@ -126,6 +135,15 @@ class AgentRunner:
         async with self._lock:
             if self._client:
                 self._client.options.system_prompt = system_prompt
+
+    def set_permission_prompt(
+        self,
+        permission_prompt: Optional[
+            Callable[[str, str], Awaitable[bool | PermissionDecision]]
+        ],
+    ) -> None:
+        """Update the permission prompt callback for subsequent runs."""
+        self._permission_prompt = permission_prompt
 
     def pop_clarification_payload(self) -> ClarificationPayload | None:
         payload = self._clarification_payload
@@ -772,25 +790,39 @@ class AgentRunner:
             return PermissionResultDeny(message=self._aborted_reason, interrupt=True)
         allowed_roots = [self.config.paths.root.resolve()]
         delete_whitelist = [self.config.paths.memory_file.resolve()]
-        needs_confirm, reason = should_confirm_tool_use(
+        project_cfg = self.config.load_project_config()
+        authorizations = project_cfg.get("authorizations")
+        if not isinstance(authorizations, dict):
+            authorizations = None
+        check = evaluate_tool_permission(
             tool_name,
             input_data,
             cwd=self.config.paths.root,
             allowed_roots=allowed_roots,
             delete_whitelist=delete_whitelist,
+            authorizations=authorizations,
         )
-        if not needs_confirm:
+        if not check.needs_confirm:
             return PermissionResultAllow()
-        if await self._request_permission(tool_name, reason):
+        decision = await self._request_permission(tool_name, check.reason)
+        if decision.allow:
+            if decision.remember and check.targets:
+                with suppress(Exception):
+                    self.config.add_authorizations(tool_name, check.targets)
             return PermissionResultAllow()
-        await self._handle_permission_denied(reason)
+        await self._handle_permission_denied(check.reason, message=decision.message)
         return PermissionResultDeny(
             message=self._aborted_reason or "User denied permission.",
             interrupt=True,
         )
 
-    async def _handle_permission_denied(self, reason: str) -> None:
-        self._aborted_reason = f"User denied permission: {reason}"
+    async def _handle_permission_denied(
+        self, reason: str, *, message: str | None = None
+    ) -> None:
+        if message:
+            self._aborted_reason = message
+        else:
+            self._aborted_reason = f"User denied permission: {reason}"
         self._abort_requested = True
         await self._stop_wait_indicator()
         await self._interrupt_client_on_abort()
@@ -805,20 +837,26 @@ class AgentRunner:
         with suppress(Exception):
             await self._client.interrupt()
 
-    async def _request_permission(self, tool_name: str, reason: str) -> bool:
+    async def _request_permission(
+        self, tool_name: str, reason: str
+    ) -> PermissionDecision:
         if not self._permission_prompt:
-            return False
+            return PermissionDecision(False)
         was_running = self._wait_indicator is not None
         self._permission_prompt_active = True
         if was_running:
             await self._stop_wait_indicator()
-        approved = False
+        decision = PermissionDecision(False)
         try:
             title = f"Permission required: {tool_name}"
             body = reason
-            approved = await self._permission_prompt(title, body)
-            return approved
+            result = await self._permission_prompt(title, body)
+            if isinstance(result, PermissionDecision):
+                decision = result
+            else:
+                decision = PermissionDecision(bool(result))
+            return decision
         finally:
             self._permission_prompt_active = False
-            if was_running and approved:
+            if was_running and decision.allow:
                 await self._start_wait_indicator()
