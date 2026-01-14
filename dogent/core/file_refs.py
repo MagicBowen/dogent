@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Tuple
 
+from .session_log import log_debug
+
 
 @dataclass
 class FileAttachment:
@@ -30,7 +32,8 @@ class FileReferenceResolver:
             resolved = Path(os.path.realpath(self.root / path_token))
             try:
                 resolved.relative_to(root_resolved)
-            except ValueError:
+            except ValueError as exc:
+                log_debug("file_refs", "attachment.outside_workspace", str(exc))
                 continue
             if not resolved.exists() or not resolved.is_file():
                 continue

@@ -34,7 +34,10 @@
           "enum": ["default", "vi"]
         },
         "debug": {
-          "type": "boolean"
+          "type": ["boolean", "string", "array", "null"],
+          "items": {
+            "type": "string"
+          }
         },
         "anthropic": {
           "type": "object",

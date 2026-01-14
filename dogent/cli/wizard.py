@@ -13,7 +13,7 @@ from ..config import ConfigManager
 from ..features.doc_templates import DocumentTemplateManager
 from ..config.paths import DogentPaths
 from ..config.resources import read_config_text, read_prompt_text
-from ..core.session_log import SessionLogger
+from ..core.session_log import SessionLogger, log_exception
 from ..agent.wait import LLMWaitIndicator
 
 
@@ -130,7 +130,8 @@ class InitWizard:
             return None
         try:
             return json.loads(text)
-        except Exception:
+        except Exception as exc:
+            log_exception("cli.wizard", exc)
             start = text.find("{")
             end = text.rfind("}")
             if start == -1 or end == -1 or end <= start:
@@ -138,7 +139,8 @@ class InitWizard:
             snippet = text[start : end + 1]
             try:
                 return json.loads(snippet)
-            except Exception:
+            except Exception as exc:
+                log_exception("cli.wizard", exc)
                 return None
 
     def _build_user_prompt(self, user_prompt: str) -> str:

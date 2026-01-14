@@ -31,6 +31,21 @@ Common workspace fields:
 
 If `llm_profile` is missing, Dogent falls back to environment variables.
 
+## Profiles
+Use `/profile` to check or update workspace profiles:
+- `/profile` shows current selections.
+- `/profile show` shows current selections and available profile keys.
+- `/profile llm|web|vision <name>` updates the selection (completion lists values after a trailing space).
+- Vision can be disabled by setting `vision_profile` to `null` (shown as `none` when no vision profiles exist).
+
+## Debug Logging
+Use `/debug` to inspect or update logging configuration:
+- `/debug` shows the current config.
+- `/debug off|session|error|session-errors|warn|info|debug|all` sets the config.
+- `custom` opens the interactive selector for session and level.
+
+Logs are stored in `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md` when enabled.
+
 ## Templates
 Templates control output structure and formatting.
 
@@ -48,7 +63,11 @@ Attach local files by prefixing with `@`:
 - `@notes.md`
 - `@data.xlsx#Sheet1`
 
-Dogent resolves file paths inside the workspace and includes the content in prompts.
+Dogent resolves file paths inside the workspace and includes file metadata in prompts.
+
+To read content explicitly, the agent can call `mcp__dogent__read_document`.
+For long documents, pass `offset` and `length` to page through content; responses include
+`total_chars` and `next_offset` in metadata.
 
 ## Document Export and Conversion
 Dogent supports export and conversion tools:

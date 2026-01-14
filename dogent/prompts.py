@@ -11,6 +11,7 @@ from .core.file_refs import FileAttachment
 from .config.paths import DogentPaths
 from .config.resources import read_prompt_text, read_template_text
 from .core.todo import TodoManager
+from .core.session_log import log_exception
 from .core.history import HistoryManager
 
 
@@ -208,7 +209,8 @@ class PromptBuilder:
             return ""
         try:
             return self.paths.memory_file.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        except Exception as exc:
+            log_exception("prompts", exc)
             return ""
 
     def _read_lessons(self) -> str:
@@ -226,7 +228,8 @@ class PromptBuilder:
                 f"(Lessons truncated to the last {max_chars} characters. Edit .dogent/lessons.md to prune.)\n\n"
                 + tail
             )
-        except Exception:
+        except Exception as exc:
+            log_exception("prompts", exc)
             return "No lessons recorded yet."
 
     def _read_doc_template(self, config: dict[str, Any]) -> str:

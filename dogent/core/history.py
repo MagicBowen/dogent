@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..config.paths import DogentPaths
+from .session_log import log_exception
 
 
 class HistoryManager:
@@ -46,7 +47,8 @@ class HistoryManager:
         try:
             data = json.loads(self.paths.history_file.read_text(encoding="utf-8"))
             return data if isinstance(data, list) else []
-        except Exception:
+        except Exception as exc:
+            log_exception("history", exc)
             return []
 
     def read_raw(self) -> str:
@@ -55,7 +57,8 @@ class HistoryManager:
             return ""
         try:
             return self.paths.history_file.read_text(encoding="utf-8")
-        except Exception:
+        except Exception as exc:
+            log_exception("history", exc)
             return ""
 
     def to_prompt_block(self, limit: int = 5) -> str:

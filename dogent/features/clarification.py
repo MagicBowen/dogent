@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from ..config.resources import read_schema_text
+from ..core.session_log import log_exception
 
 CLARIFICATION_JSON_TAG = "[[DOGENT_CLARIFICATION_JSON]]"
 
@@ -40,7 +41,8 @@ def extract_clarification_payload(text: str) -> tuple[ClarificationPayload | Non
         return None, ["No JSON payload found after clarification tag."]
     try:
         raw_payload = json.loads(remainder)
-    except Exception:
+    except Exception as exc:
+        log_exception("clarification", exc)
         return None, ["Clarification payload is not valid JSON."]
     if not isinstance(raw_payload, dict):
         return None, ["Clarification payload must be a JSON object."]
@@ -58,7 +60,8 @@ def validate_clarification_payload(payload: Any) -> list[str]:
         return ["Clarification payload must be a JSON object."]
     try:
         from jsonschema import Draft7Validator  # type: ignore
-    except Exception:
+    except Exception as exc:
+        log_exception("clarification", exc)
         return ["jsonschema is not available to validate clarification payload."]
     schema = _load_schema()
     validator = Draft7Validator(schema)

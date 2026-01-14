@@ -3,7 +3,7 @@
 CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans, researches, drafts, validates, and polishes long-form documents from the terminal.
 
 ## Features
-- Interactive CLI (`dogent`) with `/init`, `/show`, `/clean`, `/archive`, `/help`, `/learn`, `/edit`, `/exit` (plus `!` for shell commands)
+- Interactive CLI (`dogent`) with `/init`, `/profile`, `/debug`, `/show`, `/clean`, `/archive`, `/help`, `/learn`, `/edit`, `/exit` (plus `!` for shell commands)
 - System prompt + per-turn user prompt templates under `dogent/prompts/`
 - Todo panel synced to `TodoWrite` tool calls/results (no seeded todos)
 - @file references list core file metadata; the agent calls MCP tools to read content or analyze media on demand
@@ -13,6 +13,7 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 - Configurable vi editor mode (`editor_mode: "vi"`) with command hints and outline review options in a scrollable panel
 - Supports `.dogent/dogent.md` constraints, profiles in `~/.dogent/dogent.json`, and env fallbacks
 - Debug session logging to `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md` when `debug` is enabled
+- Chunked document reads via `mcp__dogent__read_document` with `offset` + `length` for long files
 - Project-only lessons in `.dogent/lessons.md` (auto-captured after failures/interrupts; injected into prompt context)
 - Loads Claude assets from `.claude` (commands/agents/skills) with `/claude:` prefixed commands in the CLI
 - Supports local Claude plugins configured per workspace
@@ -24,6 +25,8 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 3. If `.dogent/dogent.json` is missing, Dogent will offer to initialize the workspace before the first request.
 4. Commands:
    - `/init` → create/update `.dogent/dogent.md` and `.dogent/dogent.json` (template picker or wizard)
+   - `/profile` → show current profiles; `/profile llm|web|vision <name>` to update
+   - `/debug` → show current debug config; `/debug <option>` to update
    - `/show history` → show recent history entries and the latest todo snapshot
    - `/clean` → clean workspace state (`/clean [history|lesson|memory|all]`; defaults to `all`)
    - `/archive` → archive history/lessons to `.dogent/archives` (`/archive [history|lessons|all]`; defaults to `all`)
@@ -43,7 +46,8 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 - JSON schema: `~/.dogent/dogent.schema.json` (for editor validation)
 - Env fallback: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 - History is stored in `.dogent/history.json` (structured JSON, managed automatically); temporary scratch lives in `.dogent/memory.md` when created on demand.
-- Debug logs (when `debug: true`) are Markdown in `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md` with `role`, `source`, `event`, and `content`.
+- Debug config accepts `null`, booleans, `"session"`, `"error"`, `"warn"`, `"info"`, `"debug"`, `"all"`, or lists like `["session", "error"]`.
+- Debug logs (when `debug` is enabled) are Markdown in `.dogent/logs/dogent_session_YYYYmmdd_HHMMSS.md` with `role`, `source`, `event`, and `content`.
 
 ## Claude Commands & Plugins
 - Project/user commands in `.claude/commands/*.md` load into Dogent as `/claude:<name>`.

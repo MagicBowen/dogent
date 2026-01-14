@@ -52,6 +52,44 @@ class ConfigTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_profile_setters_persist(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            manager = ConfigManager(paths)
+            manager.set_llm_profile("alpha")
+            manager.set_web_profile("beta")
+            manager.set_vision_profile(None)
+            data = json.loads(paths.config_file.read_text(encoding="utf-8"))
+            self.assertEqual(data.get("llm_profile"), "alpha")
+            self.assertEqual(data.get("web_profile"), "beta")
+            self.assertIsNone(data.get("vision_profile"))
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_debug_config_setter(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            manager = ConfigManager(paths)
+            manager.set_debug_config(["session", "error"])
+            data = json.loads(paths.config_file.read_text(encoding="utf-8"))
+            self.assertEqual(data.get("debug"), ["session", "error"])
+            manager.set_debug_config("all")
+            data = json.loads(paths.config_file.read_text(encoding="utf-8"))
+            self.assertEqual(data.get("debug"), "all")
+            manager.set_debug_config(None)
+            data = json.loads(paths.config_file.read_text(encoding="utf-8"))
+            self.assertIsNone(data.get("debug"))
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
     def test_warns_on_placeholder_profile(self) -> None:
         original_home = os.environ.get("HOME")
         buf = StringIO()

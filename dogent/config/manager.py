@@ -17,6 +17,7 @@ from .paths import DogentPaths
 from .resources import read_config_text, read_schema_text
 from ..features.vision_tools import DOGENT_VISION_ALLOWED_TOOLS, create_dogent_vision_tools
 from ..features.web_tools import DOGENT_WEB_ALLOWED_TOOLS, create_dogent_web_tools
+from ..core.session_log import log_exception
 
 
 DEFAULT_PROJECT_CONFIG: Dict[str, Any] = {
@@ -132,6 +133,80 @@ class ConfigManager:
             json.dumps(data, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
+
+    def set_llm_profile(self, profile: Optional[str]) -> None:
+        """Persist workspace llm_profile selection in .dogent/dogent.json."""
+        self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+        if not self.paths.config_file.exists():
+            self.create_config_template()
+        data = self._read_json(self.paths.config_file) or {}
+        if not isinstance(data, dict):
+            data = {}
+        value = (profile or "").strip()
+        data["llm_profile"] = value if value else "default"
+        self.paths.config_file.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    def set_web_profile(self, profile: Optional[str]) -> None:
+        """Persist workspace web_profile selection in .dogent/dogent.json."""
+        self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+        if not self.paths.config_file.exists():
+            self.create_config_template()
+        data = self._read_json(self.paths.config_file) or {}
+        if not isinstance(data, dict):
+            data = {}
+        value = (profile or "").strip()
+        data["web_profile"] = value if value else "default"
+        self.paths.config_file.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    def set_vision_profile(self, profile: Optional[str]) -> None:
+        """Persist workspace vision_profile selection in .dogent/dogent.json."""
+        self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+        if not self.paths.config_file.exists():
+            self.create_config_template()
+        data = self._read_json(self.paths.config_file) or {}
+        if not isinstance(data, dict):
+            data = {}
+        value = (profile or "").strip()
+        if not value or value.lower() == "none":
+            data["vision_profile"] = None
+        else:
+            data["vision_profile"] = value
+        self.paths.config_file.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    def set_debug_config(self, debug_config: Any) -> None:
+        """Persist debug logging config in .dogent/dogent.json."""
+        self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+        if not self.paths.config_file.exists():
+            self.create_config_template()
+        data = self._read_json(self.paths.config_file) or {}
+        if not isinstance(data, dict):
+            data = {}
+        data["debug"] = self._normalize_debug(debug_config)
+        self.paths.config_file.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+    def list_llm_profiles(self) -> list[str]:
+        profiles = self._read_profiles_section(GLOBAL_LLM_PROFILES_KEY)
+        return sorted(profiles.keys())
+
+    def list_web_profiles(self) -> list[str]:
+        profiles = self._read_profiles_section(GLOBAL_WEB_PROFILES_KEY)
+        return sorted(profiles.keys())
+
+    def list_vision_profiles(self) -> list[str]:
+        profiles = self._read_profiles_section(GLOBAL_VISION_PROFILES_KEY)
+        return sorted(profiles.keys())
 
     def render_template(self, name: str, context: Optional[Dict[str, str]] = None) -> str:
         """Render a workspace template with simple {key} replacements."""
@@ -327,12 +402,7 @@ class ConfigManager:
         else:
             normalized["editor_mode"] = DEFAULT_PROJECT_CONFIG["editor_mode"]
         raw_debug = normalized.get("debug")
-        if raw_debug is None:
-            normalized["debug"] = DEFAULT_PROJECT_CONFIG["debug"]
-        elif isinstance(raw_debug, str):
-            normalized["debug"] = raw_debug.strip().lower() in {"1", "true", "yes", "y", "on"}
-        else:
-            normalized["debug"] = bool(raw_debug)
+        normalized["debug"] = self._normalize_debug(raw_debug)
         raw_vision_profile = normalized.get("vision_profile")
         if raw_vision_profile is None:
             normalized["vision_profile"] = DEFAULT_PROJECT_CONFIG["vision_profile"]
@@ -359,6 +429,31 @@ class ConfigManager:
         else:
             normalized["claude_plugins"] = DEFAULT_PROJECT_CONFIG["claude_plugins"]
         return normalized
+
+    def _normalize_debug(self, raw_debug: Any) -> Any:
+        if raw_debug is None:
+            return None
+        if isinstance(raw_debug, bool):
+            return raw_debug
+        if isinstance(raw_debug, str):
+            cleaned = raw_debug.strip().lower()
+            if not cleaned:
+                return None
+            if cleaned in {"true", "1", "yes", "y", "on"}:
+                return True
+            if cleaned in {"false", "0", "no", "n", "off", "none", "null"}:
+                return None
+            return cleaned
+        if isinstance(raw_debug, list):
+            cleaned: list[str] = []
+            for entry in raw_debug:
+                if not isinstance(entry, str):
+                    continue
+                item = entry.strip().lower()
+                if item:
+                    cleaned.append(item)
+            return cleaned or None
+        return None
 
     def build_options(
         self,
@@ -516,7 +611,8 @@ class ConfigManager:
             return {}
         try:
             return json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            log_exception("config", exc)
             self.console.print(
                 f"[red]Failed to parse JSON config at {path}. Using defaults.[/red]"
             )
@@ -528,7 +624,8 @@ class ConfigManager:
             return {}
         try:
             parsed = json.loads(template_text)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            log_exception("config", exc)
             return {}
         return parsed if isinstance(parsed, dict) else {}
 
@@ -632,7 +729,8 @@ class ConfigManager:
                 self.console.print(
                     f"[cyan]Created default config at {self.paths.global_config_file}. Edit it with your credentials.[/cyan]"
                 )
-            except PermissionError:
+            except PermissionError as exc:
+                log_exception("config", exc)
                 self.console.print(
                     f"[yellow]Cannot write {self.paths.global_config_file}. Please create it manually.[/yellow]"
                 )
@@ -643,7 +741,8 @@ class ConfigManager:
             if schema:
                 try:
                     self.paths.global_schema_file.write_text(schema, encoding="utf-8")
-                except PermissionError:
+                except PermissionError as exc:
+                    log_exception("config", exc)
                     self.console.print(
                         f"[yellow]Cannot write {self.paths.global_schema_file}. Please create it manually.[/yellow]"
                     )
@@ -652,7 +751,8 @@ class ConfigManager:
             if css:
                 try:
                     self.paths.global_pdf_style_file.write_text(css, encoding="utf-8")
-                except PermissionError:
+                except PermissionError as exc:
+                    log_exception("config", exc)
                     self.console.print(
                         f"[yellow]Cannot write {self.paths.global_pdf_style_file}. Please create it manually.[/yellow]"
                     )
@@ -685,7 +785,8 @@ class ConfigManager:
             self.console.print(
                 f"[cyan]Upgraded config at {self.paths.global_config_file} to {__version__}.[/cyan]"
             )
-        except PermissionError:
+        except PermissionError as exc:
+            log_exception("config", exc)
             self.console.print(
                 f"[yellow]Cannot upgrade {self.paths.global_config_file}. Please update it manually.[/yellow]"
             )
@@ -700,7 +801,8 @@ class ConfigManager:
             return None
         try:
             return int(value)
-        except ValueError:
+        except ValueError as exc:
+            log_exception("config", exc)
             return None
 
     def _doc_template(self) -> str:

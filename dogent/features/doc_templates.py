@@ -6,6 +6,7 @@ from typing import Iterable, Optional
 
 from ..config.paths import DogentPaths
 from ..config.resources import iter_dir, read_template_text
+from ..core.session_log import log_exception
 
 
 _SOURCES = ("workspace", "global", "built-in")
@@ -117,7 +118,8 @@ class DocumentTemplateManager:
             return None
         try:
             text = path.read_text(encoding="utf-8")
-        except Exception:
+        except Exception as exc:
+            log_exception("doc_templates", exc)
             return None
         return TemplateContent(name=name, source=source, content=text.strip())
 

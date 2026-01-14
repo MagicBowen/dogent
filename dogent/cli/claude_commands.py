@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
 
+from ..core.session_log import log_exception
+
 
 @dataclass(frozen=True)
 class ClaudeCommandSpec:
@@ -67,7 +69,8 @@ def _command_description(path: Path) -> str:
 def _read_text(path: Path) -> str:
     try:
         return path.read_text(encoding="utf-8")
-    except Exception:
+    except Exception as exc:
+        log_exception("cli.commands", exc)
         return ""
 
 
@@ -108,7 +111,8 @@ def _plugin_name(root: Path) -> str:
     if raw:
         try:
             data = json.loads(raw)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            log_exception("cli.commands", exc)
             data = {}
         if isinstance(data, dict):
             name = str(data.get("name") or "").strip()

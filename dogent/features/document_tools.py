@@ -12,6 +12,7 @@ from .document_io import (
     export_markdown_async,
     read_document,
 )
+from ..core.session_log import log_exception
 
 
 DOGENT_DOC_ALLOWED_TOOLS = [
@@ -36,6 +37,15 @@ def create_dogent_doc_tools(root: Path) -> list[SdkMcpTool]:
                 "type": "integer",
                 "description": "Max characters to return.",
                 "default": DEFAULT_MAX_CHARS,
+            },
+            "offset": {
+                "type": "integer",
+                "description": "Character offset into the rendered text.",
+                "default": 0,
+            },
+            "length": {
+                "type": "integer",
+                "description": "Preferred segment length (overrides max_chars).",
             },
         },
         "required": ["path"],
@@ -93,12 +103,25 @@ def create_dogent_doc_tools(root: Path) -> list[SdkMcpTool]:
             return _error("Missing required field: path")
         sheet = args.get("sheet")
         max_chars = int(args.get("max_chars") or DEFAULT_MAX_CHARS)
+        offset = int(args.get("offset") or 0)
+        raw_length = args.get("length")
+        if raw_length is None or raw_length == "":
+            length = None
+        else:
+            length = int(raw_length)
         try:
             path = _resolve_workspace_path(root, raw_path, must_exist=True)
         except ValueError as exc:
+            log_exception("document_tools", exc)
             return _error(str(exc))
 
-        result = read_document(path, sheet=str(sheet) if sheet else None, max_chars=max_chars)
+        result = read_document(
+            path,
+            sheet=str(sheet) if sheet else None,
+            max_chars=max_chars,
+            offset=offset,
+            length=length,
+        )
         if result.error:
             return _error(result.error)
 
@@ -132,6 +155,7 @@ def create_dogent_doc_tools(root: Path) -> list[SdkMcpTool]:
             md_path = _resolve_workspace_path(root, raw_md_path, must_exist=True)
             output_path = _resolve_workspace_path(root, raw_output_path, must_exist=False)
         except ValueError as exc:
+            log_exception("document_tools", exc)
             return _error(str(exc))
 
         if md_path.suffix.lower() != ".md":
@@ -149,6 +173,7 @@ def create_dogent_doc_tools(root: Path) -> list[SdkMcpTool]:
                 workspace_root=root,
             )
         except Exception as exc:  # noqa: BLE001
+            log_exception("document_tools", exc)
             return _error(f"Export failed: {exc}")
         lines = [
             f"Exported {_readable_path(root, md_path)} -> {_readable_path(root, output_path)}"
@@ -177,6 +202,7 @@ def create_dogent_doc_tools(root: Path) -> list[SdkMcpTool]:
             input_path = _resolve_workspace_path(root, raw_input_path, must_exist=True)
             output_path = _resolve_workspace_path(root, raw_output_path, must_exist=False)
         except ValueError as exc:
+            log_exception("document_tools", exc)
             return _error(str(exc))
 
         extract_dir = None
@@ -186,6 +212,7 @@ def create_dogent_doc_tools(root: Path) -> list[SdkMcpTool]:
                     root, raw_extract_dir, must_exist=False
                 )
             except ValueError as exc:
+                log_exception("document_tools", exc)
                 return _error(str(exc))
 
         try:
@@ -196,6 +223,7 @@ def create_dogent_doc_tools(root: Path) -> list[SdkMcpTool]:
                 workspace_root=root,
             )
         except Exception as exc:  # noqa: BLE001
+            log_exception("document_tools", exc)
             return _error(f"Conversion failed: {exc}")
 
         lines = [
@@ -220,6 +248,7 @@ def _resolve_workspace_path(root: Path, raw: str, *, must_exist: bool) -> Path:
     try:
         resolved.relative_to(root_resolved)
     except Exception as exc:  # noqa: BLE001
+        log_exception("document_tools", exc)
         raise ValueError("Path must stay within the workspace.") from exc
     if must_exist and not resolved.exists():
         raise ValueError("File does not exist.")
@@ -229,7 +258,8 @@ def _resolve_workspace_path(root: Path, raw: str, *, must_exist: bool) -> Path:
 def _readable_path(root: Path, path: Path) -> str:
     try:
         return str(path.resolve().relative_to(root.resolve()))
-    except Exception:
+    except Exception as exc:
+        log_exception("document_tools", exc)
         return str(path)
 
 

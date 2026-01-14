@@ -10,6 +10,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from .session_log import log_exception
+
 
 @dataclass
 class TodoItem:
@@ -189,5 +191,6 @@ class TodoManager:
     def _try_parse_json(self, text: str) -> Optional[Any]:
         try:
             return json.loads(text)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
+            log_exception("todo", exc)
             return None

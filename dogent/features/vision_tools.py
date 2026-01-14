@@ -6,6 +6,7 @@ from typing import Any
 from claude_agent_sdk import SdkMcpTool, tool
 from typing import TYPE_CHECKING
 from .vision import VisionAnalysisError, VisionManager, classify_media
+from ..core.session_log import log_exception
 
 if TYPE_CHECKING:
     from ..config import ConfigManager
@@ -43,6 +44,7 @@ def create_dogent_vision_tools(root: Path, config: "ConfigManager") -> list[SdkM
         try:
             path = _resolve_workspace_path(root, raw_path, must_exist=True)
         except ValueError as exc:
+            log_exception("vision_tools", exc)
             return _error(str(exc))
 
         media_type = requested_type if requested_type in {"image", "video"} else None
@@ -59,8 +61,10 @@ def create_dogent_vision_tools(root: Path, config: "ConfigManager") -> list[SdkM
         try:
             result = await vision_manager.analyze(path, media_type, profile_name)
         except VisionAnalysisError as exc:
+            log_exception("vision_tools", exc)
             return _error(str(exc))
         except Exception as exc:  # noqa: BLE001
+            log_exception("vision_tools", exc)
             return _error(f"Vision analysis failed: {exc}")
 
         return {"content": [{"type": "text", "text": _format_result(result)}]}
@@ -77,6 +81,7 @@ def _resolve_workspace_path(root: Path, raw: str, *, must_exist: bool) -> Path:
     try:
         resolved.relative_to(root_resolved)
     except Exception as exc:  # noqa: BLE001
+        log_exception("vision_tools", exc)
         raise ValueError("Path must stay within the workspace.") from exc
     if must_exist and not resolved.exists():
         raise ValueError("File does not exist.")

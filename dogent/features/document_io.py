@@ -19,6 +19,7 @@ from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree as ET
 
 from ..config.resources import read_config_text
+from ..core.session_log import log_exception
 
 DEFAULT_MAX_CHARS = 15000
 DEFAULT_XLSX_MAX_ROWS = 50
@@ -90,15 +91,23 @@ def read_document(
     *,
     sheet: str | None = None,
     max_chars: int = DEFAULT_MAX_CHARS,
+    offset: int = 0,
+    length: int | None = None,
 ) -> DocumentReadResult:
     ext = path.suffix.lower()
     if ext == ".pdf":
-        return _read_pdf(path, max_chars=max_chars)
+        return _read_pdf(path, max_chars=max_chars, offset=offset, length=length)
     if ext == ".docx":
-        return _read_docx(path, max_chars=max_chars)
+        return _read_docx(path, max_chars=max_chars, offset=offset, length=length)
     if ext == ".xlsx":
-        return _read_xlsx(path, sheet=sheet, max_chars=max_chars)
-    return _read_text(path, max_chars=max_chars)
+        return _read_xlsx(
+            path,
+            sheet=sheet,
+            max_chars=max_chars,
+            offset=offset,
+            length=length,
+        )
+    return _read_text(path, max_chars=max_chars, offset=offset, length=length)
 
 
 def export_markdown(
@@ -230,10 +239,17 @@ async def convert_document_async(
     )
 
 
-def _read_text(path: Path, *, max_chars: int) -> DocumentReadResult:
+def _read_text(
+    path: Path,
+    *,
+    max_chars: int,
+    offset: int,
+    length: int | None,
+) -> DocumentReadResult:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except Exception as exc:  # noqa: BLE001
+        log_exception("document_io", exc)
         return DocumentReadResult(
             content="",
             truncated=False,
@@ -241,16 +257,27 @@ def _read_text(path: Path, *, max_chars: int) -> DocumentReadResult:
             metadata={},
             error=str(exc),
         )
-    content, truncated = _apply_size_limit(text, max_chars)
+    content, truncated, paging = _apply_size_limit(
+        text,
+        max_chars,
+        offset=offset,
+        length=length,
+    )
     return DocumentReadResult(
         content=content,
         truncated=truncated,
         format=_format_from_suffix(path),
-        metadata={},
+        metadata=paging,
     )
 
 
-def _read_docx(path: Path, *, max_chars: int) -> DocumentReadResult:
+def _read_docx(
+    path: Path,
+    *,
+    max_chars: int,
+    offset: int,
+    length: int | None,
+) -> DocumentReadResult:
     try:
         _ensure_pandoc_available()
         import pypandoc
@@ -262,6 +289,7 @@ def _read_docx(path: Path, *, max_chars: int) -> DocumentReadResult:
             extra_args=["--track-changes=all"],
         )
     except Exception as exc:  # noqa: BLE001
+        log_exception("document_io", exc)
         return DocumentReadResult(
             content="",
             truncated=False,
@@ -269,12 +297,17 @@ def _read_docx(path: Path, *, max_chars: int) -> DocumentReadResult:
             metadata={},
             error=f"DOCX read failed: {exc}",
         )
-    content, truncated = _apply_size_limit(text, max_chars)
+    content, truncated, paging = _apply_size_limit(
+        text,
+        max_chars,
+        offset=offset,
+        length=length,
+    )
     return DocumentReadResult(
         content=content,
         truncated=truncated,
         format="docx",
-        metadata={},
+        metadata=paging,
     )
 
 
@@ -300,10 +333,17 @@ def _docx_to_markdown(
     )
 
 
-def _read_pdf(path: Path, *, max_chars: int) -> DocumentReadResult:
+def _read_pdf(
+    path: Path,
+    *,
+    max_chars: int,
+    offset: int,
+    length: int | None,
+) -> DocumentReadResult:
     try:
         import fitz
     except Exception as exc:  # noqa: BLE001
+        log_exception("document_io", exc)
         return DocumentReadResult(
             content="",
             truncated=False,
@@ -315,6 +355,7 @@ def _read_pdf(path: Path, *, max_chars: int) -> DocumentReadResult:
     try:
         doc = fitz.open(str(path))
     except Exception as exc:  # noqa: BLE001
+        log_exception("document_io", exc)
         return DocumentReadResult(
             content="",
             truncated=False,
@@ -341,12 +382,17 @@ def _read_pdf(path: Path, *, max_chars: int) -> DocumentReadResult:
                 error="Unsupported PDF: no extractable text (scanned PDF not supported).",
             )
         combined = "\n\n".join(parts).strip() + "\n"
-        content, truncated = _apply_size_limit(combined, max_chars)
+        content, truncated, paging = _apply_size_limit(
+            combined,
+            max_chars,
+            offset=offset,
+            length=length,
+        )
         return DocumentReadResult(
             content=content,
             truncated=truncated,
             format="pdf",
-            metadata=metadata,
+            metadata={**metadata, **paging},
         )
     finally:
         doc.close()
@@ -357,10 +403,13 @@ def _read_xlsx(
     *,
     sheet: str | None,
     max_chars: int,
+    offset: int,
+    length: int | None,
 ) -> DocumentReadResult:
     try:
         import openpyxl
     except Exception as exc:  # noqa: BLE001
+        log_exception("document_io", exc)
         return DocumentReadResult(
             content="",
             truncated=False,
@@ -376,10 +425,13 @@ def _read_xlsx(
             keep_links=False,
         )
     except Exception as exc:  # noqa: BLE001
+        log_exception("document_io", exc)
         return _read_xlsx_xml(
             path,
             sheet=sheet,
             max_chars=max_chars,
+            offset=offset,
+            length=length,
             error_context=exc,
         )
     try:
@@ -421,12 +473,17 @@ def _read_xlsx(
                     max_cols=DEFAULT_XLSX_MAX_COLS,
                 )
             metadata = {"sheet": sheet_name, **meta}
-            content, truncated = _apply_size_limit(table, max_chars)
+            content, truncated, paging = _apply_size_limit(
+                table,
+                max_chars,
+                offset=offset,
+                length=length,
+            )
             return DocumentReadResult(
                 content=content,
                 truncated=truncated,
                 format="xlsx",
-                metadata=metadata,
+                metadata={**metadata, **paging},
             )
         if not sheetnames:
             return DocumentReadResult(
@@ -469,17 +526,23 @@ def _read_xlsx(
             sections.append(f"## {sheet_name}")
             sections.append(table)
         joined = "\n\n".join(sections)
-        content, truncated = _apply_size_limit(joined, max_chars)
+        content, truncated, paging = _apply_size_limit(
+            joined,
+            max_chars,
+            offset=offset,
+            length=length,
+        )
         return DocumentReadResult(
             content=content,
             truncated=truncated,
             format="xlsx",
-            metadata={"sheets": sheetnames, "sheets_meta": sheets_meta},
+            metadata={"sheets": sheetnames, "sheets_meta": sheets_meta, **paging},
         )
     finally:
         try:
             workbook.close()
-        except Exception:
+        except Exception as exc:
+            log_exception("document_io", exc)
             pass
 
 
@@ -488,6 +551,8 @@ def _read_xlsx_xml(
     *,
     sheet: str | None,
     max_chars: int,
+    offset: int,
+    length: int | None,
     error_context: Exception | None = None,
 ) -> DocumentReadResult:
     try:
@@ -521,12 +586,17 @@ def _read_xlsx_xml(
                     max_cols=DEFAULT_XLSX_MAX_COLS,
                 )
                 metadata = {"sheet": sheet_name, **meta}
-                content, truncated = _apply_size_limit(table, max_chars)
+                content, truncated, paging = _apply_size_limit(
+                    table,
+                    max_chars,
+                    offset=offset,
+                    length=length,
+                )
                 return DocumentReadResult(
                     content=content,
                     truncated=truncated,
                     format="xlsx",
-                    metadata=metadata,
+                    metadata={**metadata, **paging},
                 )
             sections = [f"# {path.stem}"]
             sheets_meta: list[dict[str, Any]] = []
@@ -542,14 +612,20 @@ def _read_xlsx_xml(
                 sections.append(f"## {sheet_name}")
                 sections.append(table)
             joined = "\n\n".join(sections)
-            content, truncated = _apply_size_limit(joined, max_chars)
+            content, truncated, paging = _apply_size_limit(
+                joined,
+                max_chars,
+                offset=offset,
+                length=length,
+            )
             return DocumentReadResult(
                 content=content,
                 truncated=truncated,
                 format="xlsx",
-                metadata={"sheets": sheetnames, "sheets_meta": sheets_meta},
+                metadata={"sheets": sheetnames, "sheets_meta": sheets_meta, **paging},
             )
     except Exception as exc:  # noqa: BLE001
+        log_exception("document_io", exc)
         hint = f"{error_context}; " if error_context else ""
         return DocumentReadResult(
             content="",
@@ -813,11 +889,36 @@ def _xlsx_sheet_to_markdown(
     )
 
 
-def _apply_size_limit(text: str, max_chars: int) -> tuple[str, bool]:
-    if max_chars <= 0 or len(text) <= max_chars:
-        return text, False
-    clipped = text[:max_chars].rstrip()
-    return clipped + "\n...[truncated]...", True
+def _apply_size_limit(
+    text: str,
+    max_chars: int,
+    *,
+    offset: int = 0,
+    length: int | None = None,
+) -> tuple[str, bool, dict[str, int | None]]:
+    total_chars = len(text)
+    safe_offset = max(0, int(offset))
+    if safe_offset > total_chars:
+        safe_offset = total_chars
+    limit = max_chars
+    if length is not None:
+        limit = int(length)
+    if limit <= 0:
+        end = total_chars
+    else:
+        end = min(safe_offset + limit, total_chars)
+    returned = end - safe_offset
+    truncated = end < total_chars
+    segment = text[safe_offset:end]
+    if truncated and safe_offset == 0 and length is None and max_chars > 0:
+        segment = segment.rstrip() + "\n...[truncated]..."
+    paging = {
+        "offset": safe_offset,
+        "returned": returned,
+        "total_chars": total_chars,
+        "next_offset": end if end < total_chars else None,
+    }
+    return segment, truncated, paging
 
 
 def _format_from_suffix(path: Path) -> str:
@@ -855,7 +956,8 @@ def _ensure_pandoc_available() -> None:
 
         pypandoc.get_pandoc_version()
         return
-    except Exception:
+    except Exception as exc:
+        log_exception("document_io", exc)
         pass
     try:
         import pypandoc
@@ -863,6 +965,7 @@ def _ensure_pandoc_available() -> None:
         pypandoc.download_pandoc()
         pypandoc.get_pandoc_version()
     except Exception as exc:  # noqa: BLE001
+        log_exception("document_io", exc)
         raise RuntimeError(
             "Pandoc is required for DOCX export and read. "
             "Auto-download failed. Please check network/proxy or install pandoc."
@@ -1081,7 +1184,8 @@ def _resolve_pdf_style(
         if workspace_style.exists():
             try:
                 return workspace_style.read_text(encoding="utf-8"), warnings
-            except Exception:
+            except Exception as exc:
+                log_exception("document_io", exc)
                 warnings.append(
                     f"Could not read PDF style file: {workspace_style}. Using fallback."
                 )
@@ -1089,7 +1193,8 @@ def _resolve_pdf_style(
     if resolved_global.exists():
         try:
             return resolved_global.read_text(encoding="utf-8"), warnings
-        except Exception:
+        except Exception as exc:
+            log_exception("document_io", exc)
             warnings.append(
                 f"Could not read PDF style file: {resolved_global}. Using fallback."
             )
@@ -1135,12 +1240,14 @@ def _markdown_to_html(
         def highlight_code(code: str, lang: str, _attrs: object | None = None) -> str:
             try:
                 lexer = get_lexer_by_name(lang) if lang else TextLexer()
-            except Exception:
+            except Exception as exc:
+                log_exception("document_io", exc)
                 lexer = TextLexer()
             return highlight(code, lexer, formatter)
 
         mdi.options["highlight"] = highlight_code
-    except Exception:
+    except Exception as exc:
+        log_exception("document_io", exc)
         pass
     body = mdi.render(md_text)
     if base_path:
@@ -1203,7 +1310,8 @@ def _to_data_uri(
     if workspace_root:
         try:
             path.relative_to(workspace_root.resolve())
-        except Exception:
+        except Exception as exc:
+            log_exception("document_io", exc)
             return None
     if not path.exists() or not path.is_file():
         return None
@@ -1256,6 +1364,7 @@ async def _html_to_pdf(
     try:
         from playwright.async_api import async_playwright
     except Exception as exc:  # noqa: BLE001
+        log_exception("document_io", exc)
         raise RuntimeError("PDF export requires Playwright. Install dependency.") from exc
     try:
         async with async_playwright() as p:
@@ -1286,7 +1395,8 @@ async def _html_to_pdf(
                 )
             await page.pdf(**pdf_options)
             await browser.close()
-    except Exception:
+    except Exception as exc:
+        log_exception("document_io", exc)
         await _ensure_playwright_chromium_installed_async()
         async with async_playwright() as p:
             browser = await p.chromium.launch()
@@ -1343,10 +1453,12 @@ def _ensure_playwright_chromium_installed() -> None:
             text=True,
         )
     except FileNotFoundError as exc:
+        log_exception("document_io", exc)
         raise RuntimeError(
             "Playwright is not installed. Install dependencies to enable PDF export."
         ) from exc
     except subprocess.CalledProcessError as exc:
+        log_exception("document_io", exc)
         raise RuntimeError(
             "Failed to install Chromium via Playwright. "
             f"stdout:\n{exc.stdout}\n\nstderr:\n{exc.stderr}"
@@ -1360,7 +1472,8 @@ async def _ensure_playwright_chromium_installed_async() -> None:
 def _run_async(coro: asyncio.Future | asyncio.Task) -> Any:
     try:
         loop = asyncio.get_running_loop()
-    except RuntimeError:
+    except RuntimeError as exc:
+        log_exception("document_io", exc)
         return asyncio.run(coro)
     if loop.is_running():
         raise RuntimeError("Cannot run async export from a running event loop.")

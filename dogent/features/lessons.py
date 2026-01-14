@@ -8,6 +8,7 @@ from typing import Optional
 from rich.console import Console
 
 from ..config.paths import DogentPaths
+from ..core.session_log import log_exception
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,8 @@ class LessonsManager:
             return ""
         try:
             return self.paths.lessons_file.read_text(encoding="utf-8", errors="replace")
-        except Exception:
+        except Exception as exc:
+            log_exception("lessons", exc)
             return ""
 
     def append_entry(self, entry_markdown: str) -> Path:
