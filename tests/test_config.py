@@ -45,6 +45,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(data.get("doc_template"), "general")
             self.assertEqual(data.get("primary_language"), "Chinese")
             self.assertIsNone(data.get("vision_profile"))
+            self.assertIsNone(data.get("image_profile"))
             self.assertEqual(data.get("editor_mode"), "default")
             self.assertNotIn("debug", data)
         if original_home is not None:
@@ -61,10 +62,52 @@ class ConfigTests(unittest.TestCase):
             manager.set_llm_profile("alpha")
             manager.set_web_profile("beta")
             manager.set_vision_profile(None)
+            manager.set_image_profile("gamma")
             data = json.loads(paths.config_file.read_text(encoding="utf-8"))
             self.assertEqual(data.get("llm_profile"), "alpha")
             self.assertEqual(data.get("web_profile"), "beta")
             self.assertIsNone(data.get("vision_profile"))
+            self.assertEqual(data.get("image_profile"), "gamma")
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_list_profiles_filters_missing_tokens(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            home_dir = Path(tmp_home) / ".dogent"
+            home_dir.mkdir(parents=True, exist_ok=True)
+            (home_dir / "dogent.json").write_text(
+                json.dumps(
+                    {
+                        "llm_profiles": {
+                            "good-llm": {"ANTHROPIC_AUTH_TOKEN": "token"},
+                            "bad-llm": {"ANTHROPIC_AUTH_TOKEN": "replace-me"},
+                        },
+                        "web_profiles": {
+                            "good-web": {"api_key": "token"},
+                            "bad-web": {"api_key": None},
+                        },
+                        "vision_profiles": {
+                            "good-vision": {"api_key": "token"},
+                            "bad-vision": {"api_key": ""},
+                        },
+                        "image_profiles": {
+                            "good-image": {"api_key": "token"},
+                            "bad-image": {},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            manager = ConfigManager(DogentPaths(Path(tmp)))
+
+            self.assertEqual(manager.list_llm_profiles(), ["good-llm"])
+            self.assertEqual(manager.list_web_profiles(), ["good-web"])
+            self.assertEqual(manager.list_vision_profiles(), ["good-vision"])
+            self.assertEqual(manager.list_image_profiles(), ["good-image"])
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -298,6 +341,7 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("mcp__dogent__export_document", options.allowed_tools)
             self.assertIn("mcp__dogent__convert_document", options.allowed_tools)
             self.assertNotIn("mcp__dogent__analyze_media", options.allowed_tools)
+            self.assertNotIn("mcp__dogent__generate_image", options.allowed_tools)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -373,6 +417,27 @@ class ConfigTests(unittest.TestCase):
             options = manager.build_options("sys")
 
             self.assertIn("mcp__dogent__analyze_media", options.allowed_tools)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_build_options_registers_image_tools_when_enabled(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.config_file.write_text(
+                json.dumps({"image_profile": "glm-image"}),
+                encoding="utf-8",
+            )
+
+            manager = ConfigManager(paths)
+            options = manager.build_options("sys")
+
+            self.assertIn("mcp__dogent__generate_image", options.allowed_tools)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -581,6 +646,7 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("llm_profiles", upgraded)
             self.assertIn("web_profiles", upgraded)
             self.assertIn("vision_profiles", upgraded)
+            self.assertIn("image_profiles", upgraded)
             self.assertEqual(upgraded.get("version"), __version__)
         if original_home is not None:
             os.environ["HOME"] = original_home

@@ -16,6 +16,7 @@ from ..features.document_tools import DOGENT_DOC_ALLOWED_TOOLS, create_dogent_do
 from .paths import DogentPaths
 from .resources import read_config_text, read_schema_text
 from ..features.vision_tools import DOGENT_VISION_ALLOWED_TOOLS, create_dogent_vision_tools
+from ..features.image_tools import DOGENT_IMAGE_ALLOWED_TOOLS, create_dogent_image_tools
 from ..features.web_tools import DOGENT_WEB_ALLOWED_TOOLS, create_dogent_web_tools
 from ..core.session_log import log_exception
 
@@ -24,6 +25,7 @@ DEFAULT_PROJECT_CONFIG: Dict[str, Any] = {
     "llm_profile": "default",
     "web_profile": "default",
     "vision_profile": None,
+    "image_profile": None,
     "doc_template": "general",
     "primary_language": "Chinese",
     "learn_auto": True,
@@ -36,6 +38,7 @@ GLOBAL_DEFAULTS_KEY = "workspace_defaults"
 GLOBAL_LLM_PROFILES_KEY = "llm_profiles"
 GLOBAL_WEB_PROFILES_KEY = "web_profiles"
 GLOBAL_VISION_PROFILES_KEY = "vision_profiles"
+GLOBAL_IMAGE_PROFILES_KEY = "image_profiles"
 
 
 @dataclass
@@ -183,6 +186,24 @@ class ConfigManager:
             encoding="utf-8",
         )
 
+    def set_image_profile(self, profile: Optional[str]) -> None:
+        """Persist workspace image_profile selection in .dogent/dogent.json."""
+        self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+        if not self.paths.config_file.exists():
+            self.create_config_template()
+        data = self._read_json(self.paths.config_file) or {}
+        if not isinstance(data, dict):
+            data = {}
+        value = (profile or "").strip()
+        if not value or value.lower() == "none":
+            data["image_profile"] = None
+        else:
+            data["image_profile"] = value
+        self.paths.config_file.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
     def set_debug_config(self, debug_config: Any) -> None:
         """Persist debug logging config in .dogent/dogent.json."""
         self.paths.dogent_dir.mkdir(parents=True, exist_ok=True)
@@ -245,15 +266,21 @@ class ConfigManager:
 
     def list_llm_profiles(self) -> list[str]:
         profiles = self._read_profiles_section(GLOBAL_LLM_PROFILES_KEY)
-        return sorted(profiles.keys())
+        return self._filter_profiles_by_keys(
+            profiles, ["ANTHROPIC_AUTH_TOKEN", "auth_token", "api_key", "token"]
+        )
 
     def list_web_profiles(self) -> list[str]:
         profiles = self._read_profiles_section(GLOBAL_WEB_PROFILES_KEY)
-        return sorted(profiles.keys())
+        return self._filter_profiles_by_keys(profiles, ["api_key", "auth_token", "token"])
 
     def list_vision_profiles(self) -> list[str]:
         profiles = self._read_profiles_section(GLOBAL_VISION_PROFILES_KEY)
-        return sorted(profiles.keys())
+        return self._filter_profiles_by_keys(profiles, ["api_key", "auth_token", "token"])
+
+    def list_image_profiles(self) -> list[str]:
+        profiles = self._read_profiles_section(GLOBAL_IMAGE_PROFILES_KEY)
+        return self._filter_profiles_by_keys(profiles, ["api_key", "auth_token", "token"])
 
     def render_template(self, name: str, context: Optional[Dict[str, str]] = None) -> str:
         """Render a workspace template with simple {key} replacements."""
@@ -295,6 +322,7 @@ class ConfigManager:
                 GLOBAL_LLM_PROFILES_KEY: {},
                 GLOBAL_WEB_PROFILES_KEY: {},
                 GLOBAL_VISION_PROFILES_KEY: {},
+                GLOBAL_IMAGE_PROFILES_KEY: {},
             }
         if not isinstance(template, dict):
             template = {}
@@ -309,6 +337,7 @@ class ConfigManager:
             GLOBAL_LLM_PROFILES_KEY,
             GLOBAL_WEB_PROFILES_KEY,
             GLOBAL_VISION_PROFILES_KEY,
+            GLOBAL_IMAGE_PROFILES_KEY,
         ):
             value = cleaned.get(key)
             if value is None:
@@ -467,6 +496,17 @@ class ConfigManager:
                 normalized["vision_profile"] = cleaned
         else:
             normalized["vision_profile"] = DEFAULT_PROJECT_CONFIG["vision_profile"]
+        raw_image_profile = normalized.get("image_profile")
+        if raw_image_profile is None:
+            normalized["image_profile"] = DEFAULT_PROJECT_CONFIG["image_profile"]
+        elif isinstance(raw_image_profile, str):
+            cleaned = raw_image_profile.strip()
+            if not cleaned or cleaned.lower() == "none":
+                normalized["image_profile"] = DEFAULT_PROJECT_CONFIG["image_profile"]
+            else:
+                normalized["image_profile"] = cleaned
+        else:
+            normalized["image_profile"] = DEFAULT_PROJECT_CONFIG["image_profile"]
         raw_plugins = normalized.get("claude_plugins")
         if raw_plugins is None:
             normalized["claude_plugins"] = DEFAULT_PROJECT_CONFIG["claude_plugins"]
@@ -561,6 +601,7 @@ class ConfigManager:
 
         use_custom_web = bool(settings.web_profile)
         vision_enabled = self._vision_enabled(project_cfg)
+        image_enabled = self._image_enabled(project_cfg)
         plugin_paths = self._load_claude_plugins(project_cfg)
         plugins = [{"type": "local", "path": str(path)} for path in plugin_paths]
 
@@ -592,6 +633,10 @@ class ConfigManager:
             if allowed_tools is not None:
                 allowed_tools.extend(DOGENT_VISION_ALLOWED_TOOLS)
             tools.extend(create_dogent_vision_tools(self.paths.root, self))
+        if image_enabled:
+            if allowed_tools is not None:
+                allowed_tools.extend(DOGENT_IMAGE_ALLOWED_TOOLS)
+            tools.extend(create_dogent_image_tools(self.paths.root, self))
         if use_custom_web:
             if allowed_tools is not None:
                 allowed_tools.extend(DOGENT_WEB_ALLOWED_TOOLS)
@@ -725,6 +770,30 @@ class ConfigManager:
         section = data.get(key, {})
         return section if isinstance(section, dict) else {}
 
+    def _filter_profiles_by_keys(
+        self, profiles: Dict[str, Any], keys: Iterable[str]
+    ) -> list[str]:
+        results: list[str] = []
+        for name, entry in profiles.items():
+            if not isinstance(name, str):
+                continue
+            if self._profile_has_credential(entry, keys):
+                results.append(name)
+        return sorted(results)
+
+    def _profile_has_credential(self, entry: Any, keys: Iterable[str]) -> bool:
+        if not isinstance(entry, dict):
+            return False
+        for key in keys:
+            value = entry.get(key)
+            if not isinstance(value, str):
+                continue
+            cleaned = value.strip()
+            if not cleaned or "replace" in cleaned.lower():
+                continue
+            return True
+        return False
+
     def _load_web_profile(self, profile_name: Optional[str]) -> Dict[str, Any]:
         if not profile_name:
             return {}
@@ -800,6 +869,14 @@ class ConfigManager:
 
     def _vision_enabled(self, config: Dict[str, Any]) -> bool:
         raw = (config or {}).get("vision_profile")
+        if not raw:
+            return False
+        if isinstance(raw, str) and raw.strip().lower() == "none":
+            return False
+        return isinstance(raw, str)
+
+    def _image_enabled(self, config: Dict[str, Any]) -> bool:
+        raw = (config or {}).get("image_profile")
         if not raw:
             return False
         if isinstance(raw, str) and raw.strip().lower() == "none":

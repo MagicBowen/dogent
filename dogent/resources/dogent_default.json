@@ -2,6 +2,7 @@
   "llm_profile": "default",
   "web_profile": "default",
   "vision_profile": null,
+  "image_profile": null,
   "doc_template": "general",
   "primary_language": "Chinese",
   "learn_auto": true,

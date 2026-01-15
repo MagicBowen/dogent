@@ -30,6 +30,7 @@ from ..core.todo import TodoManager
 from .wait import LLMWaitIndicator
 from ..features.document_tools import DOGENT_DOC_TOOL_DISPLAY_NAMES
 from ..features.vision_tools import DOGENT_VISION_TOOL_DISPLAY_NAMES
+from ..features.image_tools import DOGENT_IMAGE_TOOL_DISPLAY_NAMES
 from ..features.web_tools import DOGENT_WEB_TOOL_DISPLAY_NAMES
 from .permissions import evaluate_tool_permission
 from ..features.clarification import (
@@ -50,6 +51,7 @@ DOGENT_TOOL_DISPLAY_NAMES = {
     **DOGENT_WEB_TOOL_DISPLAY_NAMES,
     **DOGENT_DOC_TOOL_DISPLAY_NAMES,
     **DOGENT_VISION_TOOL_DISPLAY_NAMES,
+    **DOGENT_IMAGE_TOOL_DISPLAY_NAMES,
 }
 
 NEEDS_CLARIFICATION_SENTINEL = "[[DOGENT_STATUS:NEEDS_CLARIFICATION]]"

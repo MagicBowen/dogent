@@ -39,6 +39,7 @@ Common workspace fields:
 - `llm_profile`: name of the model profile in the global config.
 - `web_profile`: `default` for native web tools, or a named profile.
 - `vision_profile`: `null` to disable vision, or a named profile.
+- `image_profile`: `null` to disable image generation, or a named profile.
 - `doc_template`: template name (`general`, `resume`, etc.).
 - `primary_language`: response language for the CLI.
 - `learn_auto`: enable automatic lesson capture.
@@ -52,8 +53,9 @@ If `llm_profile` is missing, Dogent falls back to environment variables.
 Use `/profile` to check or update workspace profiles:
 - `/profile` shows current selections.
 - `/profile show` shows current selections and available profile keys.
-- `/profile llm|web|vision <name>` updates the selection (completion lists values after a trailing space).
+- `/profile llm|web|vision|image <name>` updates the selection (completion lists values after a trailing space).
 - Vision can be disabled by setting `vision_profile` to `null` (shown as `none` when no vision profiles exist).
+- Image generation can be disabled by setting `image_profile` to `null` (shown as `none` when no image profiles exist).
 
 ## Debug Logging
 Use `/debug` to inspect or update logging configuration:
@@ -108,6 +110,14 @@ Vision is disabled by default.
 - Provide the profile in `~/.dogent/dogent.json` under `vision_profiles`.
 - Use local file paths for images/videos.
 
+## Image Generation Tools
+Image generation is disabled by default.
+- Set `image_profile` in `.dogent/dogent.json` to enable.
+- Provide the profile in `~/.dogent/dogent.json` under `image_profiles`.
+- Ask the agent to generate an image and optionally provide `size` and `output_path`.
+- Sizes must be `WxH` within 512-2048 and multiples of 32.
+- When `output_path` is omitted, Dogent saves to `./assets/images/dogent_image_<timestamp>.<ext>`.
+
 ## Commands
 - `/init` — initialize `.dogent` files.
 - `/edit <path>` — open a workspace file in the Markdown editor.
@@ -151,5 +161,5 @@ Choosing “Allow and remember” records the paths under `authorizations` in `.
 
 ## Troubleshooting
 - DOCX export requires Pandoc. Install Pandoc if auto-download fails.
-- Web/vision profile errors usually mean missing or placeholder credentials in `~/.dogent/dogent.json`.
+- Web/vision/image profile errors usually mean missing or placeholder credentials in `~/.dogent/dogent.json`.
 - If inline prompts do not render, Dogent falls back to text input in non-TTY environments.

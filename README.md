@@ -17,6 +17,7 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 - Chunked document reads via `mcp__dogent__read_document` with `offset` + `length` for long files
 - Project-only lessons in `.dogent/lessons.md` (auto-captured after failures/interrupts; injected into prompt context)
 - Optional authorization memory in `.dogent/dogent.json` (`authorizations` map with wildcard paths)
+- Image generation tool with `image_profiles` and `/profile image` selection (saves to `assets/images/` by default)
 - Loads Claude assets from `.claude` (commands/agents/skills) with `/claude:` prefixed commands in the CLI
 - Supports local Claude plugins configured per workspace
 - Ready for packaging via `pyproject.toml` with Rich-based UI
@@ -28,7 +29,7 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 3. If `.dogent/dogent.json` is missing, Dogent will offer to initialize the workspace before the first request (one-shot mode auto-initializes defaults).
 4. Commands:
    - `/init` → create/update `.dogent/dogent.md` and `.dogent/dogent.json` (template picker or wizard)
-   - `/profile` → show current profiles; `/profile llm|web|vision <name>` to update
+   - `/profile` → show current profiles; `/profile llm|web|vision|image <name>` to update
    - `/debug` → show current debug config; `/debug <option>` to update
    - `/show history` → show recent history entries and the latest todo snapshot
    - `/clean` → clean workspace state (`/clean [history|lesson|memory|all]`; defaults to `all`)
@@ -44,8 +45,8 @@ CLI-based interactive writing agent built on the Claude Agent SDK. Dogent plans,
 4. Reference files with `@path/to/file` in your message; Dogent injects file metadata and uses MCP tools on demand to read/understand content. Tool results (e.g., WebFetch/WebSearch) show clear success/failure panels with reasons.
 
 ## Configuration
-- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `vision_profile`, `doc_template`, `learn_auto`, `debug`, `editor_mode`, `authorizations`, `claude_plugins`)
-- Global config: `~/.dogent/dogent.json` with version, workspace defaults, and profiles (see `docs/usage.md` for JSON examples)
+- Project config: `.dogent/dogent.json` (`llm_profile`, `web_profile`, `vision_profile`, `image_profile`, `doc_template`, `learn_auto`, `debug`, `editor_mode`, `authorizations`, `claude_plugins`)
+- Global config: `~/.dogent/dogent.json` with version, workspace defaults, and profiles (see `docs/usage.md` for JSON examples, including `image_profiles`)
 - JSON schema: `~/.dogent/dogent.schema.json` (for editor validation)
 - Env fallback: `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, `API_TIMEOUT_MS`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 - History is stored in `.dogent/history.json` (structured JSON, managed automatically); temporary scratch lives in `.dogent/memory.md` when created on demand.
@@ -90,6 +91,33 @@ Example `~/.dogent/dogent.json` snippet:
       "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
       "api_key": "replace-me",
       "model": "glm-4.6v"
+    }
+  }
+}
+```
+
+## Image Generation Setup (Release 0.9.19)
+
+Dogent can generate images via `mcp__dogent__generate_image` when the agent needs it.
+
+Set `image_profile` in `.dogent/dogent.json` and add the profile in `~/.dogent/dogent.json` under `image_profiles`:
+
+```json
+{
+  "image_profile": "glm-4v-image"
+}
+```
+
+Example `~/.dogent/dogent.json` snippet:
+
+```json
+{
+  "image_profiles": {
+    "glm-4v-image": {
+      "provider": "glm-4v-image",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4/images/generations",
+      "api_key": "replace-me",
+      "model": "glm-4v-image"
     }
   }
 }

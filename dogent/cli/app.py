@@ -325,7 +325,7 @@ class DogentCLI:
         self._register_builtin_command(
             "/profile",
             self._cmd_profile,
-            "Manage profiles: /profile [llm|web|vision|show].",
+            "Manage profiles: /profile [llm|web|vision|image|show].",
         )
         self._register_builtin_command(
             "/debug",
@@ -408,6 +408,7 @@ class DogentCLI:
         web_label = settings.web_profile or "default (native)"
         project_cfg = self.config_manager.load_project_config()
         vision_profile = project_cfg.get("vision_profile") or "<not set>"
+        image_profile = project_cfg.get("image_profile") or "<not set>"
         helper_lines = [
             f"Dogent v{__version__}",
             f"Model: {model}",
@@ -415,6 +416,7 @@ class DogentCLI:
             f"LLM Profile: {settings.profile or '<not set>'}",
             f"Web Profile: {web_label}",
             f"Vision Profile: {vision_profile}",
+            f"Image Profile: {image_profile}",
             "Reminders: /help for usage • Esc to interrupt (Ctrl+C to exit)",
         ]
         body = Align.center(art.strip("\n"))
@@ -658,7 +660,7 @@ class DogentCLI:
         if arg == "show":
             self._show_profile_table()
             return True
-        if arg in {"llm", "web", "vision"}:
+        if arg in {"llm", "web", "vision", "image"}:
             if profile_arg:
                 return await self._apply_profile_value(arg, profile_arg)
             self._show_profile_target_options(arg)
@@ -669,7 +671,7 @@ class DogentCLI:
                     "\n".join(
                         [
                             f"Unknown profile target: {arg}",
-                            "Valid targets: llm, web, vision, show",
+                            "Valid targets: llm, web, vision, image, show",
                             "Example: /profile llm",
                         ]
                     ),
@@ -696,6 +698,8 @@ class DogentCLI:
         title = "LLM Profile" if target == "llm" else "Web Profile"
         if target == "vision":
             title = "Vision Profile"
+        elif target == "image":
+            title = "Image Profile"
         selection = await self._prompt_choice(
             title=title,
             prompt_text="Select a profile:",
@@ -711,10 +715,10 @@ class DogentCLI:
         key = raw_value.strip().lower()
         if not key:
             return True
-        if target == "vision" and key in {"none", "null"} and "none" not in value_map:
+        if target in {"vision", "image"} and key in {"none", "null"} and "none" not in value_map:
             self.console.print(
                 Panel(
-                    "The 'none' option is only available when no vision profiles exist.",
+                    f"The 'none' option is only available when no {target} profiles exist.",
                     title="🏷️ Profile",
                     border_style="red",
                 )
@@ -754,12 +758,21 @@ class DogentCLI:
                     continue
                 options.append((name, name))
             return options
-        options = []
-        for name in self.config_manager.list_vision_profiles():
-            options.append((name, name))
-        if not options:
-            options.append(("none (null)", None))
-        return options
+        if target == "vision":
+            options = []
+            for name in self.config_manager.list_vision_profiles():
+                options.append((name, name))
+            if not options:
+                options.append(("none (null)", None))
+            return options
+        if target == "image":
+            options = []
+            for name in self.config_manager.list_image_profiles():
+                options.append((name, name))
+            if not options:
+                options.append(("none (null)", None))
+            return options
+        return []
 
     def _show_profile_target_options(self, target: str) -> None:
         options = self._profile_completion_options(target)
@@ -775,6 +788,8 @@ class DogentCLI:
         label = "LLM" if target == "llm" else "Web"
         if target == "vision":
             label = "Vision"
+        elif target == "image":
+            label = "Image"
         lines = [
             f"{label} profiles:",
             ", ".join(options),
@@ -798,6 +813,10 @@ class DogentCLI:
             values = [*self.config_manager.list_vision_profiles()]
             if not values:
                 return {"none": None, "null": None}
+        elif target == "image":
+            values = [*self.config_manager.list_image_profiles()]
+            if not values:
+                return {"none": None, "null": None}
         else:
             return {}
         mapping: dict[str, str | None] = {}
@@ -811,7 +830,7 @@ class DogentCLI:
         if target == "web":
             if not value or value.strip().lower() == "default":
                 return "default (native)"
-        if target == "vision" and value is None:
+        if target in {"vision", "image"} and value is None:
             return "none (null)"
         return value or "default"
 
@@ -832,8 +851,10 @@ class DogentCLI:
                 self.config_manager.set_llm_profile(chosen_value)
             elif target == "web":
                 self.config_manager.set_web_profile(chosen_value)
-            else:
+            elif target == "vision":
                 self.config_manager.set_vision_profile(chosen_value)
+            else:
+                self.config_manager.set_image_profile(chosen_value)
         except Exception as exc:  # noqa: BLE001
             self.session_logger.log_exception("cli", exc)
             self.console.print(
@@ -848,6 +869,8 @@ class DogentCLI:
         title = "LLM Profile" if target == "llm" else "Web Profile"
         if target == "vision":
             title = "Vision Profile"
+        elif target == "image":
+            title = "Image Profile"
         self.console.print(
             Panel(
                 f"Set {title.lower()} to {chosen_label}.",
@@ -864,6 +887,10 @@ class DogentCLI:
             options = ["default", *self.config_manager.list_web_profiles()]
         elif target == "vision":
             options = [*self.config_manager.list_vision_profiles()]
+            if not options:
+                options = ["none"]
+        elif target == "image":
+            options = [*self.config_manager.list_image_profiles()]
             if not options:
                 options = ["none"]
         else:
@@ -892,6 +919,10 @@ class DogentCLI:
         vision_display = (
             vision_current if isinstance(vision_current, str) and vision_current else "null"
         )
+        image_current = project_cfg.get("image_profile")
+        image_display = (
+            image_current if isinstance(image_current, str) and image_current else "null"
+        )
 
         table = Table(
             show_header=True,
@@ -907,10 +938,12 @@ class DogentCLI:
         llm_options = self._profile_options("llm")
         web_options = self._profile_options("web")
         vision_options = self._profile_options("vision")
+        image_options = self._profile_options("image")
         rows = [
             ("LLM", llm_current, llm_options),
             ("Web", web_display, web_options),
             ("Vision", vision_display, vision_options),
+            ("Image", image_display, image_options),
         ]
         for name, current, options in rows:
             if show_available:
@@ -1535,6 +1568,8 @@ class DogentCLI:
                 )
                 if read_only and hasattr(editor, "read_only"):
                     editor.read_only = True
+            if context in {"prompt", "clarification"} and initial_text:
+                editor.buffer.cursor_position = len(editor.buffer.text)
             preview_text = ""
             preview_scroll = 0
             preview_line_count = 0
