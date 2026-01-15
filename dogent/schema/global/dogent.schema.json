@@ -20,6 +20,9 @@
         "vision_profile": {
           "type": ["string", "null"]
         },
+        "image_profile": {
+          "type": ["string", "null"]
+        },
         "doc_template": {
           "type": "string"
         },
@@ -109,6 +112,27 @@
       }
     },
     "vision_profiles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "api_key": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "image_profiles": {
       "type": "object",
       "additionalProperties": {
         "type": "object",

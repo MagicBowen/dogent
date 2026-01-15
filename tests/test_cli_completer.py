@@ -56,6 +56,7 @@ class DogentCompleterTests(unittest.TestCase):
         self.assertIn("llm", texts)
         self.assertIn("web", texts)
         self.assertIn("vision", texts)
+        self.assertIn("image", texts)
         self.assertIn("show", texts)
 
     def test_profile_command_shows_profile_names(self) -> None:

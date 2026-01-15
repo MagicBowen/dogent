@@ -344,7 +344,7 @@ class DogentCompleter(Completer):
         elif command == "/archive":
             options = ["history", "lessons", "all"]
         elif command == "/profile":
-            options = ["llm", "web", "vision", "show"]
+            options = ["llm", "web", "vision", "image", "show"]
         elif command == "/debug":
             options = [
                 "off",
