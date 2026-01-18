@@ -29,3 +29,23 @@ User Test Results: PASS
 3) Ask the agent to generate another image without specifying `output_path`; verify a file appears under `assets/images/dogent_image_<timestamp>.<ext>`.
 
 User Test Results: PASS
+
+---
+
+## Release 0.9.20
+
+### Story 1 – Dependency Precheck + Manual Install Guidance for Document Tools
+1) Ensure pandoc and Playwright Chromium are not installed (remove `pandoc` from PATH and delete the Playwright browser cache directory).
+2) In `dogent`, ask to export a Markdown file to PDF. Expect an install prompt listing missing dependencies.
+3) Choose “Install manually”. Expect the task to abort and display OS-specific commands to install the missing dependencies.
+4) Repeat with a DOCX read/convert task and confirm pandoc guidance appears.
+
+User Test Results: Pending
+
+### Story 2 – Auto-Install with Progress + Continue Execution
+1) With dependencies still missing, retry the PDF export and choose “Install now”. Expect percent-based progress bars for each install step.
+2) After install completes, expect the export to continue automatically and succeed.
+3) Run a noninteractive prompt: `dogent --prompt "Export ./docs/test.md to ./docs/test.pdf"`; confirm dependencies auto-install if missing, or the command exits with manual install instructions if install fails.
+
+User Test Results: Pending
+

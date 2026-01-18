@@ -39,3 +39,28 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: UAT passed in dev/sprint_uat.md.
+
+---
+
+## Release 0.9.20
+
+### Story 1: Dependency Precheck + Manual Install Guidance for Document Tools
+- User Value: Users immediately see missing dependencies for document tools and clear OS-specific manual install steps instead of waiting.
+- Acceptance:
+  - Before `mcp__dogent__export_document`, `mcp__dogent__read_document`, and `mcp__dogent__convert_document` run, Dogent checks required dependencies for the target format(s).
+  - If dependencies are missing in interactive mode, Dogent prompts with Install now / Install manually / Cancel.
+  - Choosing Install manually aborts the task and shows OS-specific install commands for each missing dependency.
+  - Document IO no longer auto-downloads dependencies without user confirmation.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: UAT in dev/sprint_uat.md.
+
+### Story 2: Auto-Install with Progress + Continue Execution
+- User Value: Users can let Dogent install missing dependencies with visible progress and continue the tool automatically.
+- Acceptance:
+  - Choosing Install now runs installers with real percent progress for each step.
+  - In noninteractive mode, Dogent auto-installs missing dependencies; on failure, it exits with manual install instructions.
+  - After successful install, the tool proceeds without requiring re-run.
+- Dev Status: Done
+- Acceptance Status: Pending
+- Verification: UAT in dev/sprint_uat.md.

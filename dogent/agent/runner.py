@@ -32,6 +32,12 @@ from ..features.document_tools import DOGENT_DOC_TOOL_DISPLAY_NAMES
 from ..features.vision_tools import DOGENT_VISION_TOOL_DISPLAY_NAMES
 from ..features.image_tools import DOGENT_IMAGE_TOOL_DISPLAY_NAMES
 from ..features.web_tools import DOGENT_WEB_TOOL_DISPLAY_NAMES
+from ..features.dependency_manager import (
+    dependency_summary,
+    install_missing_dependencies,
+    manual_instructions,
+    missing_dependencies_for_tool,
+)
 from .permissions import evaluate_tool_permission
 from ..features.clarification import (
     ClarificationPayload,
@@ -72,6 +78,11 @@ class PermissionDecision:
     message: str | None = None
 
 
+@dataclass(frozen=True)
+class DependencyDecision:
+    action: str  # install|manual|cancel
+
+
 class AgentRunner:
     """Maintains a Claude Agent SDK session and streams responses to the CLI."""
 
@@ -85,6 +96,9 @@ class AgentRunner:
         *,
         permission_prompt: Optional[
             Callable[[str, str], Awaitable[bool | PermissionDecision]]
+        ] = None,
+        dependency_prompt: Optional[
+            Callable[[str, str], Awaitable[DependencyDecision]]
         ] = None,
         session_logger: SessionLogger | None = None,
     ) -> None:
@@ -108,6 +122,7 @@ class AgentRunner:
         self.last_outcome: RunOutcome | None = None
         self._wait_indicator: LLMWaitIndicator | None = None
         self._permission_prompt = permission_prompt
+        self._dependency_prompt = dependency_prompt
         self._session_logger = session_logger
         self._aborted_reason: str | None = None
         self._abort_requested = False
@@ -146,6 +161,15 @@ class AgentRunner:
     ) -> None:
         """Update the permission prompt callback for subsequent runs."""
         self._permission_prompt = permission_prompt
+
+    def set_dependency_prompt(
+        self,
+        dependency_prompt: Optional[
+            Callable[[str, str], Awaitable[DependencyDecision]]
+        ],
+    ) -> None:
+        """Update the dependency install prompt callback for subsequent runs."""
+        self._dependency_prompt = dependency_prompt
 
     def pop_clarification_payload(self) -> ClarificationPayload | None:
         payload = self._clarification_payload
@@ -790,6 +814,11 @@ class AgentRunner:
             return PermissionResultAllow()
         if self._abort_requested and self._aborted_reason:
             return PermissionResultDeny(message=self._aborted_reason, interrupt=True)
+        if not await self._ensure_tool_dependencies(tool_name, input_data):
+            return PermissionResultDeny(
+                message=self._aborted_reason or "Missing dependencies.",
+                interrupt=True,
+            )
         allowed_roots = [self.config.paths.root.resolve()]
         delete_whitelist = [self.config.paths.memory_file.resolve()]
         project_cfg = self.config.load_project_config()
@@ -817,6 +846,48 @@ class AgentRunner:
             message=self._aborted_reason or "User denied permission.",
             interrupt=True,
         )
+
+    async def _ensure_tool_dependencies(
+        self, tool_name: str, input_data: dict
+    ) -> bool:
+        missing = missing_dependencies_for_tool(tool_name, input_data)
+        if not missing:
+            return True
+        summary = dependency_summary(missing)
+        instructions = manual_instructions(missing)
+        was_running = self._wait_indicator is not None
+        if was_running:
+            await self._stop_wait_indicator()
+        decision = DependencyDecision("install")
+        try:
+            if self._dependency_prompt:
+                decision = await self._request_dependency_install(tool_name, summary)
+            if decision.action == "manual":
+                await self._abort_with_message(instructions)
+                return False
+            if decision.action == "cancel":
+                await self._abort_with_message("Dependency installation cancelled.")
+                return False
+            ok, error = await install_missing_dependencies(missing, self.console)
+            if not ok:
+                detail = f"{error}\n\n{instructions}" if error else instructions
+                await self._abort_with_message(detail)
+                return False
+            still_missing = missing_dependencies_for_tool(tool_name, input_data)
+            if still_missing:
+                await self._abort_with_message(manual_instructions(still_missing))
+                return False
+            return True
+        finally:
+            if was_running and not self._abort_requested and not self._abort_finalized:
+                await self._start_wait_indicator()
+
+    async def _abort_with_message(self, message: str) -> None:
+        self._aborted_reason = message
+        self._abort_requested = True
+        await self._stop_wait_indicator()
+        await self._interrupt_client_on_abort()
+        self._finalize_aborted()
 
     async def _handle_permission_denied(
         self, reason: str, *, message: str | None = None
@@ -861,4 +932,23 @@ class AgentRunner:
         finally:
             self._permission_prompt_active = False
             if was_running and decision.allow:
+                await self._start_wait_indicator()
+
+    async def _request_dependency_install(
+        self, tool_name: str, message: str
+    ) -> DependencyDecision:
+        if not self._dependency_prompt:
+            return DependencyDecision("install")
+        was_running = self._wait_indicator is not None
+        self._permission_prompt_active = True
+        if was_running:
+            await self._stop_wait_indicator()
+        decision = DependencyDecision("cancel")
+        try:
+            title = f"Dependencies required: {tool_name}"
+            decision = await self._dependency_prompt(title, message)
+            return decision
+        finally:
+            self._permission_prompt_active = False
+            if was_running and not self._abort_requested and not self._abort_finalized:
                 await self._start_wait_indicator()

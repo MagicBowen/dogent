@@ -24,7 +24,7 @@ from rich.prompt import Prompt
 from rich.table import Table
 from rich.theme import Theme
 
-from ..agent import AgentRunner, RunOutcome, PermissionDecision
+from ..agent import AgentRunner, RunOutcome, PermissionDecision, DependencyDecision
 from ..features.clarification import (
     ClarificationPayload,
     ClarificationQuestion,
@@ -213,6 +213,10 @@ class DogentCLI:
             permission_prompt=self._prompt_tool_permission,
             session_logger=self.session_logger,
         )
+        dependency_prompt = (
+            self._prompt_dependency_install if self._interactive_prompts else None
+        )
+        self.agent.set_dependency_prompt(dependency_prompt)
         self.lesson_drafter: LessonDrafter = lesson_drafter or ClaudeLessonDrafter(
             config=self.config_manager,
             paths=self.paths,
@@ -1372,6 +1376,33 @@ class DogentCLI:
         if selection == 1:
             return PermissionDecision(True, remember=True)
         return PermissionDecision(False)
+
+    async def _prompt_dependency_install(
+        self, title: str, message: str
+    ) -> DependencyDecision:
+        options = ["Install now", "Install manually", "Cancel"]
+        prompt_text = f"{message}\n\nSelect a dependency option:"
+        was_active = self._selection_prompt_active.is_set()
+        if not was_active:
+            self._selection_prompt_active.set()
+        try:
+            selection = await self._prompt_choice(
+                title=title,
+                prompt_text=prompt_text,
+                options=options,
+            )
+        except SelectionCancelled:
+            return DependencyDecision("cancel")
+        finally:
+            if not was_active:
+                self._selection_prompt_active.clear()
+        if selection is None:
+            return DependencyDecision("cancel")
+        if selection == 0:
+            return DependencyDecision("install")
+        if selection == 1:
+            return DependencyDecision("manual")
+        return DependencyDecision("cancel")
 
     def _build_start_writing_prompt(self, init_prompt: str) -> str:
         cleaned = init_prompt.strip().replace("\n", " ").strip()
