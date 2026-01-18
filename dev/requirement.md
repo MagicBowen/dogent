@@ -22,5 +22,8 @@
 [support more generation mode]
 - Dogent supports the ability to generate PPT;
 
+[support downloading dependencies when runing]
+- mcp__dogent__export_document
+
 [support mutiple language]
 - support multiple languages: en & zh;

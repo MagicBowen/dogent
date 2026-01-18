@@ -145,6 +145,42 @@ class InterruptHelperTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_read_escape_key_sleeps_when_idle(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
+            stop_event = threading.Event()
+            sleep_calls: list[float] = []
+            kbhit_calls = [0]
+
+            def kbhit_side_effect() -> bool:
+                kbhit_calls[0] += 1
+                if kbhit_calls[0] >= 3:
+                    stop_event.set()
+                return False
+
+            def sleep_side_effect(value: float) -> None:
+                sleep_calls.append(value)
+
+            with (
+                mock.patch("dogent.cli.tcgetattr", return_value=object()),
+                mock.patch("dogent.cli.tcsetattr"),
+                mock.patch("dogent.cli.setcbreak"),
+                mock.patch("dogent.cli.kbhit", side_effect=kbhit_side_effect),
+                mock.patch("dogent.cli.app.time.sleep", side_effect=sleep_side_effect),
+            ):
+                result = cli._read_escape_key(stop_event)
+
+            self.assertFalse(result)
+            self.assertGreaterEqual(len(sleep_calls), 1)
+            self.assertGreater(sleep_calls[0], 0.0)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
     def test_stop_active_interrupts_cancels_tasks(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
