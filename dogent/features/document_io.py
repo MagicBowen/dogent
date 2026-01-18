@@ -958,17 +958,9 @@ def _ensure_pandoc_available() -> None:
         return
     except Exception as exc:
         log_exception("document_io", exc)
-        pass
-    try:
-        import pypandoc
-
-        pypandoc.download_pandoc()
-        pypandoc.get_pandoc_version()
-    except Exception as exc:  # noqa: BLE001
-        log_exception("document_io", exc)
         raise RuntimeError(
             "Pandoc is required for DOCX export and read. "
-            "Auto-download failed. Please check network/proxy or install pandoc."
+            "Please install pandoc and try again."
         ) from exc
 
 
@@ -1397,35 +1389,9 @@ async def _html_to_pdf(
             await browser.close()
     except Exception as exc:
         log_exception("document_io", exc)
-        await _ensure_playwright_chromium_installed_async()
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            page = await browser.new_page()
-            if source_url:
-                await page.goto(source_url, wait_until="load")
-            else:
-                await page.set_content(html, wait_until="load")
-            pdf_options = {
-                "path": str(output_path),
-                "format": "A4",
-                "print_background": True,
-            }
-            if header_template or footer_template:
-                pdf_options.update(
-                    {
-                        "display_header_footer": True,
-                        "header_template": header_template or "<span></span>",
-                        "footer_template": footer_template or "<span></span>",
-                        "margin": {
-                            "top": "18mm",
-                            "bottom": "18mm",
-                            "left": "18mm",
-                            "right": "18mm",
-                        },
-                    }
-                )
-            await page.pdf(**pdf_options)
-            await browser.close()
+        raise RuntimeError(
+            "PDF export requires Playwright Chromium. Please install dependencies."
+        ) from exc
 
 
 def _configure_playwright_browsers() -> None:
