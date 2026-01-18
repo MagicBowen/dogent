@@ -4313,6 +4313,8 @@ class DogentCLI:
 
                 # Check for keypress using cross-platform method
                 if not kbhit_fn():
+                    # Avoid busy-waiting while polling for ESC.
+                    time.sleep(0.01)
                     continue
                 if self._selection_prompt_active.is_set():
                     continue
