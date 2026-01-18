@@ -40,12 +40,12 @@ User Test Results: PASS
 3) Choose “Install manually”. Expect the task to abort and display OS-specific commands to install the missing dependencies.
 4) Repeat with a DOCX read/convert task and confirm pandoc guidance appears.
 
-User Test Results: Pending
+User Test Results: PASS
 
 ### Story 2 – Auto-Install with Progress + Continue Execution
 1) With dependencies still missing, retry the PDF export and choose “Install now”. Expect percent-based progress bars for each install step.
 2) After install completes, expect the export to continue automatically and succeed.
 3) Run a noninteractive prompt: `dogent --prompt "Export ./docs/test.md to ./docs/test.pdf"`; confirm dependencies auto-install if missing, or the command exits with manual install instructions if install fails.
 
-User Test Results: Pending
+User Test Results: PASS
 

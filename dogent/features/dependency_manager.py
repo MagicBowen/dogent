@@ -7,6 +7,7 @@ import re
 import shutil
 import sys
 from collections import deque
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
@@ -336,13 +337,25 @@ async def _run_install_step(step: InstallStep, console: Console) -> tuple[bool, 
             current_progress = percent
             progress.update(task_id, completed=percent)
 
-    with progress:
-        await asyncio.gather(
-            _drain_stream(proc.stdout, handle_segment),
-            _drain_stream(proc.stderr, handle_segment),
-        )
-        await proc.wait()
-        progress.update(task_id, completed=100)
+    try:
+        with progress:
+            await asyncio.gather(
+                _drain_stream(proc.stdout, handle_segment),
+                _drain_stream(proc.stderr, handle_segment),
+            )
+            await proc.wait()
+            progress.update(task_id, completed=100)
+    except asyncio.CancelledError:
+        with suppress(ProcessLookupError):
+            proc.terminate()
+        with suppress(asyncio.TimeoutError, ProcessLookupError):
+            await asyncio.wait_for(proc.wait(), timeout=2)
+        if proc.returncode is None:
+            with suppress(ProcessLookupError):
+                proc.kill()
+            with suppress(ProcessLookupError):
+                await proc.wait()
+        raise
 
     if proc.returncode != 0:
         tail = "\n".join(recent_lines)

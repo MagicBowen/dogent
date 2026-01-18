@@ -64,6 +64,37 @@ class DependencyFlowTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_interrupt_during_dependency_install_aborts(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            todo = TodoManager(console=console)
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo, history)
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=builder,
+                todo_manager=todo,
+                history=history,
+                console=console,
+            )
+            runner._dependency_installing = True
+            runner._dependency_manual_instructions = "Install pandoc."
+
+            asyncio.run(runner.interrupt("Esc detected"))
+
+            self.assertIsNotNone(runner.last_outcome)
+            assert runner.last_outcome
+            self.assertEqual(runner.last_outcome.status, "aborted")
+            self.assertIn("Install pandoc", runner.last_outcome.summary)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
 
 if __name__ == "__main__":
     unittest.main()

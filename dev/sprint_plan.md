@@ -52,7 +52,7 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
   - Choosing Install manually aborts the task and shows OS-specific install commands for each missing dependency.
   - Document IO no longer auto-downloads dependencies without user confirmation.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: UAT in dev/sprint_uat.md.
 
 ### Story 2: Auto-Install with Progress + Continue Execution
@@ -62,5 +62,5 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
   - In noninteractive mode, Dogent auto-installs missing dependencies; on failure, it exits with manual install instructions.
   - After successful install, the tool proceeds without requiring re-run.
 - Dev Status: Done
-- Acceptance Status: Pending
+- Acceptance Status: Accepted
 - Verification: UAT in dev/sprint_uat.md.

@@ -131,6 +131,8 @@ class AgentRunner:
         self._permission_prompt_active = False
         self._clarification_payload: ClarificationPayload | None = None
         self._outline_edit_payload: OutlineEditPayload | None = None
+        self._dependency_installing = False
+        self._dependency_manual_instructions: str | None = None
 
     async def reset(self) -> None:
         """Close current session so it can be re-created with new settings."""
@@ -349,6 +351,12 @@ class AgentRunner:
     async def interrupt(self, reason: str) -> None:
         async with self._lock:
             self._interrupted = True
+            if self._dependency_installing:
+                message = self._dependency_manual_instructions or reason
+                if message:
+                    message = f"Dependency installation interrupted.\n\n{message}"
+                await self._abort_with_message(message or reason)
+                return
             await self._safe_disconnect(interrupted=True)
             todos_snapshot = self.todo_manager.export_items()
             remaining = self.todo_manager.remaining_markdown()
@@ -859,6 +867,8 @@ class AgentRunner:
         if was_running:
             await self._stop_wait_indicator()
         decision = DependencyDecision("install")
+        self._dependency_installing = True
+        self._dependency_manual_instructions = instructions
         try:
             if self._dependency_prompt:
                 decision = await self._request_dependency_install(tool_name, summary)
@@ -879,6 +889,8 @@ class AgentRunner:
                 return False
             return True
         finally:
+            self._dependency_installing = False
+            self._dependency_manual_instructions = None
             if was_running and not self._abort_requested and not self._abort_finalized:
                 await self._start_wait_indicator()
 
