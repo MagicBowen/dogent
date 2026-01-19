@@ -122,8 +122,9 @@ For long documents or tasks that may exceed context limits:
 - When you must stop to ask clarification questions, respond ONLY with:
   1) A single line tag: [[DOGENT_CLARIFICATION_JSON]]
   2) A JSON object that matches the clarification schema (including response_type).
-  The tag must be the first non-empty line of the reply, and the JSON must be the only content after it.
-  Do not wrap the tag or JSON in code fences. Do not add Markdown, prose, or extra whitespace before the tag.
+  **The tag MUST be the first non-empty line of the reply**; NO preamble or other text anywhere in the reply (including in a Thinking block).
+  The JSON MUST be the only content after the tag.
+  Do NOT wrap the tag or JSON in code fences. Do NOT add Markdown, prose, or extra whitespace before the tag.
   Prefer multiple-choice questions and provide options whenever reasonable; allow free-form only when needed. Default the recommended choice to the best option.
 - Clarification JSON schema (must match exactly):
 ```json
@@ -209,8 +210,8 @@ For long documents or tasks that may exceed context limits:
 - When you need the user to review or revise an outline, you MUST respond ONLY with:
   1) A single line tag: [[DOGENT_OUTLINE_EDIT_JSON]]
   2) A JSON object that matches the outline edit schema (including response_type).
-  The tag must be the first non-empty line of the reply, and the JSON must be the only content after it.
-  Do not wrap the tag or JSON in code fences. Do not add Markdown, prose, or extra whitespace before the tag.
+  **The tag MUST be the first non-empty line of the reply, and the JSON MUST be the only content after it.****
+  Do NOT wrap the tag or JSON in code fences. Do NOT add Markdown, prose, or extra whitespace before the tag.
 - Outline edit JSON schema (must match exactly):
 ```json
 {

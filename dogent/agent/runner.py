@@ -133,6 +133,9 @@ class AgentRunner:
         self._outline_edit_payload: OutlineEditPayload | None = None
         self._dependency_installing = False
         self._dependency_manual_instructions: str | None = None
+        self._dependency_install_phase: str | None = None
+        self._dependency_download_path: str | None = None
+        self._dependency_missing: list[str] = []
 
     async def reset(self) -> None:
         """Close current session so it can be re-created with new settings."""
@@ -352,11 +355,8 @@ class AgentRunner:
         async with self._lock:
             self._interrupted = True
             if self._dependency_installing:
-                message = self._dependency_manual_instructions or reason
-                if message:
-                    message = f"Dependency installation interrupted.\n\n{message}"
-                await self._abort_with_message(message or reason)
-                return
+                message = self._dependency_interrupt_message(reason)
+                reason = message
             await self._safe_disconnect(interrupted=True)
             todos_snapshot = self.todo_manager.export_items()
             remaining = self.todo_manager.remaining_markdown()
@@ -869,30 +869,98 @@ class AgentRunner:
         decision = DependencyDecision("install")
         self._dependency_installing = True
         self._dependency_manual_instructions = instructions
+        self._dependency_install_phase = "download"
+        self._dependency_download_path = None
+        self._dependency_missing = list(missing)
         try:
             if self._dependency_prompt:
                 decision = await self._request_dependency_install(tool_name, summary)
             if decision.action == "manual":
-                await self._abort_with_message(instructions)
+                self._dependency_installing = False
+                await self.interrupt(f"Install manually.\n\n{instructions}")
                 return False
             if decision.action == "cancel":
-                await self._abort_with_message("Dependency installation cancelled.")
+                self._dependency_installing = False
+                await self.interrupt("Dependency installation cancelled.")
                 return False
-            ok, error = await install_missing_dependencies(missing, self.console)
+            ok, error = await install_missing_dependencies(
+                missing,
+                self.console,
+                status_cb=self._update_dependency_install_status,
+            )
             if not ok:
                 detail = f"{error}\n\n{instructions}" if error else instructions
-                await self._abort_with_message(detail)
+                await self._fail_dependency_install(detail)
                 return False
             still_missing = missing_dependencies_for_tool(tool_name, input_data)
             if still_missing:
-                await self._abort_with_message(manual_instructions(still_missing))
+                await self._fail_dependency_install(
+                    manual_instructions(still_missing)
+                )
                 return False
             return True
         finally:
             self._dependency_installing = False
             self._dependency_manual_instructions = None
-            if was_running and not self._abort_requested and not self._abort_finalized:
+            self._dependency_install_phase = None
+            self._dependency_download_path = None
+            self._dependency_missing = []
+            if (
+                was_running
+                and not self._abort_requested
+                and not self._abort_finalized
+                and not self._interrupted
+            ):
                 await self._start_wait_indicator()
+
+    def _dependency_interrupt_message(self, reason: str) -> str:
+        missing = self._dependency_missing
+        instructions = manual_instructions(
+            missing,
+            download_path=self._dependency_download_path,
+            install_phase=self._dependency_install_phase,
+        )
+        if instructions:
+            return f"Dependency installation interrupted.\n\n{instructions}"
+        return reason
+
+    def _update_dependency_install_status(
+        self, _dep: str, phase: str, download_path: str | None
+    ) -> None:
+        self._dependency_install_phase = phase
+        self._dependency_download_path = download_path
+
+    async def _fail_dependency_install(self, message: str) -> None:
+        await self._stop_wait_indicator()
+        self._interrupted = True
+        todos_snapshot = self.todo_manager.export_items()
+        remaining = self.todo_manager.remaining_markdown()
+        self.last_outcome = RunOutcome(
+            status="error",
+            summary=message,
+            todos_snapshot=todos_snapshot,
+            remaining_todos_markdown=remaining,
+        )
+        body_lines = [
+            f"Reason: {message}",
+            "",
+            "Remaining Todos:" if remaining else "Remaining Todos: (none)",
+            remaining,
+        ]
+        self.console.print(
+            Panel(
+                Text("\n".join(line for line in body_lines if line).strip()),
+                title="❌ Failed",
+                border_style="red",
+            )
+        )
+        self.history.append(
+            summary=f"Dependency install failed: {message}",
+            status="error",
+            prompt=None,
+            todos=todos_snapshot,  # type: ignore[arg-type]
+        )
+        await self._safe_disconnect(interrupted=True)
 
     async def _abort_with_message(self, message: str) -> None:
         self._aborted_reason = message

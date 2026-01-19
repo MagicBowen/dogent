@@ -37,13 +37,24 @@ class DependencyManagerTests(unittest.TestCase):
             )
         self.assertEqual(set(missing), {dm.DEP_PYPANDOC, dm.DEP_PANDOC})
 
-    def test_build_install_steps_for_pandoc_and_playwright(self) -> None:
-        steps = dm.build_install_steps(
-            [dm.DEP_PANDOC, dm.DEP_PYPANDOC, dm.DEP_PLAYWRIGHT_CHROMIUM]
-        )
-        labels = [step.label for step in steps]
-        self.assertTrue(any("Pandoc" in label for label in labels))
-        self.assertTrue(any("Playwright Chromium" in label for label in labels))
+    def test_manual_instructions_include_download_path_on_install(self) -> None:
+        with mock.patch.object(dm, "_os_name", return_value="linux"):
+            message = dm.manual_instructions(
+                [dm.DEP_PLAYWRIGHT_CHROMIUM],
+                download_path="/tmp/cache",
+                install_phase="install",
+            )
+        self.assertIn("Downloaded files location: /tmp/cache", message)
+        self.assertIn("playwright install --with-deps chromium", message)
+
+    def test_manual_instructions_omit_download_path_on_download(self) -> None:
+        with mock.patch.object(dm, "_os_name", return_value="linux"):
+            message = dm.manual_instructions(
+                [dm.DEP_PLAYWRIGHT_CHROMIUM],
+                download_path="/tmp/cache",
+                install_phase="download",
+            )
+        self.assertNotIn("Downloaded files location: /tmp/cache", message)
 
 
 if __name__ == "__main__":
