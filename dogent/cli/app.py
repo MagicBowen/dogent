@@ -4328,18 +4328,30 @@ class DogentCLI:
         tcgetattr_fn = getattr(cli_module, "tcgetattr", tcgetattr) if cli_module else tcgetattr
         tcsetattr_fn = getattr(cli_module, "tcsetattr", tcsetattr) if cli_module else tcsetattr
         setcbreak_fn = getattr(cli_module, "setcbreak", setcbreak) if cli_module else setcbreak
+        restore_settings = None
+        in_cbreak = False
         try:
-            old_settings = tcgetattr_fn(fd)
+            restore_settings = tcgetattr_fn(fd)
             setcbreak_fn(fd)
+            in_cbreak = True
         except Exception:
             return False
         try:
             while not stop_event.is_set():
                 if self._selection_prompt_active.is_set():
+                    if in_cbreak and restore_settings is not None:
+                        tcsetattr_fn(fd, TCSADRAIN, restore_settings)
+                        in_cbreak = False
                     while self._selection_prompt_active.is_set() and not stop_event.is_set():
                         time.sleep(0.05)
                     if stop_event.is_set():
                         break
+                    try:
+                        restore_settings = tcgetattr_fn(fd)
+                        setcbreak_fn(fd)
+                        in_cbreak = True
+                    except Exception:
+                        return False
                     continue
 
                 # Check for keypress using cross-platform method
@@ -4361,7 +4373,8 @@ class DogentCLI:
         except Exception:
             return False
         finally:
-            tcsetattr_fn(fd, TCSADRAIN, old_settings)
+            if restore_settings is not None:
+                tcsetattr_fn(fd, TCSADRAIN, restore_settings)
         return False
 
     async def _interrupt_running_task(

@@ -17,7 +17,7 @@ from dogent.prompts import PromptBuilder
 
 
 class DependencyFlowTests(unittest.TestCase):
-    def test_manual_dependency_choice_aborts(self) -> None:
+    def test_manual_dependency_choice_interrupts(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
@@ -57,14 +57,14 @@ class DependencyFlowTests(unittest.TestCase):
                 )
 
             self.assertFalse(ok)
-            self.assertEqual(runner.last_outcome.status, "aborted")
+            self.assertEqual(runner.last_outcome.status, "interrupted")
             self.assertIn("Install pandoc", runner.last_outcome.summary)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
             os.environ.pop("HOME", None)
 
-    def test_interrupt_during_dependency_install_aborts(self) -> None:
+    def test_interrupt_during_dependency_install_reports_interrupted(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
@@ -82,13 +82,17 @@ class DependencyFlowTests(unittest.TestCase):
                 console=console,
             )
             runner._dependency_installing = True
-            runner._dependency_manual_instructions = "Install pandoc."
+            runner._dependency_missing = ["pandoc"]
 
-            asyncio.run(runner.interrupt("Esc detected"))
+            with mock.patch(
+                "dogent.agent.runner.manual_instructions",
+                return_value="Install pandoc.",
+            ):
+                asyncio.run(runner.interrupt("Esc detected"))
 
             self.assertIsNotNone(runner.last_outcome)
             assert runner.last_outcome
-            self.assertEqual(runner.last_outcome.status, "aborted")
+            self.assertEqual(runner.last_outcome.status, "interrupted")
             self.assertIn("Install pandoc", runner.last_outcome.summary)
         if original_home is not None:
             os.environ["HOME"] = original_home

@@ -54,6 +54,9 @@ class InstallStep:
     env: dict[str, str] | None = None
 
 
+StatusCallback = Callable[[str, str, str | None], None]
+
+
 def missing_dependencies_for_tool(tool_name: str, input_data: dict) -> list[str]:
     required = _required_dependencies_for_tool(tool_name, input_data)
     missing: list[str] = []
@@ -72,18 +75,30 @@ def dependency_summary(missing: Iterable[str]) -> str:
     return "\n".join(lines)
 
 
-def manual_instructions(missing: Iterable[str]) -> str:
+def manual_instructions(
+    missing: Iterable[str],
+    *,
+    download_path: str | None = None,
+    install_phase: str | None = None,
+) -> str:
     missing_set = set(missing)
     if not missing_set:
         return "No missing dependencies."
     os_name = _os_name()
     lines = ["Install missing dependencies, then retry:"]
+    if install_phase == "install" and download_path:
+        lines.append(f"Downloaded files location: {download_path}")
     if DEP_PANDOC in missing_set:
         lines.extend(_pandoc_manual_instructions(os_name))
     if DEP_PLAYWRIGHT in missing_set:
         lines.append("Playwright (Python): python -m pip install playwright")
     if DEP_PLAYWRIGHT_CHROMIUM in missing_set:
-        lines.extend(_playwright_chromium_instructions(os_name))
+        playwright_download_path = download_path if install_phase == "install" else None
+        lines.extend(
+            _playwright_chromium_instructions(
+                os_name, download_path=playwright_download_path
+            )
+        )
     if DEP_PYMUPDF in missing_set:
         lines.append("PyMuPDF: python -m pip install pymupdf")
     if DEP_OPENPYXL in missing_set:
@@ -93,63 +108,20 @@ def manual_instructions(missing: Iterable[str]) -> str:
     return "\n".join(lines)
 
 
-def build_install_steps(missing: Iterable[str]) -> list[InstallStep]:
-    missing_set = set(missing)
-    steps: list[InstallStep] = []
-    if DEP_PANDOC in missing_set:
-        steps.append(
-            InstallStep(
-                label="Install Pandoc (pypandoc-binary)",
-                command=[
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "install",
-                    "--progress-bar",
-                    "raw",
-                    "pypandoc-binary",
-                ],
-                env={"PIP_DISABLE_PIP_VERSION_CHECK": "1"},
-            )
-        )
-        missing_set.discard(DEP_PYPANDOC)
-    python_packages = [
-        PYTHON_PACKAGE_MAP[dep] for dep in missing_set if dep in PYTHON_PACKAGE_MAP
-    ]
-    if python_packages:
-        steps.append(
-            InstallStep(
-                label="Install Python packages",
-                command=[
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "install",
-                    "--progress-bar",
-                    "raw",
-                    *python_packages,
-                ],
-                env={"PIP_DISABLE_PIP_VERSION_CHECK": "1"},
-            )
-        )
-    if DEP_PLAYWRIGHT_CHROMIUM in missing_set:
-        steps.append(
-            InstallStep(
-                label="Install Playwright Chromium",
-                command=[sys.executable, "-m", "playwright", "install", "chromium"],
-            )
-        )
-    return steps
-
-
 async def install_missing_dependencies(
-    missing: Iterable[str], console: Console
+    missing: Iterable[str],
+    console: Console,
+    *,
+    status_cb: StatusCallback | None = None,
 ) -> tuple[bool, str | None]:
-    steps = build_install_steps(missing)
-    if not steps:
+    deps = _dedupe_ordered(missing)
+    if not deps:
         return True, None
-    for step in steps:
-        ok, error = await _run_install_step(step, console)
+    cache_root = _download_cache_root()
+    for dep in deps:
+        ok, error = await _install_dependency(
+            dep, console, cache_root=cache_root, status_cb=status_cb
+        )
         if not ok:
             return False, error
     return True, None
@@ -292,15 +264,23 @@ def _pandoc_manual_instructions(os_name: str) -> list[str]:
     return ["Pandoc: install via your distro package manager"]
 
 
-def _playwright_chromium_instructions(os_name: str) -> list[str]:
+def _playwright_chromium_instructions(
+    os_name: str, *, download_path: str | None = None
+) -> list[str]:
     if os_name == "linux":
+        command = "python -m playwright install --with-deps chromium"
+    else:
+        command = "python -m playwright install chromium"
+    if download_path:
         return [
-            "Playwright Chromium: python -m playwright install --with-deps chromium"
+            f"Playwright Chromium: {command} (uses cached downloads at {download_path})"
         ]
-    return ["Playwright Chromium: python -m playwright install chromium"]
+    return [f"Playwright Chromium: {command}"]
 
 
-async def _run_install_step(step: InstallStep, console: Console) -> tuple[bool, str | None]:
+async def _run_install_step(
+    step: InstallStep, console: Console
+) -> tuple[bool, str | None]:
     env = os.environ.copy()
     if step.env:
         env.update(step.env)
@@ -360,6 +340,195 @@ async def _run_install_step(step: InstallStep, console: Console) -> tuple[bool, 
     if proc.returncode != 0:
         tail = "\n".join(recent_lines)
         return False, f"Installer failed (code {proc.returncode}).\n{tail}"
+    return True, None
+
+
+async def _install_dependency(
+    dep: str,
+    console: Console,
+    *,
+    cache_root: Path,
+    status_cb: StatusCallback | None = None,
+) -> tuple[bool, str | None]:
+    label = DEPENDENCY_LABELS.get(dep, dep)
+    if dep == DEP_PLAYWRIGHT_CHROMIUM:
+        return await _install_playwright_chromium(
+            label, console, status_cb=status_cb
+        )
+    if dep == DEP_PANDOC:
+        if status_cb:
+            status_cb(dep, "install", None)
+        return await _run_install_step(
+            InstallStep(
+                label=f"Install {label}",
+                command=[
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--progress-bar",
+                    "raw",
+                    "pypandoc-binary",
+                ],
+                env={
+                    "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+                    "PIP_CACHE_DIR": str(cache_root / "pip"),
+                },
+            ),
+            console,
+        )
+    if dep in PYTHON_PACKAGE_MAP:
+        if status_cb:
+            status_cb(dep, "install", None)
+        return await _run_install_step(
+            InstallStep(
+                label=f"Install {label}",
+                command=[
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--progress-bar",
+                    "raw",
+                    PYTHON_PACKAGE_MAP[dep],
+                ],
+                env={
+                    "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+                    "PIP_CACHE_DIR": str(cache_root / "pip"),
+                },
+            ),
+            console,
+        )
+    return True, None
+
+
+async def _install_playwright_chromium(
+    label: str,
+    console: Console,
+    *,
+    status_cb: StatusCallback | None = None,
+) -> tuple[bool, str | None]:
+    download_path = _playwright_download_location()
+    if status_cb:
+        status_cb(DEP_PLAYWRIGHT_CHROMIUM, "download", download_path)
+    return await _run_install_with_phases(
+        InstallStep(
+            label=label,
+            command=[sys.executable, "-m", "playwright", "install", "chromium"],
+        ),
+        console,
+        download_path=download_path,
+        status_cb=status_cb,
+    )
+
+
+async def _run_install_with_phases(
+    step: InstallStep,
+    console: Console,
+    *,
+    download_path: str | None,
+    status_cb: StatusCallback | None = None,
+) -> tuple[bool, str | None]:
+    env = os.environ.copy()
+    if step.env:
+        env.update(step.env)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *step.command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Failed to start installer: {exc}"
+
+    recent_lines: deque[str] = deque(maxlen=12)
+    phase = "download"
+    download_complete = False
+    install_progress = 0
+
+    progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.percentage:>3.0f}%"),
+        TimeRemainingColumn(),
+        console=console,
+    )
+    download_task = progress.add_task(f"Download {step.label}", total=100)
+    install_task = progress.add_task(
+        f"Install {step.label}", total=100, visible=False
+    )
+
+    def start_install_phase() -> None:
+        nonlocal phase, download_complete
+        if download_complete:
+            return
+        download_complete = True
+        phase = "install"
+        progress.update(install_task, visible=True, completed=install_progress)
+        if status_cb:
+            status_cb(DEP_PLAYWRIGHT_CHROMIUM, phase, download_path)
+
+    def advance_install() -> None:
+        nonlocal install_progress
+        if install_progress < 95:
+            install_progress += 1
+            progress.update(install_task, completed=install_progress)
+
+    def maybe_switch_to_install(segment: str) -> None:
+        if download_complete:
+            return
+        lowered = segment.lower()
+        if "install" in lowered or "extract" in lowered or "unpack" in lowered:
+            start_install_phase()
+
+    def handle_segment(segment: str) -> None:
+        cleaned = segment.strip()
+        if cleaned:
+            recent_lines.append(cleaned)
+        maybe_switch_to_install(segment)
+        percent = extract_progress_percent(segment)
+        if phase == "download":
+            if percent is not None:
+                progress.update(download_task, completed=percent)
+                if percent >= 100:
+                    start_install_phase()
+        else:
+            if percent is not None:
+                progress.update(install_task, completed=percent)
+            else:
+                advance_install()
+
+    try:
+        with progress:
+            await asyncio.gather(
+                _drain_stream(proc.stdout, handle_segment),
+                _drain_stream(proc.stderr, handle_segment),
+            )
+            await proc.wait()
+            if not download_complete:
+                start_install_phase()
+            progress.update(download_task, completed=100)
+            progress.update(install_task, completed=100)
+    except asyncio.CancelledError:
+        with suppress(ProcessLookupError):
+            proc.terminate()
+        with suppress(asyncio.TimeoutError, ProcessLookupError):
+            await asyncio.wait_for(proc.wait(), timeout=2)
+        if proc.returncode is None:
+            with suppress(ProcessLookupError):
+                proc.kill()
+            with suppress(ProcessLookupError):
+                await proc.wait()
+        raise
+
+    if proc.returncode != 0:
+        tail = "\n".join(recent_lines)
+        phase_label = "download" if phase == "download" else "install"
+        return (
+            False,
+            f"{step.label} {phase_label} failed (code {proc.returncode}).\n{tail}",
+        )
     return True, None
 
 
@@ -435,3 +604,17 @@ def _dedupe_ordered(items: Iterable[str]) -> list[str]:
         seen.add(item)
         ordered.append(item)
     return ordered
+
+
+def _download_cache_root() -> Path:
+    root = Path.home() / ".dogent" / "cache"
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _playwright_download_location() -> str | None:
+    env_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
+    if env_path:
+        return env_path
+    candidates = _default_playwright_paths()
+    return str(candidates[0]) if candidates else None
