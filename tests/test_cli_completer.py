@@ -132,7 +132,7 @@ class DogentCompleterTests(unittest.TestCase):
             comps = list(completer.get_completions(Document("/edit "), None))
             texts = [c.text for c in comps]
             self.assertIn("note.md", texts)
-            self.assertIn("docs/", texts)
+            self.assertIn("docs", texts)
             self.assertNotIn("data.csv", texts)
 
 
