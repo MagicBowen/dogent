@@ -3188,7 +3188,7 @@ class DogentCLI:
         app = Application(
             layout=layout,
             key_bindings=bindings,
-            mouse_support=True,
+            mouse_support=False,
             full_screen=False,
             style=style,
         )
@@ -4329,29 +4329,19 @@ class DogentCLI:
         tcsetattr_fn = getattr(cli_module, "tcsetattr", tcsetattr) if cli_module else tcsetattr
         setcbreak_fn = getattr(cli_module, "setcbreak", setcbreak) if cli_module else setcbreak
         restore_settings = None
-        in_cbreak = False
         try:
             restore_settings = tcgetattr_fn(fd)
             setcbreak_fn(fd)
-            in_cbreak = True
         except Exception:
             return False
         try:
             while not stop_event.is_set():
                 if self._selection_prompt_active.is_set():
-                    if in_cbreak and restore_settings is not None:
-                        tcsetattr_fn(fd, TCSADRAIN, restore_settings)
-                        in_cbreak = False
+                    # Avoid toggling termios while prompt_toolkit owns the terminal.
                     while self._selection_prompt_active.is_set() and not stop_event.is_set():
                         time.sleep(0.05)
                     if stop_event.is_set():
                         break
-                    try:
-                        restore_settings = tcgetattr_fn(fd)
-                        setcbreak_fn(fd)
-                        in_cbreak = True
-                    except Exception:
-                        return False
                     continue
 
                 # Check for keypress using cross-platform method

@@ -181,6 +181,34 @@ class InterruptHelperTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_read_escape_key_does_not_reset_termios_during_selection(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
+            cli._selection_prompt_active.set()
+            stop_event = threading.Event()
+
+            def sleep_side_effect(_value: float) -> None:
+                stop_event.set()
+
+            tcsetattr_mock = mock.Mock()
+            with (
+                mock.patch("dogent.cli.tcgetattr", return_value=object()),
+                mock.patch("dogent.cli.tcsetattr", tcsetattr_mock),
+                mock.patch("dogent.cli.setcbreak"),
+                mock.patch("dogent.cli.app.time.sleep", side_effect=sleep_side_effect),
+            ):
+                result = cli._read_escape_key(stop_event)
+
+            self.assertFalse(result)
+            self.assertEqual(tcsetattr_mock.call_count, 1)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
     def test_stop_active_interrupts_cancels_tasks(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:

@@ -432,7 +432,7 @@ class DogentCompleter(Completer):
             if path.name.startswith("."):
                 continue
             if path.is_dir():
-                candidate = path.name + "/"
+                candidate = path.name
             else:
                 if path.suffix.lower() not in EDITABLE_EXTENSIONS:
                     continue
@@ -440,7 +440,7 @@ class DogentCompleter(Completer):
             if not candidate.startswith(prefix):
                 continue
             rel = path.relative_to(self.root)
-            display = f"{rel}/" if path.is_dir() else str(rel)
+            display = str(rel)
             results.append(
                 Completion(
                     display,
