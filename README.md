@@ -1,9 +1,11 @@
 # Dogent
 
-Dogent 是一个基于 Claude Agent SDK 的基于 CLI 的写作 Agent，作为一个专注文档撰写的智能辅助 Agent，它具有如下特点：
-- 面向文档写作场景做了系统化的提示词设计，适合技术报告、长篇幅文章、专业文章的撰写；
-- 可扩展的的文档模板体系，可以指定文档写作的参考模板，用于规范和统一文档的撰写风格和输出结构；
-- 适合文档撰写的多轮风格设计，与基于 CLI 的即时编辑器，适合多行复杂用户提示词，大纲修改与确认；
+Dogent 是一个基于 Claude Agent SDK 的终端写作代理，强调「文档写作」场景的结构化产出，适合写报告、方案、技术文档与运营内容。
+
+- 更适合写作的系统提示词与模板体系（区别于 Claude Code 的通用代码开发）
+- 面向文档的流程：规划 → 研究 → 初稿 → 校验 → 打磨
+- 内置工具：文档读取、导出/转换、模板渲染、Lesson 记录等
+- 交互方式：终端中的交互式写作、可中断与可编辑的多轮协作
 
 ## Install
 
@@ -59,15 +61,15 @@ $ dogent
 
 下面是完整文档目录（位于 `docs/`），建议按顺序阅读：
 
-1. `docs/01-quickstart.md` — 快速开始：安装、配置、/init 与第一次写作
-2. `docs/02-templates.md` — 文档模板体系：内置/全局/工作区模板、@@ 覆盖
-3. `docs/03-editor.md` — CLI 编辑器：多行输入、预览、保存、vi 模式
-4. `docs/04-document-export.md` — 文档导出与格式转换
-5. `docs/05-lessons.md` — Lessons：经验沉淀与自动提醒机制
-6. `docs/06-history-and-state.md` — history/memory/lessons 与 show/archive/clean
-7. `docs/07-commands.md` — 命令参考：完整命令与快捷键清单
-8. `docs/08-configuration.md` — 配置详解：全局与工作区、Profile、模板设置
-9. `docs/09-permissions.md` — 权限管理：授权触发与记忆规则
-10. `docs/10-claude-compatibility.md` — Claude 兼容：commands/plugins 等资产复用
-11. `docs/11-troubleshooting.md` — 异常处理与调试
-12. `docs/12-appendix.md` — 附录：环境变量与第三方 API 配置
+1. [docs/01-quickstart.md](docs/01-quickstart.md) — 快速开始：安装、配置、/init 与第一次写作
+2. [docs/02-templates.md](docs/02-templates.md) — 文档模板体系：内置/全局/工作区模板、@@ 覆盖
+3. [docs/03-editor.md](docs/03-editor.md) — CLI 编辑器：多行输入、预览、保存、vi 模式
+4. [docs/04-document-export.md](docs/04-document-export.md) — 文档导出与格式转换
+5. [docs/05-lessons.md](docs/05-lessons.md) — Lessons：经验沉淀与自动提醒机制
+6. [docs/06-history-and-state.md](docs/06-history-and-state.md) — history/memory/lessons 与 show/archive/clean
+7. [docs/07-commands.md](docs/07-commands.md) — 命令参考：完整命令与快捷键清单
+8. [docs/08-configuration.md](docs/08-configuration.md) — 配置详解：全局与工作区、Profile、模板设置
+9. [docs/09-permissions.md](docs/09-permissions.md) — 权限管理：授权触发与记忆规则
+10. [docs/10-claude-compatibility.md](docs/10-claude-compatibility.md) — Claude 兼容：commands/plugins 等资产复用
+11. [docs/11-troubleshooting.md](docs/11-troubleshooting.md) — 异常处理与调试
+12. [docs/12-appendix.md](docs/12-appendix.md) — 附录：环境变量与第三方 API 配置
