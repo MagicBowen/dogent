@@ -107,6 +107,8 @@ Dogent 的配置分为「全局配置」与「工作区配置」，两者协作�
 
 ## 5. LLM Profile 配置
 
+> **提示**：如何申请 DeepSeek、GLM 4.7 等 API Key？请参阅 [附录：第三方 API 配置详细指南](./12-appendix.md)。
+
 `llm_profiles` 中可定义多个模型配置，每个 profile 支持：
 
 - `ANTHROPIC_BASE_URL`
@@ -136,6 +138,8 @@ Dogent 的配置分为「全局配置」与「工作区配置」，两者协作�
 ---
 
 ## 6. Web Profile（自定义搜索）
+
+> **提示**：如何申请 Brave Search 等 Web API Key？请参阅 [附录：第三方 API 配置详细指南](./12-appendix.md)。
 
 当 `web_profile` 设置为某个 profile 名称时，Dogent 会改用自定义 Web Search 工具。支持的 `provider`：
 
@@ -197,6 +201,8 @@ Dogent 的配置分为「全局配置」与「工作区配置」，两者协作�
 ---
 
 ## 8. Image Profile（图像生成）
+
+> **提示**：如何申请 GLM 图像生成 API Key？请参阅 [附录：第三方 API 配置详细指南](./12-appendix.md)。
 
 图像生成默认关闭，设置 `image_profile` 后启用：
 

@@ -2,7 +2,7 @@
 
 ## 1. Dogent 是什么？
 
-Dogent 是基于 Claude Agent SDK 的 CLI 写作代理，强调「文档写作」场景的结构化产出：
+Dogent 是基于 Claude Agent SDK 的 CLI 写作 Agent，强调「文档写作」场景的结构化产出：
 
 - 更适合写作的系统提示词与模板体系（区别于 Claude Code 的通用代码开发）
 - 面向文档的流程：规划 → 研究 → 初稿 → 校验 → 打磨
@@ -56,6 +56,8 @@ dogent -h
 ---
 
 ## 3. 最小配置：LLM Profile
+
+> **提示**：如何申请 DeepSeek、GLM 4.7 等 API Key？详细步骤请参阅 [附录：第三方 API 配置详细指南](./12-appendix.md)。
 
 Dogent 至少需要一个可用的 LLM 配置。推荐两种方式：
 
