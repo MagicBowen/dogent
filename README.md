@@ -1,6 +1,6 @@
 # Dogent
 
-Dogent 是基于 Claude Agent SDK 开发的专注于**本地文档写作**的 CLI 智能代理。与 Claude Code 聚焦代码任务不同，Dogent 提供针对写作任务的定制的系统提示词与文档模板体系、支持多格式文档处理与导出、具备持续学习与状态管理能力，并支持灵活配置与Claude生态兼容，满足本地文档写作的多样化需求，让 AI 辅助本地文档撰写变得更加轻松和高效。
+Dogent 是基于 Claude Agent SDK 开发的专注于**本地文档写作**的 CLI 智能代理。与 Claude Code 聚焦代码任务不同，dogent 提供针对写作任务定制的系统提示词与文档模板体系、支持多格式文档处理与导出、支持面向文档协作而优化的 CLI 交互体验，支持状态管理与持续改进的能力，同时保持与 Claude 生态的兼容，满足本地文档写作的多样化需求，让 AI 辅助本地文档撰写变得更加轻松和高效。
 
 ## Install
 
@@ -44,13 +44,25 @@ dogent -h
 
 ## Quick Start
 
-```text
-$ dogent
-> 写一篇关于 dogent 用法的技术博客，参考 https://github.com/MagicBowen/dogent/blob/main/README.md
-> /exit
+通过 CLI 进入某工作目录，然后进入 dogent 交互模式：
+
+```bash
+> cd /path/to/your/workspace
+> dogent
 ```
 
-如需多行输入，可按 `Ctrl+E` 打开编辑器；
+进入 dogent 交互模式后，可以使用 `/init` 命令初始化工作区，也可以直接开始写作：
+
+```bash
+dogent>  按照 @@built-in:technical_blog，写一篇关于 github/MagicBowen/dogent 工具用法的技术博客
+```
+
+在 dogent 交互模式下，输入 `@` 可以引用工作空间下的文件， 输入 `@@` 可以引用可用的文档模板；
+输入完成后按回车提交，dogent 会进行任务规划并生成内容返回，在 dogent 执行过程中，可以使用 `ESC` 中断当前任务，进行信息补充或者更改需求。
+
+在 dogent 交互模式下，如需多行输入，可按 `Ctrl+E` 打开 CLI 编辑器，编辑完成后使用 `Ctrl+J` 提交发送内容。
+
+使用 `/help` 可以查看帮助，使用 `/exit` 退出 dogent。
 
 ## Docs
 
