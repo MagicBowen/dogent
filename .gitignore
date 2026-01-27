@@ -7,7 +7,6 @@ build/
 .doc-config.yaml
 .dogent/memory.md
 .dogent/history.json
-images/
 .claude-local/
 claude-agent-sdk-python/
 uats/sample_workspace/
