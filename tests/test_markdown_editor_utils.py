@@ -5,6 +5,7 @@ from prompt_toolkit.document import Document
 
 from dogent.cli import (
     SimpleMarkdownLexer,
+    format_save_error_message,
     get_lexer_by_name,
     pygments_token_to_classname,
     mark_math_for_preview,
@@ -32,6 +33,25 @@ class MarkdownEditorUtilsTests(unittest.TestCase):
         self.assertEqual(rel, root / "notes.md")
         abs_path = resolve_save_path(root, "/tmp/abs.md")
         self.assertEqual(abs_path, Path("/tmp/abs.md"))
+
+    def test_format_save_error_message_with_absolute_hint(self) -> None:
+        root = Path("/tmp/root")
+        exc = OSError(30, "Read-only file system")
+        message = format_save_error_message(
+            Path("/draft/doc.md"), exc, path_text="/draft/doc.md", root=root
+        )
+        self.assertIn("Could not save to /draft/doc.md", message)
+        self.assertIn("Paths starting with '/' are absolute.", message)
+
+    def test_format_save_error_message_relative_path(self) -> None:
+        root = Path("/tmp/root")
+        exc = OSError(13, "Permission denied")
+        message = format_save_error_message(
+            Path("/tmp/root/draft/doc.md"), exc, path_text="draft/doc.md", root=root
+        )
+        self.assertIn("Could not save to draft/doc.md", message)
+        self.assertIn("Check that the directory exists and is writable.", message)
+        self.assertNotIn("Paths starting with '/'", message)
 
     def test_simple_markdown_lexer_heading(self) -> None:
         lexer = SimpleMarkdownLexer()
