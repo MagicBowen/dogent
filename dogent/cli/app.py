@@ -68,6 +68,7 @@ from .editor import (
     MultilineEditRequest,
     SimpleMarkdownLexer,
     indent_block,
+    format_save_error_message,
     mark_math_for_preview,
     resolve_save_path,
     wrap_markdown_code_block,
@@ -1632,20 +1633,28 @@ class DogentCLI:
             overwrite_selection = 0
             overwrite_future: asyncio.Future[str] | None = None
             overwrite_path: Path | None = None
+            save_error_active = False
+            save_error_message = ""
+            save_error_future: asyncio.Future[None] | None = None
             edit_active = Condition(
                 lambda: mode == "edit"
                 and not return_prompt_active
                 and not save_prompt_active
                 and not overwrite_prompt_active
+                and not save_error_active
             )
             preview_active = Condition(lambda: mode == "preview")
             return_prompt_filter = Condition(lambda: return_prompt_active)
             save_prompt_filter = Condition(lambda: save_prompt_active)
             overwrite_prompt_filter = Condition(lambda: overwrite_prompt_active)
+            save_error_filter = Condition(lambda: save_error_active)
             command_mode = False
             command_buffer = Buffer(document=Document(text=""))
             command_filter = Condition(
-                lambda: editing_mode == EditingMode.VI and command_mode and mode == "edit"
+                lambda: editing_mode == EditingMode.VI
+                and command_mode
+                and mode == "edit"
+                and not save_error_active
             )
             emacs_only = Condition(lambda: editing_mode == EditingMode.EMACS)
             vi_edit = Condition(lambda: editing_mode == EditingMode.VI and mode == "edit")
@@ -1657,6 +1666,7 @@ class DogentCLI:
                 and not return_prompt_active
                 and not save_prompt_active
                 and not overwrite_prompt_active
+                and not save_error_active
             )
 
             def is_dirty() -> bool:
@@ -1954,6 +1964,19 @@ class DogentCLI:
                 overwrite_prompt_window, filter=overwrite_prompt_filter
             )
 
+            def _save_error_prompt_text() -> str:
+                return save_error_message or "Save failed."
+
+            save_error_window = Window(
+                content=FormattedTextControl(_save_error_prompt_text),
+                height=6,
+                style="class:save_prompt",
+                wrap_lines=True,
+            )
+            save_error_container = ConditionalContainer(
+                save_error_window, filter=save_error_filter
+            )
+
             command_prompt_window = Window(
                 content=FormattedTextControl(":"),
                 height=1,
@@ -1989,6 +2012,7 @@ class DogentCLI:
                     return_prompt_container,
                     save_prompt_container,
                     overwrite_prompt_container,
+                    save_error_container,
                 ]
             )
             preview_footer = Window(
@@ -2066,6 +2090,37 @@ class DogentCLI:
                 app.invalidate()
                 return result == "overwrite"
 
+            async def _show_save_error(app: Application, message: str) -> None:
+                nonlocal save_error_active, save_error_message, save_error_future
+                save_error_active = True
+                save_error_message = message
+                save_error_future = asyncio.get_event_loop().create_future()
+                app.layout.focus(editor)
+                app.invalidate()
+                await save_error_future
+                save_error_active = False
+                save_error_message = ""
+                save_error_future = None
+                app.layout.focus(editor)
+                app.invalidate()
+
+            async def _attempt_save(
+                app: Application,
+                save_path: Path,
+                *,
+                path_text: str | None = None,
+            ) -> bool:
+                try:
+                    save_path.parent.mkdir(parents=True, exist_ok=True)
+                    save_path.write_text(editor.text, encoding="utf-8")
+                except OSError as exc:
+                    message = format_save_error_message(
+                        save_path, exc, path_text=path_text, root=self.root
+                    )
+                    await _show_save_error(app, message)
+                    return False
+                return True
+
             async def _return_flow(app: Application) -> None:
                 if not is_dirty():
                     app.exit(result=EditorOutcome(action="discard", text=initial_text))
@@ -2085,6 +2140,7 @@ class DogentCLI:
                 if context == "file_edit":
                     if result in {"save", "submit"}:
                         save_path = current_file
+                        path_text = None
                         if save_path is None:
                             path_text = await _prompt_save_path(app)
                             if not path_text:
@@ -2093,8 +2149,8 @@ class DogentCLI:
                         if save_path.exists() and save_path != current_file:
                             if not await _confirm_overwrite(app, save_path):
                                 return
-                        save_path.parent.mkdir(parents=True, exist_ok=True)
-                        save_path.write_text(editor.text, encoding="utf-8")
+                        if not await _attempt_save(app, save_path, path_text=path_text):
+                            return
                         app.exit(
                             result=EditorOutcome(
                                 action="submit" if result == "submit" else "save",
@@ -2111,8 +2167,8 @@ class DogentCLI:
                         if save_path.exists():
                             if not await _confirm_overwrite(app, save_path):
                                 return
-                        save_path.parent.mkdir(parents=True, exist_ok=True)
-                        save_path.write_text(editor.text, encoding="utf-8")
+                        if not await _attempt_save(app, save_path, path_text=path_text):
+                            return
                         app.exit(
                             result=EditorOutcome(
                                 action="submit" if result == "save_as_submit" else "save",
@@ -2132,8 +2188,8 @@ class DogentCLI:
                     if save_path.exists():
                         if not await _confirm_overwrite(app, save_path):
                             return
-                    save_path.parent.mkdir(parents=True, exist_ok=True)
-                    save_path.write_text(editor.text, encoding="utf-8")
+                    if not await _attempt_save(app, save_path, path_text=path_text):
+                        return
                     app.exit(
                         result=EditorOutcome(
                             action="submit", text=editor.text, saved_path=save_path
@@ -2146,6 +2202,7 @@ class DogentCLI:
 
             async def _submit_file_edit(app: Application) -> None:
                 save_path = current_file
+                path_text = None
                 if save_path is None:
                     path_text = await _prompt_save_path(app)
                     if not path_text:
@@ -2154,8 +2211,8 @@ class DogentCLI:
                 if save_path.exists() and save_path != current_file:
                     if not await _confirm_overwrite(app, save_path):
                         return
-                save_path.parent.mkdir(parents=True, exist_ok=True)
-                save_path.write_text(editor.text, encoding="utf-8")
+                if not await _attempt_save(app, save_path, path_text=path_text):
+                    return
                 app.exit(
                     result=EditorOutcome(
                         action="submit", text=editor.text, saved_path=save_path
@@ -2192,8 +2249,8 @@ class DogentCLI:
                     if save_path.exists() and save_path != current_file:
                         if not await _confirm_overwrite(app, save_path):
                             return
-                    save_path.parent.mkdir(parents=True, exist_ok=True)
-                    save_path.write_text(editor.text, encoding="utf-8")
+                    if not await _attempt_save(app, save_path, path_text=resolved):
+                        return
                     if exit_after:
                         app.exit(
                             result=EditorOutcome(
@@ -2589,6 +2646,17 @@ class DogentCLI:
             def _overwrite_cancel(event) -> None:  # type: ignore[no-untyped-def]
                 if overwrite_future and not overwrite_future.done():
                     overwrite_future.set_result("cancel")
+
+            @bindings.add("enter", filter=save_error_filter, eager=True)
+            def _save_error_enter(event) -> None:  # type: ignore[no-untyped-def]
+                if save_error_future and not save_error_future.done():
+                    save_error_future.set_result(None)
+
+            @bindings.add("escape", filter=save_error_filter, eager=True)
+            @bindings.add("c-c", filter=save_error_filter, eager=True)
+            def _save_error_cancel(event) -> None:  # type: ignore[no-untyped-def]
+                if save_error_future and not save_error_future.done():
+                    save_error_future.set_result(None)
 
             base_style = Style.from_dict(
                 {

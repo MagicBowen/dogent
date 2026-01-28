@@ -79,6 +79,34 @@ def resolve_save_path(root: Path, path_text: str) -> Path:
     return candidate
 
 
+def format_save_error_message(
+    save_path: Path,
+    exc: OSError,
+    *,
+    path_text: str | None = None,
+    root: Path | None = None,
+) -> str:
+    display_path = str(save_path)
+    if root is not None:
+        with suppress(ValueError):
+            display_path = str(save_path.relative_to(root))
+    reason = exc.strerror or str(exc)
+    if reason:
+        first_line = f"Could not save to {display_path}: {reason}."
+    else:
+        first_line = f"Could not save to {display_path}."
+    lines = [first_line]
+    if path_text and path_text.startswith("/"):
+        lines.append(
+            "Paths starting with '/' are absolute. Try a workspace-relative path "
+            "(e.g. draft/doc.md) or a home path (~/draft/doc.md)."
+        )
+    else:
+        lines.append("Check that the directory exists and is writable.")
+    lines.append("Press Enter or Esc to continue.")
+    return "\n".join(lines)
+
+
 class SimpleMarkdownLexer(Lexer):
     RE_INLINE_CODE = re.compile(r"`[^`]+`")
     RE_INLINE_MATH = re.compile(r"(?<!\$)\$[^$\n]+\$(?!\$)")
