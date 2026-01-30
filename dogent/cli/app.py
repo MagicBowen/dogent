@@ -182,6 +182,14 @@ class DogentCLI:
         self.paths = DogentPaths(self.root)
         self.todo_manager = TodoManager(console=self.console)
         self.config_manager = ConfigManager(self.paths, console=self.console)
+        if not self.paths.config_file.exists():
+            try:
+                self.config_manager.create_config_template()
+            except PermissionError as exc:
+                log_exception("config", exc)
+                self.console.print(
+                    f"[yellow]Cannot write {self.paths.config_file}. Please create it manually.[/yellow]"
+                )
         self.doc_templates = DocumentTemplateManager(self.paths)
         self.file_resolver = FileReferenceResolver(self.root)
         self.history_manager = HistoryManager(self.paths)
@@ -4162,10 +4170,13 @@ class DogentCLI:
 
     def _auto_init_noninteractive(self) -> None:
         if not self.paths.config_file.exists():
-            self.config_manager.create_init_files()
-            self.config_manager.create_config_template()
-            return
-        self.config_manager.create_init_files()
+            try:
+                self.config_manager.create_config_template()
+            except PermissionError as exc:
+                log_exception("config", exc)
+                self.console.print(
+                    f"[yellow]Cannot write {self.paths.config_file}. Please create it manually.[/yellow]"
+                )
 
     async def _run_noninteractive(
         self,
@@ -4309,22 +4320,15 @@ class DogentCLI:
         self._arm_lesson_capture_if_needed()
 
     async def _maybe_auto_init_for_request(self, message: str) -> bool:
-        if self.paths.config_file.exists():
-            return True
-        try:
-            should_init = await self._prompt_yes_no(
-                title="Init",
-                message="This workspace is not initialized. Initialize now?",
-                prompt="Initialize now? [Y/n] ",
-                default=True,
-                show_panel=True,
-            )
-        except SelectionCancelled:
-            return False
-        if not should_init:
-            return True
-        await self._run_init(command_text=f"/init {message}", force_wizard=True)
-        return False
+        if not self.paths.config_file.exists():
+            try:
+                self.config_manager.create_config_template()
+            except PermissionError as exc:
+                log_exception("config", exc)
+                self.console.print(
+                    f"[yellow]Cannot write {self.paths.config_file}. Please create it manually.[/yellow]"
+                )
+        return True
 
     async def _run_single_with_interrupt(
         self,

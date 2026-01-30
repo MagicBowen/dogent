@@ -28,6 +28,14 @@
       "ANTHROPIC_SMALL_FAST_MODEL": "glm-4.7",
       "API_TIMEOUT_MS": 600000,
       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    },
+    "poe-claude": {
+      "ANTHROPIC_BASE_URL": "https://api.poe.com",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me",
+      "ANTHROPIC_MODEL": "Opus",
+      "ANTHROPIC_SMALL_FAST_MODEL": "Sonnet",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
     }
   },
   "web_profiles": {

@@ -118,7 +118,7 @@ Dogent 的配置分为「全局配置」与「工作区配置」，两者协作�
 - `API_TIMEOUT_MS`
 - `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 
-示例（v0.9.20 默认模板）：
+示例（v0.9.21 默认模板节选）：
 
 ```json
 {
@@ -130,7 +130,15 @@ Dogent 的配置分为「全局配置」与「工作区配置」，两者协作�
       "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-chat",
       "API_TIMEOUT_MS": 600000,
       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
-    }
+    },
+    "poe-claude": {
+      "ANTHROPIC_BASE_URL": "https://api.poe.com",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me",
+      "ANTHROPIC_MODEL": "Opus",
+      "ANTHROPIC_SMALL_FAST_MODEL": "Sonnet",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    }    
   }
 }
 ```

@@ -138,7 +138,37 @@ DeepSeek 提供了与 Anthropic API 兼容的接口，是目前性价比很高�
 
 ---
 
-## D. GLM 图像生成（Image API）
+## D. Poe（Anthropic API 兼容）
+
+Poe 提供 Anthropic API 兼容的接入方式，可用于配置 Claude 系列模型。
+
+### 1. Dogent 配置示例
+
+将以下配置添加到 `~/.dogent/dogent.json` 的 `llm_profiles` 部分：
+
+```json
+{
+  "llm_profiles": {
+    "poe-claude": {
+      "ANTHROPIC_BASE_URL": "https://api.poe.com",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me", // 替换为你的 Poe Token
+      "ANTHROPIC_MODEL": "Opus",
+      "ANTHROPIC_SMALL_FAST_MODEL": "Sonnet",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    }
+  }
+}
+```
+
+### 2. 使用说明
+1. 在项目目录中运行 `dogent`。
+2. 输入 `/profile`，按空格，选择 `llm`，再选择 `poe-claude`。
+3. 确认后，当前项目的 `.dogent/dogent.json` 中的 `llm_profile` 会被设置为 `poe-claude`。
+
+---
+
+## E. GLM 图像生成（Image API）
 
 智谱AI也提供了独立的图像生成 API，可用于 Dogent 的 `image_profile` 配置。
 
@@ -178,7 +208,7 @@ DeepSeek 提供了与 Anthropic API 兼容的接口，是目前性价比很高�
 
 ---
 
-## E. Brave Search（Web Search API）
+## F. Brave Search（Web Search API）
 
 Brave Search 提供了高质量的网页搜索 API，可用于 Dogent 的 `web_profile` 配置。
 
@@ -233,7 +263,7 @@ Brave Search 提供了高质量的网页搜索 API，可用于 Dogent 的 `web_p
 
 ---
 
-## F. 其他配置建议
+## G. 其他配置建议
 
 ### 1. 多 Profile 管理
 你可以在 `~/.dogent/dogent.json` 中定义多个 profile，例如：
@@ -243,6 +273,7 @@ Brave Search 提供了高质量的网页搜索 API，可用于 Dogent 的 `web_p
   "llm_profiles": {
     "deepseek": { ... },
     "glm4.7": { ... },
+    "poe-claude": { ... },
     "claude-default": { ... }
   },
   "web_profiles": {
@@ -274,7 +305,7 @@ Brave Search 提供了高质量的网页搜索 API，可用于 Dogent 的 `web_p
 ## 总结
 
 通过本指南，你应该已经掌握了：
-1. DeepSeek、GLM 4.7、GLM 图像生成、Brave Search 的账号注册与 API Key 申请流程。
+1. Poe、DeepSeek、GLM 4.7、GLM 图像生成、Brave Search 的账号注册与 API Key 申请流程。
 2. 如何将各个服务的配置填入 `~/.dogent/dogent.json`。
 3. 如何在具体项目中选择和切换不同的 profile。
 
