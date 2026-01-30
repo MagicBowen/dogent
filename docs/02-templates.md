@@ -7,17 +7,17 @@ Dogent 的模板体系决定了不同文档类型的输出结构与写作规则�
 Dogent 支持三种层级的模板：
 
 1) **内置模板（built-in）**  
-   随包发布，适合作为默认模板或示例。目前随包发布的模板只有如下几个，更多的模板可以通过自定义创建：
+   随包发布，适合作为默认模板或示例。目前随包发布的模板只有如下几个 (更多的模板可以通过后文介绍的自定义方式进行创建)：
    - `built-in:general`：通用写作模板，如果没有配置，默认使用该模板
    - `built-in:technical_blog`：技术博客模板
    - `built-in:research_report`：研究报告模板
    - `built-in:resume`：个人简历模板
 
 2) **全局模板（global）**  
-   放在 `~/.dogent/templates/`，适合团队或个人跨项目复用。
+   用户自定义，放在 `~/.dogent/templates/`，适合团队或个人跨项目复用。
 
 3) **工作区模板（workspace）**  
-   放在项目内 `.dogent/templates/`，适合项目定制。
+   用户自定义，放在项目工作区内 `.dogent/templates/` 目录下，适合当前工作区内使用。
 
 **模板文件命名规则**：`<name>.md`，使用时直接写 `<name>`。
 
@@ -50,7 +50,7 @@ Dogent 支持三种层级的模板：
 在用户输入前加上 `@@`：
 
 ```text
-@@global:resume 请根据我的工作经历生成一份简历初稿。
+请根据我的工作经历生成一份简历初稿，使用 @@global:resume 模板，突出技术能力。
 ```
 
 这不会修改任何配置文件，仅对本轮有效。
@@ -67,9 +67,9 @@ Dogent 支持三种层级的模板：
 
 向导会：
 
+- 尝试匹配一个合适的模板（如 research_report）
 - 生成 `.dogent/dogent.md` 的初稿
-- 尝试推荐一个合适的模板（如 research_report）
-- 可自动写入 `.dogent/dogent.json`
+- 将配置自动写入 `.dogent/dogent.json`
 
 这是一种“让 /init 自动理解需求并给出模板建议”的方式。
 
@@ -81,19 +81,24 @@ Dogent 支持三种层级的模板：
 
 ```bash
 mkdir -p .dogent/templates
-cat <<'MD' > .dogent/templates/proposal.md
-# Proposal Template
+touch .dogent/templates/proposal.md
 
+编辑 proposal.md 文件，指明该模板的使用场景，目标，以及输出文档结构等等。
+文档模板采用 markdown 格式，内容自定义，一般可以参考如下结构：
+
+``` markdown
+# Proposal Template
 ## Introduction
-## Goals
-## Scope
-## Timeline
-## Risks
-## Appendix
-MD
+本模板的使用场景，目标读者等
+
+## Writing principles
+本模板的写作原则和要求；
+
+## Document Structure
+本文档类型的输出结构说明；
 ```
 
-使用时：
+配置好的模板，可以在交互中使用 `@@proposal` 进行引用，或者在初始化工作区时使用：
 
 ```text
 > /init proposal
