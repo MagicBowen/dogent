@@ -102,31 +102,52 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
 ### 方式 B：配置全局 profile（更推荐）
 
-1) 进入任意项目目录，运行一次 `dogent`，它会创建 `~/.dogent/dogent.json` 的模板文件。  
-2) 打开 `~/.dogent/dogent.json`，在 `llm_profiles` 中填入你的配置。  
-3) 在项目中选择 `llm_profile`（见下一节）。
+优点：无需设置环境变量，只需在 dogent 全局配置中设置可用的 LLM 配置；之后每个工作区只用按需选择对应的需要的 LLM profile 即可。
 
----
+1) 第一次执行 `dogent` 命令（无论在哪个目录）都会自动在用户的 HOME 目录下创建 `~/.dogent/dogent.json` 全局配置文件，里面已经包含常用 `llm_profiles` 模板，你只需要补全对应的 API TOKEN。
 
-## 4. 选择 Profile（`/profile` command）
+2) 打开 `~/.dogent/dogent.json`，以配置 **DeepSeek** 为例，在 `llm_profiles.deepseek` 中把 "replace-me" 替换为你自己的 DeepSeek Anthropic API Token：
 
-进入某个项目目录后：
-
-```bash
-$ dogent
-> /profile
+```json
+{
+  "llm_profiles": {
+    "deepseek": {
+      "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me",
+      "ANTHROPIC_MODEL": "deepseek-reasoner",
+      "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-chat",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    }
+  }
+}
 ```
 
-你将看到当前项目已选择 profile 配置。
+> DeepSeek Anthropic API Token 的申请步骤见 [附录：第三方 API 配置详细指南](./12-appendix.md) 的 `DeepSeek（Anthropic API 兼容）` 章节。
 
-当输入 `/profile` 命令后输入空格，下拉列表中会给出可以配置的profile，选择 llm 继续空格，会看到可选的 llm-profile（只显示已经在`~/.dogent/dogent.json`配置好的）
-选择好后回车，当前工程下配置的 profile 会保存在当前工程目录下的 `./dogent/dogent.json`  的 `llm_profile` 中。
+3) 回到某个工作目录，在 CLI 中进入 dogent后，使用 `/profile` 子命令为当前工作区选择刚刚配置的 `deepseek`：
 
-`~/.dogent/dogent.json` 中配置的全局可以选择的 llm_profile 及其属性，每个工作目录下根据任务适配度选择不同的 llm_profile 名称。
+```bash
+dogent> /profile llm deepseek
+``` 
+
+在 dogent 下，输入子命令 `/profile` 后输出空格，可以配置的 profile 类型会自动出现在下拉类表中，然后选择 llm 后再输入空格，可以看到可用的 llm profile 列表，选择 `deepseek` 后回车即可。
+
+此时项目的 `./.dogent/dogent.json` 会自动写入：
+
+```json
+{ "llm_profile": "deepseek" }
+```
+
+你也可以通过直接修改当前工作区下的 `./.dogent/dogent.json` 来指定不同的 `llm_profile`。
+
+4) 完成。你已经具备一个可用的 LLM Profile，可以开始写作了。每个工作区都可以根据任务的差异单独配置不同的 LLM Profile。
+
+> 更多 LLM profile 示例与其它平台的 API 申请方式，请参考 [附录：第三方 API 配置详细指南](./12-appendix.md) 与 [配置说明](./08-configuration.md)。
 
 ---
 
-## 5. 初始化项目（/init）
+## 4. 初始化项目（/init）
 
 第一次使用某个工作目录时，可以通过执行 `/init` 命令来初始化该工作目录的项目配置：
 
@@ -134,22 +155,29 @@ $ dogent
 > /init
 ```
 
-会生成两个关键文件：
+会生成如下关键文件:
 
-- `.dogent/dogent.json`：工作区配置（profile、模板、语言、权限记忆等）
 - `.dogent/dogent.md`：项目写作约束（写作目标、语气、受众、风格要求等）
 
-输入命令 `/init` 后输入空格，可以看到可以使用的文档模板，可以直接指定模板：
+你可以修改该文件，为该工作区指定更具体的写作约束。
+
+更常用的初始化方式是，在输入命令 `/init` 后输入空格，可以看到可以使用的文档模板，然后直接选择该工作区的默认写作模板：
 
 ```bash
 > /init built-in:research_report
 ```
 
-若输入的是普通文字而不是模板名，`/init` 会进入「智能向导」模式，并根据你的描述自动生成写作约束与自动选择合适的模板。
+此外，也可以不指定模板，而是输入自由的提示词，这时`/init` 会进入「智能向导」模式，并根据你的描述自动选择合适的模板并自动生成写作约束，例如：
+
+```bash
+> /init 我需要写一个个人简历，要求突出技术能力，适合申请软件工程师岗位。
+```
+
+对于上面的初始化，dogent会自动匹配到 `@@built-in:resume` 模板，并生成相应的 `.dogent/dogent.md` 写作约束文件。
 
 ---
 
-## 6. 完成一次最小写作任务
+## 5. 完成一次最小写作任务
 
 示例流程：
 
@@ -172,7 +200,7 @@ dogent>  按照模板 @@built-in:technical_blog，写一篇关于 github/MagicBo
 
 ---
 
-## 7. 退出
+## 6. 退出
 
 ```bash
 > /exit
