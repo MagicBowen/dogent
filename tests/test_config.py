@@ -53,6 +53,21 @@ class ConfigTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_global_template_includes_poe_claude(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            ConfigManager(paths)
+            data = json.loads((Path(tmp_home) / ".dogent" / "dogent.json").read_text())
+            poe = (data.get("llm_profiles") or {}).get("poe-claude")
+            self.assertIsInstance(poe, dict)
+            self.assertEqual(poe.get("ANTHROPIC_BASE_URL"), "https://api.poe.com")
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
     def test_profile_setters_persist(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:

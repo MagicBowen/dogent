@@ -7,7 +7,7 @@ from unittest import mock
 
 from rich.console import Console
 
-from dogent.cli import DogentCLI, SelectionCancelled
+from dogent.cli import DogentCLI
 from dogent.cli.wizard import WizardResult
 
 
@@ -52,39 +52,20 @@ class InitFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("initialized the current dogent project", prompt)
         self.assertIn("draft a resume", prompt)
 
-    async def test_auto_init_decline_continues(self) -> None:
-        self.cli._prompt_yes_no = mock.AsyncMock(return_value=False)  # type: ignore[assignment]
+    async def test_workspace_config_created_on_cli_init(self) -> None:
+        self.assertTrue(self.cli.paths.config_file.exists())
+
+    async def test_history_created_on_cli_init(self) -> None:
+        self.assertTrue(self.cli.paths.history_file.exists())
+        self.assertEqual(self.cli.paths.history_file.read_text().strip(), "[]")
+
+    async def test_auto_init_no_prompt(self) -> None:
+        self.cli._prompt_yes_no = mock.AsyncMock()  # type: ignore[assignment]
         self.cli._run_init = mock.AsyncMock()  # type: ignore[assignment]
         should_continue = await self.cli._maybe_auto_init_for_request("hello")
         self.assertTrue(should_continue)
+        self.cli._prompt_yes_no.assert_not_called()
         self.cli._run_init.assert_not_called()
-
-    async def test_auto_init_accept_runs_wizard(self) -> None:
-        self.cli._prompt_yes_no = mock.AsyncMock(return_value=True)  # type: ignore[assignment]
-        self.cli._run_init = mock.AsyncMock()  # type: ignore[assignment]
-        should_continue = await self.cli._maybe_auto_init_for_request("hello")
-        self.assertFalse(should_continue)
-        self.cli._run_init.assert_awaited_once()
-
-    async def test_auto_init_esc_cancels(self) -> None:
-        self.cli._prompt_yes_no = mock.AsyncMock(  # type: ignore[assignment]
-            side_effect=SelectionCancelled
-        )
-        self.cli._run_init = mock.AsyncMock()  # type: ignore[assignment]
-        should_continue = await self.cli._maybe_auto_init_for_request("hello")
-        self.assertFalse(should_continue)
-        self.cli._run_init.assert_not_called()
-
-    async def test_auto_init_prompt_defaults_yes(self) -> None:
-        prompt_mock = mock.AsyncMock(return_value=False)
-        self.cli._prompt_yes_no = prompt_mock  # type: ignore[assignment]
-        self.cli._run_init = mock.AsyncMock()  # type: ignore[assignment]
-
-        await self.cli._maybe_auto_init_for_request("hello")
-
-        _, kwargs = prompt_mock.call_args
-        self.assertTrue(kwargs["default"])
-        self.assertIn("[Y/n]", kwargs["prompt"])
 
 
 if __name__ == "__main__":
