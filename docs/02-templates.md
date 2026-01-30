@@ -7,7 +7,11 @@ Dogent 的模板体系决定了不同文档类型的输出结构与写作规则�
 Dogent 支持三种层级的模板：
 
 1) **内置模板（built-in）**  
-   随包发布，适合作为默认模板或示例。
+   随包发布，适合作为默认模板或示例。目前随包发布的模板只有如下几个，更多的模板可以通过自定义创建：
+   - `built-in:general`：通用写作模板，如果没有配置，默认使用该模板
+   - `built-in:technical_blog`：技术博客模板
+   - `built-in:research_report`：研究报告模板
+   - `built-in:resume`：个人简历模板
 
 2) **全局模板（global）**  
    放在 `~/.dogent/templates/`，适合团队或个人跨项目复用。
@@ -19,19 +23,7 @@ Dogent 支持三种层级的模板：
 
 ---
 
-## 2. 模板选择与优先级
-
-常见使用优先级（从高到低）：
-
-1) **临时覆盖：`@@<template>`**（用户在 dogent 的 CLI 中输入prompt的时候，可以使用 `@@` 引用可用的文档模板，指示 agent 按照制定模板要求进行撰写）
-2) **工作区配置：`.dogent/dogent.json` 的 `doc_template`** （本工作目录下文档写作的默认模板，可以手动修改该配置更换模板，也是用使用 `/init <template>` 命令更换模板配置）
-3) **默认模板：`general` → 内置 `doc_general.md`** （当没有指定和配置任何文档模板，该工作目录下的文档写作默认采用该内置模板）
-
-此外，`.dogent/dogent.md` 中的 **Template Overrides / Template Supplements** 会作为模板的「额外约束」，可以手动修改该 markdown 文件，在其中增加更多模板之外的要求和约束。
-
----
-
-## 3. 使用模板的几种方式
+## 2. 使用模板的几种方式
 
 ### 方式 A：通过 `/init` 指定模板
 
@@ -65,7 +57,7 @@ Dogent 支持三种层级的模板：
 
 ---
 
-## 4. 让 /init “自动智能选择”模板
+## 3. 让 /init “自动智能选择”模板
 
 当 `/init` 的参数不是一个已知模板时，Dogent 会进入 **Init Wizard** 模式：
 
@@ -83,7 +75,7 @@ Dogent 支持三种层级的模板：
 
 ---
 
-## 5. 创建自定义模板
+## 4. 创建自定义模板
 
 ### 创建工作区模板
 
@@ -122,7 +114,7 @@ cp .dogent/templates/proposal.md ~/.dogent/templates/proposal.md
 
 ---
 
-## 6. 模板与文件引用的配合（@@ 与 @）
+## 5. 模板与文件引用的配合（@@ 与 @）
 
 - `@@<template>`：临时指定模板，仅对当前请求生效。
 - `@<file>`：引用本地文件作为上下文。
@@ -130,16 +122,26 @@ cp .dogent/templates/proposal.md ~/.dogent/templates/proposal.md
 示例：
 
 ```text
-@@built-in:research_report
-@docs/market_notes.md
-请基于以上资料输出研究报告提纲。
+使用模板 @@built-in:research_report，参考 @docs/market_notes.md 中的背景信息，输出研究报告提纲。
 ```
 
-对于 Excel，可用 `#SheetName` 指定工作表：
+对于 Excel，可用在文件名后面使用 `#SheetName` 指定具体的excel文件中的工作表：
 
 ```text
 @data/sales.xlsx#Q4
 ```
+
+---
+
+## 6. 模板选择与优先级
+
+常见使用优先级（从高到低）：
+
+1) **临时覆盖：`@@<template>`**（用户在 dogent 的 CLI 中输入prompt的时候，可以使用 `@@` 引用可用的文档模板，指示 agent 按照制定模板要求进行撰写）
+2) **工作区配置：`.dogent/dogent.json` 的 `doc_template`** （本工作目录下文档写作的默认模板，可以手动修改该配置更换模板，也是用使用 `/init <template>` 命令更换模板配置）
+3) **默认模板：`general` → 内置 `doc_general.md`** （当没有指定和配置任何文档模板，该工作目录下的文档写作默认采用该内置模板）
+
+此外，`.dogent/dogent.md` 中的 **Template Overrides / Template Supplements** 会作为模板的「额外约束」，可以手动修改该 markdown 文件，在其中增加更多模板之外的要求和约束。
 
 ---
 
