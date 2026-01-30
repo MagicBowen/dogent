@@ -19,12 +19,11 @@ cd dogent
 python -m venv .venv
 source .venv/bin/activate
 
-# 安装（可编辑模式）
+# 安装（基于源码安装）
 pip install -e .
 
 # 验证
 dogent -v
-dogent -h
 ```
 
 ### 方式 B：下载 wheel 包安装
@@ -41,7 +40,6 @@ pip install /path/to/dogent-0.9.20-py3-none-any.whl
 
 # 验证
 dogent -v
-dogent -h
 ```
 
 ## Quick Start
@@ -56,7 +54,7 @@ dogent -h
 进入 dogent 交互模式后，可以使用 `/init` 命令初始化工作区，也可以直接开始写作：
 
 ```bash
-dogent>  按照 @@built-in:technical_blog，写一篇关于 github/MagicBowen/dogent 工具用法的技术博客
+dogent>  按照模板 @@built-in:technical_blog，写一篇关于 github/MagicBowen/dogent 工具用法的技术博客
 ```
 
 在 dogent 交互模式下，输入 `@` 可以引用工作空间下的文件， 输入 `@@` 可以引用可用的文档模板；输入完成后按回车提交，dogent 会进行任务规划并生成内容返回；

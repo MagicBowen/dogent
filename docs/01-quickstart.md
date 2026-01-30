@@ -45,7 +45,7 @@ cd dogent
 python -m venv .venv
 source .venv/bin/activate
 
-# 3) 安装（可编辑模式）
+# 3) 安装（基于源码安装）
 pip install -e .
 
 # 4) 验证
@@ -112,7 +112,7 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 
 进入某个项目目录后：
 
-```text
+```bash
 $ dogent
 > /profile
 ```
@@ -130,7 +130,7 @@ $ dogent
 
 第一次使用某个工作目录时，可以通过执行 `/init` 命令来初始化该工作目录的项目配置：
 
-```text
+```bash
 > /init
 ```
 
@@ -141,10 +141,8 @@ $ dogent
 
 输入命令 `/init` 后输入空格，可以看到可以使用的文档模板，可以直接指定模板：
 
-```text
-> /init resume
+```bash
 > /init built-in:research_report
-> /init global:proposal
 ```
 
 若输入的是普通文字而不是模板名，`/init` 会进入「智能向导」模式，并根据你的描述自动生成写作约束与自动选择合适的模板。
@@ -155,23 +153,28 @@ $ dogent
 
 示例流程：
 
-```text
-> 我们需要一份 1-2 页的产品周报，包含本周工作、问题与下周计划。先给出提纲。
+```bash
+dogent>  按照模板 @@built-in:technical_blog，写一篇关于 github/MagicBowen/dogent 工具用法的技术博客
 ```
 
 如果你有本地资料，可以直接引用：
 
-```text
-> @docs/notes.md 请根据以上内容完善周报初稿。
+```bash
+> @docs/notes.md 请根据以上内容技术博客。
 ```
 
-中途需要多行输入时，按 `Ctrl+E` 进入编辑器；需要中断任务时按 `Esc`。
+在 dogent 交互模式下，输入 `@` 可以引用工作空间下的文件， 输入 `@@` 可以引用可用的文档模板；输入完成后按回车提交，dogent 会进行任务规划并生成内容返回；
+在 dogent 执行过程中，可以使用 `ESC` 中断当前任务进行信息补充或者需求更改。
+
+在 dogent 交互模式下，如需多行输入，可按 `Ctrl+E` 打开基于 CLI 的 markdown 编辑器，编辑完成后使用 `Ctrl+J` 提交发送内容。
+
+使用 `/help` 可以查看帮助，使用 `/exit` 退出 dogent。
 
 ---
 
 ## 7. 退出
 
-```text
+```bash
 > /exit
 ```
 

@@ -6,7 +6,7 @@
 - `dev/`: requirements, user stories tracking, user acceptance test plans...
 - `tests/`: `unittest` suites covering config, prompts, todo syncing.
 - `uats/`: user acceptance tests folder for user testing dogent manually.
-- `claude-agent-sdk`: claude agent sdk usage examples and skills for reference.
+- `claude`: claude agent sdk usage examples, tutorials and skills for reference.
 - `pyproject.toml`: Packaging and entrypoint (`dogent`).
 
 ## Build, Test, and Development Commands
