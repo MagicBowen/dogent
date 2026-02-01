@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
@@ -41,16 +42,10 @@ from ..features.dependency_manager import (
 from .permissions import evaluate_tool_permission
 from ..features.clarification import (
     ClarificationPayload,
-    CLARIFICATION_JSON_TAG,
-    extract_clarification_payload,
-    has_clarification_tag,
+    parse_clarification_payload,
 )
-from ..outline_edit import (
-    OutlineEditPayload,
-    OUTLINE_EDIT_JSON_TAG,
-    extract_outline_edit_payload,
-    has_outline_edit_tag,
-)
+from ..outline_edit import OutlineEditPayload, parse_outline_edit_payload
+from ..features.ui_tools import DOGENT_UI_TOOL_DISPLAY_NAMES
 from ..core.session_log import SessionLogger
 
 DOGENT_TOOL_DISPLAY_NAMES = {
@@ -58,9 +53,8 @@ DOGENT_TOOL_DISPLAY_NAMES = {
     **DOGENT_DOC_TOOL_DISPLAY_NAMES,
     **DOGENT_VISION_TOOL_DISPLAY_NAMES,
     **DOGENT_IMAGE_TOOL_DISPLAY_NAMES,
+    **DOGENT_UI_TOOL_DISPLAY_NAMES,
 }
-
-NEEDS_CLARIFICATION_SENTINEL = "[[DOGENT_STATUS:NEEDS_CLARIFICATION]]"
 
 
 @dataclass(frozen=True)
@@ -192,6 +186,7 @@ class AgentRunner:
         attachments: Iterable[FileAttachment],
         *,
         config_override: Dict[str, Any] | None = None,
+        record_user_input: bool = True,
     ) -> None:
         interaction_status: str | None = None
         settings = self.config.load_settings()
@@ -239,10 +234,14 @@ class AgentRunner:
                 border_style="cyan",
             )
         )
+        user_input = None
+        if record_user_input and not self._is_clarification_answers(user_message):
+            user_input = user_message
         self.history.append(
             summary="User request",
             status="started",
             prompt=user_prompt,
+            user_input=user_input,
             todos=self.todo_manager.export_items(),
         )
 
@@ -422,6 +421,7 @@ class AgentRunner:
 
     def _handle_assistant_message(self, message: AssistantMessage) -> None:
         text_blocks: list[str] = []
+        ui_request_seen = False
         for block in message.content:
             if isinstance(block, TextBlock):
                 if block.text:
@@ -432,11 +432,8 @@ class AgentRunner:
                 thinking_text = getattr(block, "thinking", "") or ""
                 if self._session_logger:
                     self._session_logger.log_assistant_thinking("agent", thinking_text)
-                if has_clarification_tag(thinking_text):
-                    self._process_clarification_text(thinking_text, show_reply=False)
-                else:
-                    self.console.print(Panel(thinking_text, title="🤔 Thinking"))
-                    self.console.print()
+                self.console.print(Panel(thinking_text, title="🤔 Thinking"))
+                self.console.print()
             elif isinstance(block, ToolUseBlock):
                 self._tool_name_by_id[block.id] = block.name
                 if self._session_logger:
@@ -446,6 +443,12 @@ class AgentRunner:
                         tool_id=block.id,
                         input_data=block.input,
                     )
+                if block.name == "mcp__dogent__ui_request":
+                    self._log_tool_use(block)
+                    if self._handle_ui_request(block.input):
+                        ui_request_seen = True
+                    self.console.print()
+                    continue
                 if block.name == "TodoWrite":
                     summary = self._summarize_todos(block.input)
                     self._log_tool_use(block, summary=summary)
@@ -479,85 +482,70 @@ class AgentRunner:
                     self._log_tool_result(tool_name, block)
                 self.console.print()
         self._render_todos(show_empty=False)
-        handled = False
         full_text = ""
         if text_blocks:
             full_text = "\n\n".join(
                 part.strip() for part in text_blocks if part and part.strip()
             ).strip()
-            if full_text:
-                handled = self._process_outline_edit_text(full_text, show_reply=True)
-                if not handled:
-                    handled = self._process_clarification_text(full_text, show_reply=True)
-        _ = handled
+            if full_text and not ui_request_seen:
+                self.console.print(Panel(full_text, title="💬 Reply"))
+                self.console.print()
 
-    def _process_outline_edit_text(self, full_text: str, *, show_reply: bool) -> bool:
-        payload, errors = extract_outline_edit_payload(full_text)
-        if payload:
-            self._outline_edit_payload = payload
-            self._needs_outline_edit = True
-            self._outline_edit_seen = True
-            note = payload.title or "Outline edit required."
-            self._outline_edit_text = note
-            self.console.print(Panel(note, title="📝 Outline Edit"))
-            self.console.print()
-            return True
-        tag_present = has_outline_edit_tag(full_text)
-        if not tag_present:
+    def _handle_ui_request(self, payload: object) -> bool:
+        if not isinstance(payload, dict):
+            self._log_ui_request_error("UI request payload must be a JSON object.")
             return False
-        invalid_payload = tag_present and bool(errors)
-        if invalid_payload:
-            warning = "Outline edit payload invalid. Falling back to plain text."
-            body = f"{warning}\n\n{full_text}"
-            self.console.print(Panel(body, title="Outline Edit", border_style="yellow"))
-            self.console.print()
-        outline_found = False
-        if tag_present and not invalid_payload:
-            full_text = full_text.replace(OUTLINE_EDIT_JSON_TAG, "").strip()
-            outline_found = True
-        if full_text and show_reply and not invalid_payload:
-            self.console.print(Panel(full_text, title="💬 Reply"))
-            self.console.print()
-        if outline_found:
-            self._needs_outline_edit = True
-            self._outline_edit_seen = True
-            if full_text:
-                self._outline_edit_text = full_text
-        return outline_found
+        response_type = payload.get("response_type")
+        if response_type is None and isinstance(payload.get("type"), str):
+            response_type = payload.get("type")
+            payload = {**payload, "response_type": response_type}
+        raw_oneof = payload.get("oneOf")
+        if isinstance(raw_oneof, str):
+            try:
+                parsed_oneof = json.loads(raw_oneof)
+            except Exception:
+                parsed_oneof = None
+            if isinstance(parsed_oneof, dict):
+                if response_type and "response_type" not in parsed_oneof:
+                    parsed_oneof["response_type"] = response_type
+                payload = parsed_oneof
+                response_type = payload.get("response_type") or payload.get("type")
+        if response_type == "clarification":
+            parsed, errors = parse_clarification_payload(payload)
+            if parsed:
+                self._clarification_payload = parsed
+                self._needs_clarification = True
+                self._clarification_seen = True
+                note = parsed.preface or parsed.title or "Clarification required."
+                self._clarification_text = note
+                self.console.print(Panel(note, title="❓ Clarification Needed"))
+                self.console.print()
+                return True
+            self._log_ui_request_error("Invalid clarification payload.", errors)
+            return False
+        if response_type == "outline_edit":
+            parsed, errors = parse_outline_edit_payload(payload)
+            if parsed:
+                self._outline_edit_payload = parsed
+                self._needs_outline_edit = True
+                self._outline_edit_seen = True
+                note = parsed.title or "Outline edit required."
+                self._outline_edit_text = note
+                self.console.print(Panel(note, title="📝 Outline Edit"))
+                self.console.print()
+                return True
+            self._log_ui_request_error("Invalid outline edit payload.", errors)
+            return False
+        self._log_ui_request_error("UI request missing valid response_type.")
+        return False
 
-    def _process_clarification_text(self, full_text: str, *, show_reply: bool) -> bool:
-        payload, errors = extract_clarification_payload(full_text)
-        if payload:
-            self._clarification_payload = payload
-            self._needs_clarification = True
-            self._clarification_seen = True
-            note = payload.preface or payload.title or "Clarification required."
-            self._clarification_text = note
-            self.console.print(Panel(note, title="❓ Clarification Needed"))
-            self.console.print()
-            return True
-        tag_present = has_clarification_tag(full_text)
-        invalid_payload = tag_present and bool(errors)
-        if invalid_payload:
-            warning = "Clarification payload invalid. Falling back to plain text."
-            body = f"{warning}\n\n{full_text}"
-            self.console.print(Panel(body, title="Clarification", border_style="yellow"))
-            self.console.print()
-        clarification_found = False
-        if tag_present and not invalid_payload:
-            full_text = full_text.replace(CLARIFICATION_JSON_TAG, "").strip()
-            clarification_found = True
-        cleaned, found = self._strip_clarification_sentinel(full_text)
-        clarification_found = clarification_found or found
-        if cleaned and show_reply and not invalid_payload:
-            self.console.print(Panel(cleaned, title="💬 Reply"))
-            self.console.print()
-        if clarification_found:
-            self._needs_clarification = True
-            self._clarification_seen = True
-            if cleaned:
-                self._clarification_text = cleaned
-        return clarification_found
+    def _log_ui_request_error(self, message: str, errors: list[str] | None = None) -> None:
+        lines = [message]
+        if errors:
+            lines.extend(f"- {error}" for error in errors)
+        body = "\n".join(lines)
+        self.console.print(Panel(body, title="UI Request", border_style="red"))
+        self.console.print()
 
     def _handle_result(self, message: ResultMessage) -> None:
         if self._abort_finalized:
@@ -578,13 +566,6 @@ class AgentRunner:
                 result=result_text or None,
                 is_error=bool(getattr(message, "is_error", False)),
             )
-        if result_text and not self._needs_clarification and not self._clarification_seen:
-            if has_clarification_tag(result_text) or NEEDS_CLARIFICATION_SENTINEL in result_text:
-                self._process_clarification_text(result_text, show_reply=False)
-        if result_text and not self._needs_outline_edit and not self._outline_edit_seen:
-            if has_outline_edit_tag(result_text):
-                self._process_outline_edit_text(result_text, show_reply=False)
-
         if self._aborted_reason:
             title = "🛑 Aborted"
             status = "aborted"
@@ -795,21 +776,6 @@ class AgentRunner:
             return
         await self._wait_indicator.stop()
         self._wait_indicator = None
-
-    def _strip_clarification_sentinel(self, text: str) -> tuple[str, bool]:
-        if NEEDS_CLARIFICATION_SENTINEL not in text:
-            return text, False
-        lines: list[str] = []
-        found = False
-        for line in text.splitlines():
-            if NEEDS_CLARIFICATION_SENTINEL in line:
-                found = True
-                cleaned = line.replace(NEEDS_CLARIFICATION_SENTINEL, "").strip()
-                if cleaned:
-                    lines.append(cleaned)
-            else:
-                lines.append(line)
-        return "\n".join(lines).strip(), found
 
     async def _can_use_tool(
         self,

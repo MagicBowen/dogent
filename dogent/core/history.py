@@ -22,6 +22,7 @@ class HistoryManager:
         summary: str,
         status: str,
         prompt: Optional[str] = None,
+        user_input: Optional[str] = None,
         todos: Optional[list[dict[str, str]]] = None,
         duration_ms: Optional[int] = None,
         api_ms: Optional[int] = None,
@@ -32,6 +33,7 @@ class HistoryManager:
             "status": status,
             "summary": summary,
             "prompt": prompt,
+            "user_input": user_input,
             "todos": todos or [],
             "duration_ms": duration_ms,
             "duration_api_ms": api_ms,
@@ -73,6 +75,17 @@ class HistoryManager:
             summary = entry.get("summary", "")
             lines.append(f"- [{status}] {summary} ({ts})")
         return "\n".join(lines)
+
+    def prompt_history_strings(self, limit: int = 30) -> list[str]:
+        entries = self.read_entries()
+        prompts: list[str] = []
+        for entry in entries:
+            user_input = entry.get("user_input")
+            if isinstance(user_input, str) and user_input.strip():
+                prompts.append(user_input)
+        if limit <= 0:
+            return []
+        return prompts[-limit:]
 
     def latest_todos(self) -> list[dict[str, Any]]:
         """Return the most recently recorded todo list."""

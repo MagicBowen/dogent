@@ -13,6 +13,7 @@ from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server
 
 from .. import __version__
 from ..features.document_tools import DOGENT_DOC_ALLOWED_TOOLS, create_dogent_doc_tools
+from ..features.ui_tools import DOGENT_UI_ALLOWED_TOOLS, create_dogent_ui_tools
 from .paths import DogentPaths
 from .resources import read_config_text, read_schema_text
 from ..features.vision_tools import DOGENT_VISION_ALLOWED_TOOLS, create_dogent_vision_tools
@@ -627,8 +628,10 @@ class ConfigManager:
             ]
             allowed_tools = [t for t in allowed_tools if t]
             allowed_tools.extend(DOGENT_DOC_ALLOWED_TOOLS)
+            allowed_tools.extend(DOGENT_UI_ALLOWED_TOOLS)
         doc_tools = create_dogent_doc_tools(self.paths.root)
         tools = list(doc_tools)
+        tools.extend(create_dogent_ui_tools())
         if vision_enabled:
             if allowed_tools is not None:
                 allowed_tools.extend(DOGENT_VISION_ALLOWED_TOOLS)

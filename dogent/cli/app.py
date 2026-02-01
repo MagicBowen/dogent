@@ -98,6 +98,7 @@ from .input import (
     KeyBindings,
     Layout,
     Lexer,
+    LimitedInMemoryHistory,
     MouseEventType,
     Point,
     PromptSession,
@@ -154,6 +155,7 @@ EXIT_CODE_NEEDS_OUTLINE_EDIT = 12
 EXIT_CODE_AWAITING_INPUT = 13
 EXIT_CODE_INTERRUPTED = 14
 EXIT_CODE_ABORTED = 15
+PROMPT_HISTORY_LIMIT = 30
 
 EXIT_CODE_BY_STATUS = {
     "completed": 0,
@@ -312,6 +314,15 @@ class DogentCLI:
                     return
                 buf.history_forward()
 
+            history = None
+            if LimitedInMemoryHistory is not None:
+                history_strings = self.history_manager.prompt_history_strings(
+                    PROMPT_HISTORY_LIMIT
+                )
+                history = LimitedInMemoryHistory(
+                    history_strings, max_length=PROMPT_HISTORY_LIMIT
+                )
+
             self.session = PromptSession(
                 completer=DogentCompleter(
                     self.root,
@@ -321,6 +332,7 @@ class DogentCLI:
                 ),
                 complete_while_typing=True,
                 key_bindings=bindings,
+                history=history,
             )
 
     def _register_commands(self) -> None:
@@ -3881,6 +3893,7 @@ class DogentCLI:
         if target in {"history", "all"}:
             self.history_manager.clear()
             cleared.append(str(self.paths.history_file.relative_to(self.root)))
+            self._reset_prompt_history()
 
         if target in {"memory", "all"} and self.paths.memory_file.exists():
             with suppress(Exception):
@@ -3940,6 +3953,7 @@ class DogentCLI:
                 archived.append(str(archived_path.relative_to(self.root)))
             elif reason:
                 skipped.append(f"history ({reason})")
+            self._reset_prompt_history()
         if target in {"lessons", "all"}:
             archived_path, reason = self._archive_lessons(timestamp)
             if archived_path:
@@ -4188,12 +4202,21 @@ class DogentCLI:
     ) -> RunOutcome | None:
         next_message = message
         next_attachments = attachments
+        record_user_input = True
         while True:
-            await self.agent.send_message(
-                next_message,
-                next_attachments,
-                config_override=config_override,
-            )
+            if record_user_input:
+                await self.agent.send_message(
+                    next_message,
+                    next_attachments,
+                    config_override=config_override,
+                )
+            else:
+                await self.agent.send_message(
+                    next_message,
+                    next_attachments,
+                    config_override=config_override,
+                    record_user_input=False,
+                )
             outcome = self.agent.last_outcome
             if not outcome:
                 return None
@@ -4211,6 +4234,7 @@ class DogentCLI:
                 self._record_clarification_history(payload, answers_text)
                 next_message = answers_text
                 next_attachments = []
+                record_user_input = False
                 continue
             if outcome.status in {
                 "needs_clarification",
@@ -4271,11 +4295,13 @@ class DogentCLI:
         """Run a task while listening for Esc, then handle clarification if needed."""
         next_message = message
         next_attachments = attachments
+        record_user_input = True
         while True:
             await self._run_single_with_interrupt(
                 next_message,
                 next_attachments,
                 config_override=config_override,
+                record_user_input=record_user_input,
             )
             outcome = getattr(self.agent, "last_outcome", None)
             if outcome and str(getattr(outcome, "status", "")) in {
@@ -4301,6 +4327,7 @@ class DogentCLI:
                 if outline_message:
                     next_message = outline_message
                     next_attachments = []
+                    record_user_input = False
                     continue
             payload = self.agent.pop_clarification_payload()
             if not payload:
@@ -4317,6 +4344,7 @@ class DogentCLI:
             self._record_clarification_history(payload, answers_text)
             next_message = answers_text
             next_attachments = []
+            record_user_input = False
         self._arm_lesson_capture_if_needed()
 
     async def _maybe_auto_init_for_request(self, message: str) -> bool:
@@ -4336,11 +4364,15 @@ class DogentCLI:
         attachments: list[FileAttachment],
         *,
         config_override: dict[str, Any] | None = None,
+        record_user_input: bool = True,
     ) -> None:
         """Run a single agent turn while listening for Esc."""
         stop_event = threading.Event()
+        send_kwargs = {"config_override": config_override}
+        if not record_user_input:
+            send_kwargs["record_user_input"] = False
         agent_task = asyncio.create_task(
-            self.agent.send_message(message, attachments, config_override=config_override)
+            self.agent.send_message(message, attachments, **send_kwargs)
         )
         esc_task = asyncio.create_task(self._wait_for_escape(stop_event))
         self._active_interrupt_event = stop_event
@@ -4502,7 +4534,36 @@ class DogentCLI:
                 )
             )
             return True
+        self._record_command_history(command)
         return await cmd.handler(command)
+
+    def _record_command_history(self, command: str) -> None:
+        cleaned = command.strip()
+        if not cleaned:
+            return
+        self.history_manager.append(
+            summary=f"Command: {cleaned}",
+            status="command",
+            prompt=cleaned,
+            user_input=cleaned,
+            todos=self.todo_manager.export_items(),
+        )
+
+    def _reset_prompt_history(self) -> None:
+        if not self.session:
+            return
+        if LimitedInMemoryHistory is not None:
+            self.session.history = LimitedInMemoryHistory(
+                [], max_length=PROMPT_HISTORY_LIMIT
+            )
+            return
+        history = getattr(self.session, "history", None)
+        if history is None:
+            return
+        if hasattr(history, "_loaded_strings"):
+            history._loaded_strings = []
+        if hasattr(history, "_storage"):
+            history._storage = []
 
     async def _run_claude_command(self, command: str, *, canonical: str) -> bool:
         parts = command.split(maxsplit=1)
@@ -4907,6 +4968,7 @@ class DogentCLI:
             "clarification": "❓",
             "needs_outline_edit": "📝",
             "needs outline edit": "📝",
+            "command": "⌨️",
         }
         return mapping.get(normalized, "•")
 
