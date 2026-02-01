@@ -2,21 +2,11 @@
 
 ---
 
-## Release 0.9.21
+## Release 0.9.22
 
-- When entering dogent for the first time in a folder, in addition to creating `dogent/history.json` by default, `dogent/dogent.json` will also be created;
-- add the `poe-claude` below to the `llm_profiles` in the template file for default configuration file `~/.dogent/dogent.json`:
+- When I exit Dogent and then re-enter Dogent next time, I hope that by using the up arrow key, I can bring up the user prompts that exist in the history (those that have not been cleaned or archived).
 
-```json
-    "poe-claude": {
-      "ANTHROPIC_BASE_URL": "https://api.poe.com",
-      "ANTHROPIC_AUTH_TOKEN": "replace-me",
-      "ANTHROPIC_MODEL": "Opus",
-      "ANTHROPIC_SMALL_FAST_MODEL": "Sonnet",
-      "API_TIMEOUT_MS": 600000,
-      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
-    }
-```
+- Currently, in Dogent, when the LLM is clarifying questions and confirming outlines, it does not comply well with the instructions in the system prompt that require returning structured text formats. A specific description of this issue and some references to possible solutions is in file : `dev/spikes/structure-format-message.md`. Need to provide a new design to address the problem.
 
 ---
 
