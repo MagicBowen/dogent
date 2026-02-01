@@ -1,36 +1,27 @@
 import unittest
 
-from dogent.outline_edit import (
-    OUTLINE_EDIT_JSON_TAG,
-    extract_outline_edit_payload,
-    has_outline_edit_tag,
-)
+from dogent.outline_edit import parse_outline_edit_payload
 
 
 class OutlineEditPayloadTests(unittest.TestCase):
-    def test_extract_outline_edit_payload(self) -> None:
-        text = "\n".join(
-            [
-                OUTLINE_EDIT_JSON_TAG,
-                '{"response_type": "outline_edit", "title": "Review", "outline_text": "A"}',
-            ]
+    def test_parse_outline_edit_payload(self) -> None:
+        payload, errors = parse_outline_edit_payload(
+            {"response_type": "outline_edit", "title": "Review", "outline_text": "A"}
         )
-        payload, errors = extract_outline_edit_payload(text)
         self.assertIsNotNone(payload)
         self.assertFalse(errors)
         self.assertEqual(payload.title, "Review")
         self.assertEqual(payload.outline_text, "A")
 
-    def test_tag_must_be_first_line(self) -> None:
-        text = "Preface\n" + OUTLINE_EDIT_JSON_TAG + "\n{}"
-        payload, errors = extract_outline_edit_payload(text)
+    def test_missing_required_fields_returns_error(self) -> None:
+        payload, errors = parse_outline_edit_payload(
+            {"response_type": "outline_edit", "title": "", "outline_text": "A"}
+        )
         self.assertIsNone(payload)
-        self.assertFalse(has_outline_edit_tag(text))
-        self.assertFalse(errors)
+        self.assertTrue(errors)
 
-    def test_invalid_json_returns_error(self) -> None:
-        text = "\n".join([OUTLINE_EDIT_JSON_TAG, "{not-json}"])
-        payload, errors = extract_outline_edit_payload(text)
+    def test_non_object_returns_error(self) -> None:
+        payload, errors = parse_outline_edit_payload("not-a-dict")
         self.assertIsNone(payload)
         self.assertTrue(errors)
 

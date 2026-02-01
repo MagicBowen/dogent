@@ -54,6 +54,7 @@ try:
         style_from_pygments_cls = None  # type: ignore
     from prompt_toolkit.utils import get_cwidth
     from prompt_toolkit.widgets import Frame, SearchToolbar, TextArea
+    from prompt_toolkit.history import InMemoryHistory
     from prompt_toolkit.shortcuts.dialogs import (
         button_dialog,
         input_dialog,
@@ -98,6 +99,7 @@ except ImportError:  # pragma: no cover - optional dependency
     TextArea = None  # type: ignore
     Frame = None  # type: ignore
     SearchToolbar = None  # type: ignore
+    InMemoryHistory = None  # type: ignore
     button_dialog = None  # type: ignore
     input_dialog = None  # type: ignore
     yes_no_dialog = None  # type: ignore
@@ -106,6 +108,26 @@ try:
     import pyperclip
 except Exception:  # pragma: no cover - optional system clipboard
     pyperclip = None  # type: ignore
+
+
+if InMemoryHistory is not None:
+    class LimitedInMemoryHistory(InMemoryHistory):
+        def __init__(self, history_strings: Iterable[str] | None = None, *, max_length: int = 30) -> None:
+            self._max_length = max(1, int(max_length))
+            super().__init__(history_strings=history_strings)
+            self._trim()
+
+        def append_string(self, string: str) -> None:
+            super().append_string(string)
+            self._trim()
+
+        def _trim(self) -> None:
+            if len(self._storage) > self._max_length:
+                self._storage = self._storage[-self._max_length :]
+            if len(self._loaded_strings) > self._max_length:
+                self._loaded_strings = self._loaded_strings[: self._max_length]
+else:  # pragma: no cover - optional dependency
+    LimitedInMemoryHistory = None  # type: ignore
 
 
 DOC_TEMPLATE_TOKEN = "@@"

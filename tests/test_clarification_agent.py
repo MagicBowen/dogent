@@ -1,4 +1,3 @@
-import json
 import os
 import tempfile
 import unittest
@@ -105,45 +104,41 @@ class ClarificationAgentTests(unittest.IsolatedAsyncioTestCase):
             runner._client = client
             runner._needs_clarification = True
 
-            from claude_agent_sdk import AssistantMessage, TextBlock
-            from dogent.features.clarification import CLARIFICATION_JSON_TAG
+            from claude_agent_sdk import AssistantMessage, ToolUseBlock
 
             async def fake_receive():
-                runner._needs_clarification = True
                 message = AssistantMessage(
                     content=[
-                        TextBlock(
-                            f"{CLARIFICATION_JSON_TAG}\n"
-                            "{"
-                            "\"response_type\": \"clarification\","
-                            "\"title\": \"Need details\","
-                            "\"questions\": ["
-                            "  {"
-                            "    \"id\": \"info\","
-                            "    \"question\": \"Provide info\","
-                            "    \"options\": ["
-                            "      {\"label\": \"A\", \"value\": \"a\"}"
-                            "    ]"
-                            "  }"
-                            "]"
-                            "}"
+                        ToolUseBlock(
+                            id="1",
+                            name="mcp__dogent__ui_request",
+                            input={
+                                "response_type": "clarification",
+                                "title": "Need details",
+                                "questions": [
+                                    {
+                                        "id": "info",
+                                        "question": "Provide info",
+                                        "options": [{"label": "A", "value": "a"}],
+                                    }
+                                ],
+                            },
                         )
                     ],
                     model="test",
                 )
                 yield message
 
-            with mock.patch.object(runner, "_handle_assistant_message") as handler:
-                handler.side_effect = lambda _msg: setattr(runner, "_needs_clarification", True)
-                runner._client.receive_response = fake_receive  # type: ignore[assignment]
-                await runner._stream_responses()
+            runner._client.receive_response = fake_receive  # type: ignore[assignment]
+            await runner._stream_responses()
             self.assertTrue(client.interrupted)
+            self.assertTrue(runner._needs_clarification)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
             os.environ.pop("HOME", None)
 
-    async def test_thinking_block_triggers_clarification(self) -> None:
+    async def test_tool_use_triggers_clarification_payload(self) -> None:
         class DummyClient:
             def __init__(self) -> None:
                 self.options = SimpleNamespace(system_prompt="")
@@ -174,26 +169,28 @@ class ClarificationAgentTests(unittest.IsolatedAsyncioTestCase):
             client = DummyClient()
             runner._client = client
 
-            from claude_agent_sdk import AssistantMessage, ThinkingBlock
-            from dogent.features.clarification import CLARIFICATION_JSON_TAG
-
-            payload = {
-                "response_type": "clarification",
-                "title": "Need details",
-                "questions": [
-                    {
-                        "id": "info",
-                        "question": "Provide info",
-                        "options": [{"label": "A", "value": "a"}],
-                        "allow_freeform": True,
-                    }
-                ],
-            }
-            text = f"{CLARIFICATION_JSON_TAG}\n{json.dumps(payload)}"
+            from claude_agent_sdk import AssistantMessage, ToolUseBlock
 
             async def fake_receive():
                 message = AssistantMessage(
-                    content=[ThinkingBlock(thinking=text, signature="sig")],
+                    content=[
+                        ToolUseBlock(
+                            id="1",
+                            name="mcp__dogent__ui_request",
+                            input={
+                                "response_type": "clarification",
+                                "title": "Need details",
+                                "questions": [
+                                    {
+                                        "id": "info",
+                                        "question": "Provide info",
+                                        "options": [{"label": "A", "value": "a"}],
+                                        "allow_freeform": True,
+                                    }
+                                ],
+                            },
+                        )
+                    ],
                     model="test",
                 )
                 yield message
@@ -220,23 +217,29 @@ class ClarificationAgentTests(unittest.IsolatedAsyncioTestCase):
                 self.interrupted = True
 
             async def receive_response(self):
-                from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
-                from dogent.features.clarification import CLARIFICATION_JSON_TAG
+                from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
 
-                payload = {
-                    "response_type": "clarification",
-                    "title": "Need details",
-                    "questions": [
-                        {
-                            "id": "info",
-                            "question": "Provide info",
-                            "options": [{"label": "A", "value": "a"}],
-                            "allow_freeform": False,
-                        }
+                yield AssistantMessage(
+                    content=[
+                        ToolUseBlock(
+                            id="1",
+                            name="mcp__dogent__ui_request",
+                            input={
+                                "response_type": "clarification",
+                                "title": "Need details",
+                                "questions": [
+                                    {
+                                        "id": "info",
+                                        "question": "Provide info",
+                                        "options": [{"label": "A", "value": "a"}],
+                                        "allow_freeform": False,
+                                    }
+                                ],
+                            },
+                        )
                     ],
-                }
-                text = f"{CLARIFICATION_JSON_TAG}\n{json.dumps(payload)}"
-                yield AssistantMessage(content=[TextBlock(text)], model="test")
+                    model="test",
+                )
                 yield ResultMessage(
                     subtype="result",
                     duration_ms=1,
