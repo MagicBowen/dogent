@@ -87,9 +87,12 @@ from .input import (
     Completer,
     Condition,
     ConditionalContainer,
+    CompletionsMenu,
     Document,
     EditingMode,
     DynamicContainer,
+    Float,
+    FloatContainer,
     Frame,
     FormattedTextControl,
     HSplit,
@@ -120,6 +123,8 @@ from .input import (
     style_from_pygments_cls,
     yes_no_dialog,
     DogentCompleter,
+    apply_completion_or_insert_newline,
+    move_completion_selection,
     _clear_count_for_alt_backspace,
     _cursor_target_from_render_info,
     _emit_osc52_clipboard,
@@ -1599,12 +1604,19 @@ class DogentCLI:
             preview_title = "Markdown preview (read-only)"
             editor_mode = self._editor_mode()
             editing_mode = EditingMode.VI if editor_mode == "vi" else EditingMode.EMACS
+            editor_completer = DogentCompleter(
+                self.root,
+                [],
+                template_provider=self.doc_templates.list_display_names,
+            )
             editor_kwargs = {
                 "text": initial_text,
                 "multiline": True,
                 "wrap_lines": True,
                 "scrollbar": True,
                 "lexer": SimpleMarkdownLexer(),
+                "completer": editor_completer,
+                "complete_while_typing": True,
             }
             if read_only:
                 editor_kwargs["read_only"] = True
@@ -1617,6 +1629,8 @@ class DogentCLI:
                     wrap_lines=True,
                     scrollbar=True,
                     lexer=SimpleMarkdownLexer(),
+                    completer=editor_completer,
+                    complete_while_typing=True,
                 )
                 if read_only and hasattr(editor, "read_only"):
                     editor.read_only = True
@@ -1682,6 +1696,16 @@ class DogentCLI:
                 lambda: editing_mode == EditingMode.VI
                 and mode == "edit"
                 and _vi_mode(app) == "NORMAL"
+                and not command_mode
+                and not return_prompt_active
+                and not save_prompt_active
+                and not overwrite_prompt_active
+                and not save_error_active
+            )
+            vi_insert = Condition(
+                lambda: editing_mode == EditingMode.VI
+                and mode == "edit"
+                and _vi_mode(app) in {"INSERT", "REPLACE"}
                 and not command_mode
                 and not return_prompt_active
                 and not save_prompt_active
@@ -2055,6 +2079,18 @@ class DogentCLI:
                     save_error_container,
                 ]
             )
+            edit_container = edit_root
+            if FloatContainer is not None and Float is not None and CompletionsMenu is not None:
+                edit_container = FloatContainer(
+                    content=edit_root,
+                    floats=[
+                        Float(
+                            xcursor=True,
+                            ycursor=True,
+                            content=CompletionsMenu(max_height=8, scroll_offset=1),
+                        )
+                    ],
+                )
             preview_footer = Window(
                 height=1,
                 content=FormattedTextControl(
@@ -2068,7 +2104,7 @@ class DogentCLI:
             preview_root = HSplit([preview_frame, preview_footer])
 
             def current_root() -> object:
-                return preview_root if mode == "preview" else edit_root
+                return preview_root if mode == "preview" else edit_container
 
             body = DynamicContainer(current_root)
             layout = Layout(
@@ -2076,6 +2112,14 @@ class DogentCLI:
                 focused_element=preview_window if start_in_preview else editor,
             )
             bindings = KeyBindings()
+
+            @bindings.add(
+                "enter",
+                filter=edit_active & editor_focus & (emacs_only | vi_insert),
+                eager=True,
+            )
+            def _editor_enter(event) -> None:  # type: ignore[no-untyped-def]
+                apply_completion_or_insert_newline(event.current_buffer)
 
             def _accept(event) -> None:  # type: ignore[no-untyped-def]
                 if context == "file_edit":
@@ -2428,12 +2472,16 @@ class DogentCLI:
 
             @bindings.add("up", filter=edit_active & editor_focus, eager=True)
             def _editor_up(event) -> None:  # type: ignore[no-untyped-def]
+                if move_completion_selection(event.current_buffer, "up"):
+                    return
                 if _move_wrapped_cursor(event, "up"):
                     return
                 event.current_buffer.cursor_up(count=1)
 
             @bindings.add("down", filter=edit_active & editor_focus, eager=True)
             def _editor_down(event) -> None:  # type: ignore[no-untyped-def]
+                if move_completion_selection(event.current_buffer, "down"):
+                    return
                 if _move_wrapped_cursor(event, "down"):
                     return
                 event.current_buffer.cursor_down(count=1)

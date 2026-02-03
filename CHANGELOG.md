@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.23 - 2026-02-03
+
+### Added
+- Markdown editor dropdown completion for `@` file paths and `@@` doc templates (general/workspace/global/built-in).
+
+### Fixed
+- Arrow keys now navigate the completion menu in the markdown editor instead of moving the cursor.
+
+---
+
 ## 0.9.22 - 2026-02-01
 
 ### Added
