@@ -37,9 +37,12 @@ try:
         HSplit,
         Window,
         VSplit,
+        FloatContainer,
+        Float,
     )
     from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
     from prompt_toolkit.layout.margins import ScrollbarMargin
+    from prompt_toolkit.layout.menus import CompletionsMenu
     from prompt_toolkit.lexers import Lexer
     from prompt_toolkit.mouse_events import MouseEventType
     try:
@@ -85,9 +88,12 @@ except ImportError:  # pragma: no cover - optional dependency
     HSplit = None  # type: ignore
     ConditionalContainer = None  # type: ignore
     DynamicContainer = None  # type: ignore
+    FloatContainer = None  # type: ignore
+    Float = None  # type: ignore
     BufferControl = None  # type: ignore
     FormattedTextControl = None  # type: ignore
     ScrollbarMargin = None  # type: ignore
+    CompletionsMenu = None  # type: ignore
     Lexer = object  # type: ignore
     MouseEventType = None  # type: ignore
     SelectionState = None  # type: ignore
@@ -290,6 +296,26 @@ if Clipboard is not None and ClipboardData is not None:
             self._fallback.set_data(data)
 else:  # pragma: no cover - prompt_toolkit unavailable
     SystemClipboard = None  # type: ignore
+
+
+def apply_completion_or_insert_newline(buffer: Buffer) -> bool:
+    if buffer.complete_state and buffer.complete_state.current_completion:
+        buffer.apply_completion(buffer.complete_state.current_completion)
+        return True
+    buffer.insert_text("\n")
+    return False
+
+
+def move_completion_selection(buffer: Buffer, direction: str) -> bool:
+    if not buffer.complete_state or not buffer.complete_state.completions:
+        return False
+    if direction == "up":
+        buffer.complete_previous()
+        return True
+    if direction == "down":
+        buffer.complete_next()
+        return True
+    return False
 
 
 class DogentCompleter(Completer):
