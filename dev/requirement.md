@@ -2,11 +2,12 @@
 
 ---
 
-## Release 0.9.22
+## Release 0.9.23
 
-- When I exit Dogent and then re-enter Dogent next time, I hope that by using the up arrow key, I can bring up the user prompts that exist in the history (those that have not been cleaned or archived).
+- In CLI default editor, user could use @ to mention a file in the current directory, a drop list will show up for user to select, as same as in the single line input mode;
+- In CLI default editor, user could use @@ to mention a doc template, a drop list will show up for user to select, as same as in the single line input mode;
+- The current code replaces @ and @@ with a prefix in the format `[...]` followed by a colon before sending the user's Prompt to the LLM. I want to unify the cases where users use @ and @@ in the editor for file and template references with the replace strategy in single-line prompts. In the end, both @ and @@ should be replaced with a format similar to markdown links. For example, `@path/file.md` is replaced with `[file.md](path/file.md)`. Similarly, could you help me design a unified replacement scheme for `@@global:resume`?
 
-- Currently, in Dogent, when the LLM is clarifying questions and confirming outlines, it does not comply well with the instructions in the system prompt that require returning structured text formats. A specific description of this issue and some references to possible solutions is in file : `dev/spikes/structure-format-message.md`. Need to provide a new design to address the problem.
 
 ---
 

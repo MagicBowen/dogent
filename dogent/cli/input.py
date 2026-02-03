@@ -502,7 +502,10 @@ def _should_move_within_multiline(document: Document, direction: str) -> bool:
 
 
 def _cursor_target_from_render_info(
-    document: Document, render_info: object, direction: str
+    document: Document,
+    render_info: object,
+    direction: str,
+    preferred_x: int | None = None,
 ) -> int | None:
     mapping = getattr(render_info, "visible_line_to_row_col", None)
     cursor = getattr(render_info, "cursor_position", None)
@@ -529,7 +532,8 @@ def _cursor_target_from_render_info(
         return None
     _, start_x = start_yx
     start_x -= x_offset
-    offset_x = cursor.x - start_x
+    cursor_x = cursor.x if preferred_x is None else preferred_x
+    offset_x = cursor_x - start_x
     if offset_x < 0:
         offset_x = 0
     target_col = _display_offset_to_col(lines[row], start_col, offset_x)

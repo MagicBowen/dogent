@@ -1688,6 +1688,26 @@ class DogentCLI:
                 and not overwrite_prompt_active
                 and not save_error_active
             )
+            preferred_display_x: int | None = None
+            vertical_move_active = False
+
+            def _clear_preferred_display_x(_buffer: Buffer) -> None:
+                nonlocal preferred_display_x
+                if vertical_move_active:
+                    return
+                preferred_display_x = None
+
+            editor.buffer.on_cursor_position_changed += _clear_preferred_display_x
+            editor.buffer.on_text_changed += _clear_preferred_display_x
+
+            def _editor_has_focus() -> bool:
+                if get_app is None:
+                    return False
+                with suppress(Exception):
+                    return get_app().layout.has_focus(editor)
+                return False
+
+            editor_focus = Condition(_editor_has_focus)
 
             def is_dirty() -> bool:
                 return editor.text != initial_text
@@ -2337,7 +2357,7 @@ class DogentCLI:
                 event.app.layout.focus(editor)
                 event.app.invalidate()
 
-            @bindings.add("c-q", filter=edit_active & emacs_only, eager=True)
+            @bindings.add("c-q", filter=edit_active & (emacs_only | vi_edit), eager=True)
             def _return(event) -> None:  # type: ignore[no-untyped-def]
                 if return_prompt_active:
                     return
@@ -2377,6 +2397,46 @@ class DogentCLI:
                 max_scroll = _preview_max_scroll(app)
                 preview_scroll = max(0, min(max_scroll, position))
                 app.invalidate()
+
+            def _move_wrapped_cursor(event, direction: str) -> bool:  # type: ignore[no-untyped-def]
+                nonlocal preferred_display_x, vertical_move_active
+                if event.current_buffer is not editor.buffer:
+                    return False
+                window = getattr(event.app.layout, "current_window", None)
+                info = getattr(window, "render_info", None) if window else None
+                if info is None:
+                    return False
+                cursor = getattr(info, "cursor_position", None)
+                if cursor is None:
+                    return False
+                if preferred_display_x is None:
+                    preferred_display_x = cursor.x
+                target = _cursor_target_from_render_info(
+                    event.current_buffer.document,
+                    info,
+                    direction,
+                    preferred_display_x,
+                )
+                if target is None:
+                    return False
+                vertical_move_active = True
+                try:
+                    event.current_buffer.cursor_position = target
+                finally:
+                    vertical_move_active = False
+                return True
+
+            @bindings.add("up", filter=edit_active & editor_focus, eager=True)
+            def _editor_up(event) -> None:  # type: ignore[no-untyped-def]
+                if _move_wrapped_cursor(event, "up"):
+                    return
+                event.current_buffer.cursor_up(count=1)
+
+            @bindings.add("down", filter=edit_active & editor_focus, eager=True)
+            def _editor_down(event) -> None:  # type: ignore[no-untyped-def]
+                if _move_wrapped_cursor(event, "down"):
+                    return
+                event.current_buffer.cursor_down(count=1)
 
             @bindings.add("c-w", filter=edit_active & emacs_only, eager=True)
             def _select_word(event) -> None:  # type: ignore[no-untyped-def]
