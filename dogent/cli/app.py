@@ -402,7 +402,7 @@ class DogentCLI:
 
     def _register_claude_commands(self) -> None:
         claude_specs = load_claude_commands(self.root)
-        plugin_paths = self.config_manager.resolve_claude_plugins(warn=False)
+        plugin_paths = self.config_manager.resolve_plugins(warn=False)
         plugin_specs = load_plugin_commands(plugin_paths)
         for spec in [*claude_specs, *plugin_specs]:
             self._register_claude_command(spec)

@@ -48,6 +48,29 @@ class ToolPermissionTests(unittest.TestCase):
             {"file_path": "/home/user/.dogent/plugins/claude/.claude-plugin/plugin.json"},
             cwd=self.cwd,
             allowed_roots=[self.cwd, plugin_root],
+            read_roots=[self.cwd, plugin_root],
+        )
+        self.assertFalse(needs)
+
+    def test_claude_dir_read_no_confirmation(self) -> None:
+        claude_root = Path("/home/user/.claude").resolve()
+        needs, _ = should_confirm_tool_use(
+            "Read",
+            {"file_path": "/home/user/.claude/commands/help.md"},
+            cwd=self.cwd,
+            allowed_roots=[self.cwd],
+            read_roots=[self.cwd, claude_root],
+        )
+        self.assertFalse(needs)
+
+    def test_temp_whitelist_delete_no_confirmation(self) -> None:
+        temp_file = Path("/tmp/dogent-temp.txt").resolve()
+        needs, _ = should_confirm_tool_use(
+            "Bash",
+            {"command": f"rm -f {temp_file}"},
+            cwd=self.cwd,
+            allowed_roots=self.allowed,
+            temp_whitelist=[temp_file],
         )
         self.assertFalse(needs)
 

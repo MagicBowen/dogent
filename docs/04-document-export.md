@@ -7,6 +7,7 @@ Dogent 提供面向文档的导出与转换能力，适合将 Markdown 转成 PD
 - **读取文档**：PDF / DOCX / XLSX / 纯文本
 - **导出 Markdown**：导出为 PDF 或 DOCX
 - **格式转换**：DOCX ↔ Markdown、Markdown → PDF、DOCX → PDF
+- **PPT**：目前没有找到完美的解决方案，暂时默认使用 “Claude PPTX skill”，详情请参阅：https://github.com/anthropics/skills/tree/main/skills/pptx
 
 所有路径均使用 **工作区相对路径**。
 
@@ -63,6 +64,11 @@ Dogent 提供面向文档的导出与转换能力，适合将 Markdown 转成 PD
 
 ```markdown
 ![](../images/1.png)
+```
+
+或者
+
+```markdown
 <div align="center"><img src="../images/2.png" width="70%"></div>
 ```
 
@@ -83,6 +89,11 @@ PDF 导出支持自定义样式：
 
 - DOCX → Markdown 可选择导出图片目录（`extract_media_dir`）
 - DOCX → PDF 的实现为：**DOCX → Markdown → PDF**，版式可能略有差异
+
+### 3.4 PDF 依赖与下载提示
+
+- PDF 导出与转换依赖 **Pandoc** 和 **Chrome**。
+- 如果本地缺失依赖，Dogent 会提示是否先下载再继续。
 
 ---
 

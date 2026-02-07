@@ -75,7 +75,7 @@ class ClaudeCommandsTests(unittest.TestCase):
             dogent_dir = root / ".dogent"
             dogent_dir.mkdir(parents=True, exist_ok=True)
             (dogent_dir / "dogent.json").write_text(
-                '{"claude_plugins": ["plugins/demo"]}',
+                '{"plugins": ["plugins/demo"]}',
                 encoding="utf-8",
             )
 
@@ -83,6 +83,39 @@ class ClaudeCommandsTests(unittest.TestCase):
             cli = DogentCLI(root=root, console=console, interactive_prompts=False)
 
             self.assertIsNotNone(cli.registry.get("/claude:demo-plugin:greet"))
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_dogent_plugin_command_is_registered_without_prefix(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            plugin_root = Path(tmp_home) / ".dogent" / "plugins" / "demo"
+            (plugin_root / ".claude-plugin").mkdir(parents=True, exist_ok=True)
+            (plugin_root / ".claude-plugin" / "plugin.json").write_text(
+                '{"name": "demo-plugin"}',
+                encoding="utf-8",
+            )
+            (plugin_root / "commands").mkdir(parents=True, exist_ok=True)
+            (plugin_root / "commands" / "greet.md").write_text(
+                "Say hello",
+                encoding="utf-8",
+            )
+
+            dogent_dir = root / ".dogent"
+            dogent_dir.mkdir(parents=True, exist_ok=True)
+            (dogent_dir / "dogent.json").write_text(
+                '{"plugins": ["~/.dogent/plugins/demo"]}',
+                encoding="utf-8",
+            )
+
+            console = Console(record=True, force_terminal=False, color_system=None)
+            cli = DogentCLI(root=root, console=console, interactive_prompts=False)
+
+            self.assertIsNotNone(cli.registry.get("/demo-plugin:greet"))
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

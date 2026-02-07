@@ -27,7 +27,7 @@ Dogent 会加载以下位置的 Claude commands：
 
 ```json
 {
-  "claude_plugins": ["./plugins/demo", "~/.claude/plugins/shared"]
+  "plugins": ["./plugins/demo", "~/.claude/plugins/shared"]
 }
 ```
 
@@ -36,7 +36,8 @@ Dogent 会加载以下位置的 Claude commands：
 插件命令在 Dogent 中的形式：
 
 ```text
-/claude:<plugin>:<command>
+- `~/.claude/plugins` 中的插件命令：/claude:<plugin>:<command>
+- `~/.dogent/plugins` 中的插件命令：/<plugin>:<command>
 ```
 
 Dogent 会在启动时把内置插件安装到 `~/.dogent/plugins`，并在新工作区默认加入 `~/.dogent/plugins/claude`。
@@ -56,7 +57,7 @@ Dogent 会将项目内 `.claude/` 目录传递给 Claude Agent SDK，方便复�
 
 - 若你已有 Claude Code 项目，可直接拷贝 `.claude/commands` 到当前项目
 - 将共享命令放在 `~/.claude/commands` 便于跨项目复用
-- 插件建议集中配置在 `~/.claude/plugins`，然后通过 `claude_plugins` 引用
+- 插件建议集中配置在 `~/.claude/plugins`，然后通过 `plugins` 引用
 
 ---
 

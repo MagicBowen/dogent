@@ -362,7 +362,7 @@ class ConfigTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
-    def test_build_options_includes_claude_plugins(self) -> None:
+    def test_build_options_includes_plugins(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
@@ -376,7 +376,7 @@ class ConfigTests(unittest.TestCase):
             dogent_dir = root / ".dogent"
             dogent_dir.mkdir(parents=True, exist_ok=True)
             (dogent_dir / "dogent.json").write_text(
-                '{"claude_plugins": ["plugins/demo"]}',
+                '{"plugins": ["plugins/demo"]}',
                 encoding="utf-8",
             )
             paths = DogentPaths(root)
@@ -392,7 +392,7 @@ class ConfigTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
-    def test_invalid_claude_plugins_warn_and_skip(self) -> None:
+    def test_invalid_plugins_warn_and_skip(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
@@ -400,7 +400,7 @@ class ConfigTests(unittest.TestCase):
             dogent_dir = root / ".dogent"
             dogent_dir.mkdir(parents=True, exist_ok=True)
             (dogent_dir / "dogent.json").write_text(
-                '{"claude_plugins": ["missing-plugin"]}',
+                '{"plugins": ["missing-plugin"]}',
                 encoding="utf-8",
             )
             console = Console(record=True, force_terminal=False, color_system=None)
@@ -426,7 +426,7 @@ class ConfigTests(unittest.TestCase):
             manager.create_config_template()
 
             data = json.loads(paths.config_file.read_text(encoding="utf-8"))
-            self.assertEqual(["~/.dogent/plugins/claude"], data.get("claude_plugins"))
+            self.assertEqual(["~/.dogent/plugins/claude"], data.get("plugins"))
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -443,7 +443,7 @@ class ConfigTests(unittest.TestCase):
 
             manager = ConfigManager(paths)
             config = manager.load_project_config()
-            self.assertEqual([], config.get("claude_plugins"))
+            self.assertEqual([], config.get("plugins"))
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

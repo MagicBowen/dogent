@@ -8,9 +8,9 @@
     "image_profile": null,
     "doc_template": "general",
     "primary_language": "Chinese",
-    "learn_auto": true,
     "editor_mode": "default",
-    "claude_plugins": ["~/.dogent/plugins/claude"]
+    "learn_auto": true,
+    "plugins": ["~/.dogent/plugins/claude"]
   },
   "llm_profiles": {
     "deepseek": {

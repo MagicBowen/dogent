@@ -91,3 +91,59 @@
   - New workspace config includes `~/.dogent/plugins/claude`.
   - Existing workspace config without `claude_plugins` yields an empty list.
 - Add a unit test for builtin plugin install (helper takes a source dir in tests, copies into a temp `~/.dogent/plugins`).
+
+---
+
+## Release 0.9.25
+
+### Goal
+- Rename config key `claude_plugins` to `plugins` in workspace and global configs (no backward compatibility).
+- Update docs for PDF dependency prompts and PPTX status.
+- Expand permission exceptions for read/execute in `~/.dogent/plugins` and `~/.claude`.
+- Allow deletion of Dogent-generated temporary files within the same task without prompting.
+
+### Current Baseline
+- Config key is `claude_plugins`; schemas and docs mention it.
+- Permissions are enforced for all paths outside workspace, with a delete whitelist only for `.dogent/memory.md`.
+- No central tracking of temp files created during a task.
+
+### Config + Schema Changes
+- Rename all references of `claude_plugins` to `plugins` in:
+  - `dogent/resources/dogent_default.json`
+  - `dogent/resources/dogent_global_default.json` (`workspace_defaults.plugins`)
+  - `dogent/config/manager.py` normalization, loading, and options build
+  - docs and schemas (`dogent/schema/**` and `docs/*`)
+- No backward compatibility: if users still have `claude_plugins`, it will be ignored.
+
+### Permissions Changes
+- Introduce read/execute safe roots: `~/.dogent/plugins` and `~/.claude`.
+- For file tools:
+  - `Read` under safe roots does not require confirmation.
+  - `Write/Edit` under safe roots still require confirmation if outside workspace (except temp-file deletes below).
+- For Bash:
+  - Allow commands that only touch safe-root paths without confirmation.
+  - Writes/deletes outside workspace still prompt unless the target is a tracked temp file.
+- Expose plugin commands differently by location:
+  - `~/.claude/plugins` => `/claude:<plugin>:<command>`
+  - `~/.dogent/plugins` => `/<plugin>:<command>`
+
+### Temporary File Tracking
+- Track temp files created by Dogent during a single task run (store resolved paths on the runner).
+- When a delete occurs in the same task (Bash `rm`/`mv` or Write/Edit delete semantics), skip permission prompts if the target matches a tracked temp file.
+- Clear the list at task end (on completion/abort) to avoid cross-task leakage.
+
+### Docs
+- `docs/04-document-export.md`:
+  - Note PDF generation/conversion requires pandoc + Chrome; prompt to download if missing.
+  - Note PPTX generation is not fully solved; default to “Claude PPTX skill” with link to `https://github.com/anthropics/skills/tree/main/skills/pptx`.
+- Update config key names in `docs/07-commands.md`, `docs/08-configuration.md`, `docs/10-claude-compatibility.md`.
+- Update permissions doc to mention safe roots.
+
+### Tests
+- Config tests: new key `plugins` used in defaults and options.
+- Permission tests:
+  - Read in `~/.dogent/plugins` or `~/.claude` does not prompt.
+  - Write outside workspace still prompts (unless temp delete).
+- Temp file tests:
+  - Track a temp file and ensure delete via Bash skips confirmation.
+  - Ensure list clears between tasks.
