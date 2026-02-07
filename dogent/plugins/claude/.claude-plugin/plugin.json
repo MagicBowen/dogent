@@ -1,0 +1,8 @@
+{
+  "name": "claude",
+  "description": "Built-in Claude plugin for Dogent",
+  "version": "1.0.0",
+  "author": {
+    "name": "Anthropic Claude Code"
+  }
+}

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dogent"
-version = "0.9.23"
+version = "0.9.24"
 description = "CLI-based interactive document-writing agent powered by the Claude Agent SDK."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,6 +38,7 @@ dogent = [
   "resources/*.json",
   "resources/*.css",
   "resources/tools/**",
+  "plugins/**",
   "templates/*.md",
   "schema/*.json",
   "schema/*/*.json",

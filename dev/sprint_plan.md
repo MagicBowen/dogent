@@ -22,3 +22,16 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: Unit tests for completion acceptance vs newline.
+
+## Release 0.9.24
+### Story 1: Built-in Claude Plugin Packaging + Install
+- User Value: Dogent ships with the official PPTX skill as a built-in Claude plugin that installs to `~/.dogent/plugins` and is available by default in new workspaces.
+- Acceptance:
+  - Package includes `dogent/plugins/claude` with valid `.claude-plugin/plugin.json` and `skills/pptx` contents.
+  - On startup, built-in plugins are copied to `~/.dogent/plugins`, overwriting existing files.
+  - New workspace configs include `claude_plugins: ["~/.dogent/plugins/claude"]`.
+  - Existing `.dogent/dogent.json` without `claude_plugins` remains empty (no auto-injection).
+  - Docs mention built-in plugin install location and default behavior.
+- Dev Status: Done
+- Acceptance Status: Accepted
+- Verification: Unit tests for config defaults and builtin plugin install + manual CLI run.
