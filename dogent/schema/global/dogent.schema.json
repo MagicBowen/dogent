@@ -36,6 +36,12 @@
           "type": "string",
           "enum": ["default", "vi"]
         },
+        "plugins": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "debug": {
           "type": ["boolean", "string", "array", "null"],
           "items": {

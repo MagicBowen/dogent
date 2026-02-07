@@ -28,7 +28,9 @@ def should_confirm_tool_use(
     *,
     cwd: Path,
     allowed_roots: Iterable[Path],
+    read_roots: Iterable[Path] | None = None,
     delete_whitelist: Iterable[Path] | None = None,
+    temp_whitelist: Iterable[Path] | None = None,
     authorizations: dict[str, list[str]] | None = None,
 ) -> tuple[bool, str]:
     check = evaluate_tool_permission(
@@ -36,7 +38,9 @@ def should_confirm_tool_use(
         input_data,
         cwd=cwd,
         allowed_roots=allowed_roots,
+        read_roots=read_roots,
         delete_whitelist=delete_whitelist,
+        temp_whitelist=temp_whitelist,
         authorizations=authorizations,
     )
     return check.needs_confirm, check.reason
@@ -48,7 +52,9 @@ def evaluate_tool_permission(
     *,
     cwd: Path,
     allowed_roots: Iterable[Path],
+    read_roots: Iterable[Path] | None = None,
     delete_whitelist: Iterable[Path] | None = None,
+    temp_whitelist: Iterable[Path] | None = None,
     authorizations: dict[str, list[str]] | None = None,
 ) -> PermissionCheck:
     check = _collect_permission_targets(
@@ -56,7 +62,9 @@ def evaluate_tool_permission(
         input_data,
         cwd=cwd,
         allowed_roots=allowed_roots,
+        read_roots=read_roots,
         delete_whitelist=delete_whitelist,
+        temp_whitelist=temp_whitelist,
     )
     if not check.needs_confirm:
         return check
@@ -73,8 +81,12 @@ def _collect_permission_targets(
     *,
     cwd: Path,
     allowed_roots: Iterable[Path],
+    read_roots: Iterable[Path] | None = None,
     delete_whitelist: Iterable[Path] | None = None,
+    temp_whitelist: Iterable[Path] | None = None,
 ) -> PermissionCheck:
+    temp_set = _normalize_whitelist(temp_whitelist)
+    read_scope = list(read_roots) if read_roots is not None else list(allowed_roots)
     if tool_name in FILE_TOOLS:
         raw_path = _extract_file_path(input_data)
         if not raw_path:
@@ -82,11 +94,14 @@ def _collect_permission_targets(
         resolved = _resolve_path(raw_path, cwd)
         if not resolved:
             return PermissionCheck(False, "", [])
+        if temp_set and resolved.resolve() in temp_set:
+            return PermissionCheck(False, "", [])
         if tool_name in {"Write", "Edit"} and _is_existing_protected_file(
             resolved, cwd
         ):
             return PermissionCheck(True, f"Modify protected file: {resolved}", [resolved])
-        if _is_outside_allowed_roots(resolved, allowed_roots):
+        roots = read_scope if tool_name == "Read" else allowed_roots
+        if _is_outside_allowed_roots(resolved, roots):
             return PermissionCheck(
                 True,
                 f"{tool_name} path outside workspace: {resolved}",
@@ -98,7 +113,9 @@ def _collect_permission_targets(
         command = str(input_data.get("command") or "")
         targets = extract_delete_targets(command, cwd=cwd)
         if targets:
-            remaining = _exclude_whitelisted_targets(targets, delete_whitelist)
+            remaining = _exclude_whitelisted_targets(
+                targets, delete_whitelist, temp_set
+            )
             if not remaining:
                 return PermissionCheck(False, "", [])
             joined = ", ".join(str(path) for path in remaining)
@@ -114,11 +131,22 @@ def _collect_permission_targets(
                 f"Modify protected file via redirection: {joined}",
                 protected_redirections,
             )
+        redirections = [
+            target for target in redirections if target.resolve() not in temp_set
+        ]
+        write_outside = [
+            path for path in redirections if _is_outside_allowed_roots(path, allowed_roots)
+        ]
+        if write_outside:
+            joined = ", ".join(str(path) for path in write_outside)
+            return PermissionCheck(
+                True,
+                f"Bash command targets outside workspace: {joined}",
+                write_outside,
+            )
         paths = extract_command_paths(command, cwd=cwd)
         outside = [
-            path
-            for path in paths + redirections
-            if _is_outside_allowed_roots(path, allowed_roots)
+            path for path in paths if _is_outside_allowed_roots(path, read_scope)
         ]
         if outside:
             joined = ", ".join(str(path) for path in outside)
@@ -332,17 +360,27 @@ def _is_outside_allowed_roots(path: Path, roots: Iterable[Path]) -> bool:
 
 
 def _exclude_whitelisted_targets(
-    targets: Iterable[Path], delete_whitelist: Iterable[Path] | None
+    targets: Iterable[Path],
+    delete_whitelist: Iterable[Path] | None,
+    temp_whitelist: set[Path] | None = None,
 ) -> list[Path]:
     if not delete_whitelist:
-        return list(targets)
+        delete_whitelist = []
     whitelist = {path.resolve() for path in delete_whitelist}
+    if temp_whitelist:
+        whitelist |= temp_whitelist
     remaining: list[Path] = []
     for target in targets:
         if target.resolve() in whitelist:
             continue
         remaining.append(target)
     return remaining
+
+
+def _normalize_whitelist(paths: Iterable[Path] | None) -> set[Path]:
+    if not paths:
+        return set()
+    return {path.resolve() for path in paths}
 
 
 def _is_existing_protected_file(path: Path, cwd: Path) -> bool:

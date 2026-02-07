@@ -34,14 +34,23 @@ def load_claude_commands(
 
 def load_plugin_commands(plugin_roots: Iterable[Path]) -> list[ClaudeCommandSpec]:
     specs: list[ClaudeCommandSpec] = []
+    home = Path.home()
+    dogent_plugins_root = (home / ".dogent" / "plugins").resolve()
+    claude_plugins_root = (home / ".claude" / "plugins").resolve()
     for root in plugin_roots:
+        resolved_root = root.resolve()
         plugin_name = _plugin_name(root)
         if not plugin_name:
             continue
         commands_dir = root / "commands"
         for path in _iter_command_files(commands_dir):
             canonical = f"/{plugin_name}:{path.stem}"
-            name = f"/claude:{plugin_name}:{path.stem}"
+            if _is_under(resolved_root, dogent_plugins_root):
+                name = canonical
+            elif _is_under(resolved_root, claude_plugins_root):
+                name = f"/claude:{plugin_name}:{path.stem}"
+            else:
+                name = f"/claude:{plugin_name}:{path.stem}"
             description = _command_description(path)
             specs.append(
                 ClaudeCommandSpec(name=name, canonical=canonical, description=description)
@@ -119,3 +128,11 @@ def _plugin_name(root: Path) -> str:
             if name:
                 return name
     return root.name
+
+
+def _is_under(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except Exception:
+        return False

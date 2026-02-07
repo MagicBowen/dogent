@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.25 - 2026-02-07
+
+### Added
+- Plugin command naming by location: `~/.claude/plugins` uses `/claude:<plugin>:<command>`, `~/.dogent/plugins` uses `/<plugin>:<command>`.
+- Permission exception for reads under `~/.claude` and temp-file deletes within a task.
+- Export docs note PDF dependencies (Pandoc + Chrome) and the default Claude PPTX skill.
+
+### Changed
+- Renamed config key `claude_plugins` to `plugins` (workspace + global defaults).
+
+---
+
 ## 0.9.24 - 2026-02-07
 
 ### Added

@@ -38,3 +38,31 @@ User Test Results: Accepted (2026-02-07)
 7) Overwrite behavior: create `~/.dogent/plugins/claude/stale.txt`, run `dogent` again, and confirm `stale.txt` is removed.
 
 User Test Results: Accepted
+
+---
+
+## Release 0.9.25
+### Story 1 – Rename Plugins Config Key
+1) Set a temp home: `export HOME=$(mktemp -d)`.
+2) Run `dogent` once to bootstrap.
+3) Open `~/.dogent/dogent.json` and confirm `workspace_defaults.plugins` exists.
+4) In `sample/`, remove `.dogent` if present and run `dogent`. Confirm `sample/.dogent/dogent.json` includes `plugins` with `~/.dogent/plugins/claude`.
+
+User Test Results: Accepted (2026-02-07)
+
+### Story 2 – Safe-Root Permissions + Temp File Deletes
+1) In `dogent`, ask it to read `~/.dogent/plugins/claude/.claude-plugin/plugin.json` and confirm no permission prompt appears.
+2) Ask it to read any file under `~/.claude` (e.g., `~/.claude/commands` if present) and confirm no permission prompt appears.
+3) Ask it to write to `~/.claude/test.txt` and confirm a permission prompt appears.
+4) Ask Dogent to create a temp file under `/tmp` (e.g., write `/tmp/dogent-temp.txt`) and then delete it via Bash (`rm -f /tmp/dogent-temp.txt`). Confirm the delete does not trigger a permission prompt.
+5) Put a plugin under `~/.claude/plugins/<plugin>/commands/<cmd>.md`, run `dogent`, and confirm it appears as `/claude:<plugin>:<cmd>`.
+6) Put a plugin under `~/.dogent/plugins/<plugin>/commands/<cmd>.md`, run `dogent`, and confirm it appears as `/<plugin>:<cmd>`.
+
+User Test Results: Accepted (2026-02-07)
+
+### Story 3 – Export + PPTX Documentation Notes
+1) Open `docs/04-document-export.md`.
+2) Confirm it mentions Pandoc + Chrome dependency prompts for PDF export/convert.
+3) Confirm it mentions “Claude PPTX skill” and includes the GitHub link.
+
+User Test Results: Accepted (2026-02-07)

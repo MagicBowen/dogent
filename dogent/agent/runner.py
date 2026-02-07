@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import tempfile
 from contextlib import suppress
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
 
 from rich.console import Console
@@ -39,7 +42,12 @@ from ..features.dependency_manager import (
     manual_instructions,
     missing_dependencies_for_tool,
 )
-from .permissions import evaluate_tool_permission
+from .permissions import (
+    evaluate_tool_permission,
+    extract_command_paths,
+    extract_delete_targets,
+    extract_redirection_targets,
+)
 from ..features.clarification import (
     ClarificationPayload,
     parse_clarification_payload,
@@ -118,6 +126,8 @@ class AgentRunner:
         self._permission_prompt = permission_prompt
         self._dependency_prompt = dependency_prompt
         self._session_logger = session_logger
+        self._task_temp_files: set[Path] = set()
+        self._temp_roots: list[Path] = self._resolve_temp_roots()
         self._aborted_reason: str | None = None
         self._abort_requested = False
         self._abort_finalized = False
@@ -218,6 +228,7 @@ class AgentRunner:
         self._abort_interrupt_sent = False
         self._clarification_payload = None
         self._outline_edit_payload = None
+        self._task_temp_files.clear()
         preview = (
             user_message
             if self._is_clarification_answers(user_message)
@@ -305,6 +316,7 @@ class AgentRunner:
             await self._safe_disconnect()
         finally:
             await self._stop_wait_indicator()
+            self._task_temp_files.clear()
             if self._session_logger:
                 self._session_logger.end_interaction("agent", status=interaction_status)
 
@@ -793,10 +805,10 @@ class AgentRunner:
                 message=self._aborted_reason or "Missing dependencies.",
                 interrupt=True,
             )
-        allowed_roots = [
-            self.config.paths.root.resolve(),
-            self.config.paths.global_plugins_dir.resolve(),
-        ]
+        allowed_roots = [self.config.paths.root.resolve()]
+        read_roots = list(allowed_roots)
+        read_roots.append(self.config.paths.global_plugins_dir.resolve())
+        read_roots.append((Path.home() / ".claude").resolve())
         delete_whitelist = [self.config.paths.memory_file.resolve()]
         project_cfg = self.config.load_project_config()
         authorizations = project_cfg.get("authorizations")
@@ -807,22 +819,85 @@ class AgentRunner:
             input_data,
             cwd=self.config.paths.root,
             allowed_roots=allowed_roots,
+            read_roots=read_roots,
             delete_whitelist=delete_whitelist,
+            temp_whitelist=list(self._task_temp_files),
             authorizations=authorizations,
         )
         if not check.needs_confirm:
+            self._track_temp_files(tool_name, input_data)
             return PermissionResultAllow()
         decision = await self._request_permission(tool_name, check.reason)
         if decision.allow:
             if decision.remember and check.targets:
                 with suppress(Exception):
                     self.config.add_authorizations(tool_name, check.targets)
+            self._track_temp_files(tool_name, input_data)
             return PermissionResultAllow()
         await self._handle_permission_denied(check.reason, message=decision.message)
         return PermissionResultDeny(
             message=self._aborted_reason or "User denied permission.",
             interrupt=True,
         )
+
+    def _resolve_temp_roots(self) -> list[Path]:
+        roots: list[Path] = []
+        env_tmp = os.environ.get("TMPDIR")
+        if env_tmp:
+            roots.append(Path(env_tmp))
+        roots.append(Path(tempfile.gettempdir()))
+        seen: set[str] = set()
+        resolved: list[Path] = []
+        for root in roots:
+            try:
+                resolved_root = root.expanduser().resolve()
+            except Exception:
+                continue
+            key = str(resolved_root)
+            if key in seen:
+                continue
+            seen.add(key)
+            resolved.append(resolved_root)
+        return resolved
+
+    def _is_temp_path(self, path: Path) -> bool:
+        resolved = path.resolve()
+        for root in self._temp_roots:
+            try:
+                resolved.relative_to(root)
+                return True
+            except Exception:
+                continue
+        return False
+
+    def _track_temp_files(self, tool_name: str, input_data: dict) -> None:
+        if tool_name in {"Write", "Edit"}:
+            path = self._resolve_tool_path(input_data)
+            if not path or not self._is_temp_path(path):
+                return
+            if not path.exists():
+                self._task_temp_files.add(path.resolve())
+            return
+        if tool_name not in {"Bash", "BashOutput"}:
+            return
+        command = str(input_data.get("command") or "")
+        if not command or extract_delete_targets(command, cwd=self.config.paths.root):
+            return
+        redirections = extract_redirection_targets(command, cwd=self.config.paths.root)
+        for target in redirections:
+            if self._is_temp_path(target) and not target.exists():
+                self._task_temp_files.add(target.resolve())
+
+    def _resolve_tool_path(self, input_data: dict) -> Path | None:
+        for key in ("file_path", "path"):
+            value = input_data.get(key)
+            if isinstance(value, str) and value.strip():
+                raw = value.strip()
+                path = Path(raw)
+                if path.is_absolute():
+                    return path.resolve()
+                return (self.config.paths.root / path).resolve()
+        return None
 
     async def _ensure_tool_dependencies(
         self, tool_name: str, input_data: dict

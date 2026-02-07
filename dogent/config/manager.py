@@ -35,7 +35,7 @@ DEFAULT_PROJECT_CONFIG: Dict[str, Any] = {
     "editor_mode": "default",
     "debug": False,
     "authorizations": {},
-    "claude_plugins": [],
+    "plugins": [],
 }
 GLOBAL_DEFAULTS_KEY = "workspace_defaults"
 GLOBAL_LLM_PROFILES_KEY = "llm_profiles"
@@ -422,9 +422,9 @@ class ConfigManager:
         data = self._read_json(self.paths.config_file)
         defaults = self._default_project_config()
         global_defaults = self._global_defaults()
-        if self.paths.config_file.exists() and "claude_plugins" not in data:
+        if self.paths.config_file.exists() and "plugins" not in data:
             global_defaults = dict(global_defaults)
-            global_defaults.pop("claude_plugins", None)
+            global_defaults.pop("plugins", None)
         merged = self._merge_dicts(defaults, global_defaults)
         merged = self._merge_dicts(merged, data)
         return self._normalize_project_config(merged)
@@ -513,20 +513,20 @@ class ConfigManager:
                 normalized["image_profile"] = cleaned
         else:
             normalized["image_profile"] = DEFAULT_PROJECT_CONFIG["image_profile"]
-        raw_plugins = normalized.get("claude_plugins")
+        raw_plugins = normalized.get("plugins")
         if raw_plugins is None:
-            normalized["claude_plugins"] = DEFAULT_PROJECT_CONFIG["claude_plugins"]
+            normalized["plugins"] = DEFAULT_PROJECT_CONFIG["plugins"]
         elif isinstance(raw_plugins, str):
             cleaned = raw_plugins.strip()
-            normalized["claude_plugins"] = [cleaned] if cleaned else []
+            normalized["plugins"] = [cleaned] if cleaned else []
         elif isinstance(raw_plugins, list):
-            normalized["claude_plugins"] = [
+            normalized["plugins"] = [
                 value.strip()
                 for value in raw_plugins
                 if isinstance(value, str) and value.strip()
             ]
         else:
-            normalized["claude_plugins"] = DEFAULT_PROJECT_CONFIG["claude_plugins"]
+            normalized["plugins"] = DEFAULT_PROJECT_CONFIG["plugins"]
         return normalized
 
     def _normalize_debug(self, raw_debug: Any) -> Any:
@@ -608,7 +608,7 @@ class ConfigManager:
         use_custom_web = bool(settings.web_profile)
         vision_enabled = self._vision_enabled(project_cfg)
         image_enabled = self._image_enabled(project_cfg)
-        plugin_paths = self._load_claude_plugins(project_cfg)
+        plugin_paths = self._load_plugins(project_cfg)
         plugins = [{"type": "local", "path": str(path)} for path in plugin_paths]
 
         allowed_tools: list[str] | None = None
@@ -813,14 +813,14 @@ class ConfigManager:
             return {}
         return chosen
 
-    def resolve_claude_plugins(self, *, warn: bool = True) -> list[Path]:
+    def resolve_plugins(self, *, warn: bool = True) -> list[Path]:
         project_cfg = self.load_project_config()
-        return self._load_claude_plugins(project_cfg, warn=warn)
+        return self._load_plugins(project_cfg, warn=warn)
 
-    def _load_claude_plugins(
+    def _load_plugins(
         self, project_cfg: Dict[str, Any], *, warn: bool = True
     ) -> list[Path]:
-        raw = (project_cfg or {}).get("claude_plugins")
+        raw = (project_cfg or {}).get("plugins")
         if raw is None:
             return []
         if isinstance(raw, str):
@@ -830,7 +830,7 @@ class ConfigManager:
         else:
             if warn:
                 self.console.print(
-                    "[yellow]Ignoring claude_plugins: expected a list of paths.[/yellow]"
+                    "[yellow]Ignoring plugins: expected a list of paths.[/yellow]"
                 )
             return []
         resolved: list[Path] = []
@@ -839,7 +839,7 @@ class ConfigManager:
             if not isinstance(entry, str):
                 if warn:
                     self.console.print(
-                        "[yellow]Ignoring claude_plugins entry: expected a string path.[/yellow]"
+                        "[yellow]Ignoring plugins entry: expected a string path.[/yellow]"
                     )
                 continue
             cleaned = entry.strip()
