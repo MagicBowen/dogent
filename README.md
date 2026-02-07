@@ -2,81 +2,86 @@
 
 ![](./docs/assets/images/dogent-logo.png)
 
-Dogent 是基于 Claude Agent SDK 开发的专注于**本地文档写作**的 CLI 智能代理。与 Claude Code 聚焦代码任务不同，dogent 提供针对写作任务定制的系统提示词与文档模板体系、支持多格式文档处理与导出、支持面向文档协作而优化的 CLI 交互体验，支持状态管理与持续改进的能力，同时保持与 Claude 生态的兼容，满足本地文档写作的多样化需求，让 AI 辅助本地文档撰写变得更加轻松和高效。
+Dogent is a CLI agent focused on **local document writing**, built on the Claude Agent SDK. 
+
+Unlike Claude Code, which targets coding tasks, Dogent provides writing-specific system prompts and document templates, supports multi-format document processing and export, offers a CLI experience optimized for document workflows, and includes state management plus continuous improvement features. It remains compatible with the Claude ecosystem to cover a wide range of local writing scenarios, making AI-assisted document authoring simpler and more efficient.
 
 ## Install
 
-> 需要 Python 3.10+，建议使用 venv.
+> Requires Python 3.10+. A virtual environment is recommended.
 
-### 方式 A：Clone 源码安装
+### Option A: Install from source
 
 ```bash
-# 获取源码
+# Get the source
 git clone https://github.com/MagicBowen/dogent
 cd dogent
 
-# 创建并激活虚拟环境
+# Create and activate a virtual environment
 python -m venv .venv
 source .venv/bin/activate
 
-# 安装（基于源码安装）
+# Install (editable)
 pip install -e .
 
-# 验证
+# Verify
 dogent -v
 ```
 
-### 方式 B：下载 wheel 包安装
+### Option B: Install from a wheel
 
-在 https://github.com/MagicBowen/dogent/releases 下载 dogent 最新版本的 wheel 包。
+Download the latest wheel from https://github.com/MagicBowen/dogent/releases.
 
 ```bash
-# 创建并激活虚拟环境
+# Create and activate a virtual environment
 python -m venv .venv
 source .venv/bin/activate
 
-# 安装 wheel
+# Install the wheel
 pip install /path/to/dogent-0.9.20-py3-none-any.whl
 
-# 验证
+# Verify
 dogent -v
 ```
 
 ## Quick Start
 
-通过 CLI 进入某工作目录，然后进入 dogent 交互模式：
+Enter a workspace directory and start Dogent:
 
 ```bash
 > cd /path/to/your/workspace
 > dogent
 ```
 
-进入 dogent 交互模式后，可以使用 `/init` 命令初始化工作区，也可以直接开始写作：
+Inside the interactive session, you can initialize the workspace with `/init` or start writing immediately:
 
 ```bash
-dogent>  按照模板 @@built-in:technical_blog，写一篇关于 github/MagicBowen/dogent 工具用法的技术博客
+dogent>  Use template @@built-in:technical_blog to write a technical blog about github/MagicBowen/dogent
 ```
 
-在 dogent 交互模式下，输入 `@` 可以引用工作空间下的文件， 输入 `@@` 可以引用可用的文档模板；输入完成后按回车提交，dogent 会进行任务规划并生成内容返回；
-在 dogent 执行过程中，可以使用 `ESC` 中断当前任务进行信息补充或者需求更改。
+In interactive mode:
+- Type `@` to reference files in the workspace.
+- Type `@@` to reference available document templates.
+- Press Enter to submit; Dogent will plan the task and generate content.
+- Press `Esc` to interrupt and provide more info or adjust requirements.
 
-在 dogent 交互模式下，如需多行输入，可按 `Ctrl+E` 打开基于 CLI 的 markdown 编辑器，编辑完成后使用 `Ctrl+J` 提交发送内容。
+For multi-line input, press `Ctrl+E` to open the CLI markdown editor, then press `Ctrl+J` to submit.
 
-使用 `/help` 可以查看帮助，使用 `/exit` 退出 dogent。
+Use `/help` for help and `/exit` to quit.
 
 ## Docs
 
-下面是完整文档目录（位于 `docs/`），建议按顺序阅读：
+Complete documentation lives in `docs/` (recommended reading order):
 
-1. [docs/01-quickstart.md](docs/01-quickstart.md) — 快速开始：安装、配置、/init 与第一次写作
-2. [docs/02-templates.md](docs/02-templates.md) — 文档模板体系：内置/全局/工作区模板、@@ 覆盖
-3. [docs/03-editor.md](docs/03-editor.md) — CLI 编辑器：多行输入、预览、保存、vi 模式
-4. [docs/04-document-export.md](docs/04-document-export.md) — 文档导出与格式转换
-5. [docs/05-lessons.md](docs/05-lessons.md) — Lessons：经验沉淀与自动提醒机制
-6. [docs/06-history-and-state.md](docs/06-history-and-state.md) — history/memory/lessons 与 show/archive/clean
-7. [docs/07-commands.md](docs/07-commands.md) — 命令参考：完整命令与快捷键清单
-8. [docs/08-configuration.md](docs/08-configuration.md) — 配置详解：全局与工作区、Profile、模板设置
-9. [docs/09-permissions.md](docs/09-permissions.md) — 权限管理：授权触发与记忆规则
-10. [docs/10-claude-compatibility.md](docs/10-claude-compatibility.md) — Claude 兼容：commands/plugins 等资产复用
-11. [docs/11-troubleshooting.md](docs/11-troubleshooting.md) — 异常处理与调试
-12. [docs/12-appendix.md](docs/12-appendix.md) — 附录：环境变量与第三方 API 配置
+1. [docs/01-quickstart.md](docs/01-quickstart.md) - Quick start: install, configure, /init, first run
+2. [docs/02-templates.md](docs/02-templates.md) - Templates: built-in/global/workspace templates and @@ overrides
+3. [docs/03-editor.md](docs/03-editor.md) - CLI editor: multi-line input, preview, save, vi mode
+4. [docs/04-document-export.md](docs/04-document-export.md) - Document export and format conversion
+5. [docs/05-lessons.md](docs/05-lessons.md) - Lessons: knowledge capture and reminders
+6. [docs/06-history-and-state.md](docs/06-history-and-state.md) - history/memory/lessons and show/archive/clean
+7. [docs/07-commands.md](docs/07-commands.md) - Command reference: all commands and shortcuts
+8. [docs/08-configuration.md](docs/08-configuration.md) - Configuration: global/workspace, profiles, templates
+9. [docs/09-permissions.md](docs/09-permissions.md) - Permissions: prompts and remembered rules
+10. [docs/10-claude-compatibility.md](docs/10-claude-compatibility.md) - Claude compatibility: commands/plugins reuse
+11. [docs/11-troubleshooting.md](docs/11-troubleshooting.md) - Troubleshooting and debugging
+12. [docs/12-appendix.md](docs/12-appendix.md) - Appendix: env vars and third-party API setup
