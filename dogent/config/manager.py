@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
@@ -420,6 +422,9 @@ class ConfigManager:
         data = self._read_json(self.paths.config_file)
         defaults = self._default_project_config()
         global_defaults = self._global_defaults()
+        if self.paths.config_file.exists() and "claude_plugins" not in data:
+            global_defaults = dict(global_defaults)
+            global_defaults.pop("claude_plugins", None)
         merged = self._merge_dicts(defaults, global_defaults)
         merged = self._merge_dicts(merged, data)
         return self._normalize_project_config(merged)
@@ -927,6 +932,44 @@ class ConfigManager:
                     self.console.print(
                         f"[yellow]Cannot write {self.paths.global_pdf_style_file}. Please create it manually.[/yellow]"
                     )
+        self._install_builtin_plugins()
+
+    def _install_builtin_plugins(self) -> None:
+        try:
+            source_root = resources.files("dogent").joinpath("plugins")
+        except Exception as exc:
+            log_exception("config", exc)
+            return
+        try:
+            with resources.as_file(source_root) as source_path:
+                if not source_path.exists() or not source_path.is_dir():
+                    return
+                target_root = self.paths.global_plugins_dir
+                try:
+                    target_root.mkdir(parents=True, exist_ok=True)
+                except PermissionError as exc:
+                    log_exception("config", exc)
+                    self.console.print(
+                        f"[yellow]Cannot write {target_root}. Please create it manually.[/yellow]"
+                    )
+                    return
+                for entry in source_path.iterdir():
+                    if not entry.is_dir():
+                        continue
+                    dest = target_root / entry.name
+                    try:
+                        if dest.exists():
+                            shutil.rmtree(dest)
+                        shutil.copytree(entry, dest)
+                    except PermissionError as exc:
+                        log_exception("config", exc)
+                        self.console.print(
+                            f"[yellow]Cannot install plugin {entry.name} to {dest}. Please install it manually.[/yellow]"
+                        )
+                    except Exception as exc:
+                        log_exception("config", exc)
+        except Exception as exc:
+            log_exception("config", exc)
 
     def _maybe_upgrade_global_config(self) -> None:
         data = self._read_json(self.paths.global_config_file)

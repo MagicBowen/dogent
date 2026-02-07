@@ -43,3 +43,51 @@
 - Add a unit test that simulates a buffer with completion state and verifies Enter applies the completion.
 - Add a unit test that verifies Enter inserts a newline when no completion is active.
 - Skip tests if prompt_toolkit is unavailable (consistent with existing optional dependency handling).
+
+---
+
+## Release 0.9.24
+
+### Goal
+- Ship a built-in Claude plugin that wraps the PPTX skill under `dogent/plugins/claude`.
+- Auto-install all built-in plugins to `~/.dogent/plugins` on startup (overwrite/update).
+- New workspace configs include the built-in Claude plugin path by default; existing projects remain unchanged unless edited.
+
+### Current Baseline
+- Claude plugins are loaded from `.dogent/dogent.json` via `claude_plugins`; defaults are empty.
+- Plugin roots must contain `.claude-plugin/plugin.json`.
+- Startup bootstrap creates `~/.dogent` config/schema files but does not install plugins.
+
+### Plugin Layout (Package)
+- Plugin root: `dogent/plugins/claude`.
+- Manifest: `dogent/plugins/claude/.claude-plugin/plugin.json` (name `claude`, version, description).
+- Skills: `dogent/plugins/claude/skills/pptx` (copied from `claude/skills/skills/pptx`, including SKILL.md, scripts, ooxml, and LICENSE.txt).
+- Follow Claude plugin structure (see `claude/examples/plugins`) so SDK loads skills correctly.
+
+### Install Flow (Startup)
+- Add `DogentPaths.global_plugins_dir` -> `~/.dogent/plugins`.
+- Implement `ConfigManager._install_builtin_plugins()` and call it from `_ensure_home_bootstrap()` after `~/.dogent` exists.
+- Source: `importlib.resources.files("dogent") / "plugins"` (skip if missing).
+- For each directory under source, copy to `~/.dogent/plugins/<name>` with `shutil.copytree(..., dirs_exist_ok=True)` to overwrite/update.
+- On permission errors, warn and continue (do not block CLI startup).
+
+### Default Config Behavior
+- Update `dogent/resources/dogent_global_default.json`:
+  - `workspace_defaults.claude_plugins = ["~/.dogent/plugins/claude"]`.
+- Ensure existing projects are not auto-updated:
+  - If `.dogent/dogent.json` exists and lacks `claude_plugins`, treat it as an explicit empty list so global defaults do not inject the built-in plugin.
+  - New workspaces created via `create_config_template()` inherit the default plugin path.
+
+### Packaging
+- Add `plugins/**` to `tool.setuptools.package-data` for the `dogent` package so built-in plugins ship with the distribution.
+
+### Docs
+- Update `docs/07-commands.md` and `docs/10-claude-compatibility.md`:
+  - Mention built-in plugins are installed to `~/.dogent/plugins`.
+  - Note only the built-in Claude plugin is included in default `claude_plugins`; others require manual addition.
+
+### Tests
+- Add a unit test for config behavior:
+  - New workspace config includes `~/.dogent/plugins/claude`.
+  - Existing workspace config without `claude_plugins` yields an empty list.
+- Add a unit test for builtin plugin install (helper takes a source dir in tests, copies into a temp `~/.dogent/plugins`).

@@ -57,6 +57,10 @@ class DogentPaths:
         return self.global_dir / "templates"
 
     @property
+    def global_plugins_dir(self) -> Path:
+        return self.global_dir / "plugins"
+
+    @property
     def global_pdf_style_file(self) -> Path:
         return self.global_dir / "pdf_style.css"
 

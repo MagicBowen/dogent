@@ -159,6 +159,7 @@ dogent -p "写一份 README 提纲"
 - 在 `.dogent/dogent.json` 中配置 `claude_plugins`
 - 插件路径中需要包含 `.claude-plugin/plugin.json`
 - 命令会以 `/claude:<plugin>:<name>` 形式出现
+- Dogent 会在启动时把内置插件安装到 `~/.dogent/plugins`，并在新工作区默认加入 `~/.dogent/plugins/claude`
 
 ---
 

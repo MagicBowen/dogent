@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.24 - 2026-02-07
+
+### Added
+- Built-in Claude plugin packaging (PPTX skill) and auto-install to `~/.dogent/plugins`.
+- New workspace defaults include `~/.dogent/plugins/claude` in `claude_plugins`.
+
+### Changed
+- Built-in plugins overwrite/update on startup to keep assets in sync.
+
+### Fixed
+- Access to `~/.dogent/plugins` no longer triggers permission prompts.
+
+---
+
 ## 0.9.23 - 2026-02-03
 
 ### Added

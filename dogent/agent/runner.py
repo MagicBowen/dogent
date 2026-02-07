@@ -793,7 +793,10 @@ class AgentRunner:
                 message=self._aborted_reason or "Missing dependencies.",
                 interrupt=True,
             )
-        allowed_roots = [self.config.paths.root.resolve()]
+        allowed_roots = [
+            self.config.paths.root.resolve(),
+            self.config.paths.global_plugins_dir.resolve(),
+        ]
         delete_whitelist = [self.config.paths.memory_file.resolve()]
         project_cfg = self.config.load_project_config()
         authorizations = project_cfg.get("authorizations")

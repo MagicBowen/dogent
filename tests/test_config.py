@@ -416,6 +416,60 @@ class ConfigTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_new_workspace_config_includes_builtin_plugin(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            manager = ConfigManager(paths)
+            manager.create_config_template()
+
+            data = json.loads(paths.config_file.read_text(encoding="utf-8"))
+            self.assertEqual(["~/.dogent/plugins/claude"], data.get("claude_plugins"))
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_existing_workspace_config_does_not_inject_builtin_plugin(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.config_file.write_text('{"doc_template": "general"}', encoding="utf-8")
+
+            manager = ConfigManager(paths)
+            config = manager.load_project_config()
+            self.assertEqual([], config.get("claude_plugins"))
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_builtin_plugins_installed_to_home(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            home_plugins = Path(tmp_home) / ".dogent" / "plugins"
+            home_plugins.mkdir(parents=True, exist_ok=True)
+            stale_dir = home_plugins / "claude"
+            stale_dir.mkdir(parents=True, exist_ok=True)
+            (stale_dir / "stale.txt").write_text("old", encoding="utf-8")
+
+            paths = DogentPaths(Path(tmp))
+            ConfigManager(paths)
+
+            manifest = home_plugins / "claude" / ".claude-plugin" / "plugin.json"
+            self.assertTrue(manifest.exists())
+            self.assertFalse((home_plugins / "claude" / "stale.txt").exists())
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
     def test_build_options_registers_vision_tools_when_enabled(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:

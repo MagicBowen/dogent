@@ -41,6 +41,16 @@ class ToolPermissionTests(unittest.TestCase):
         self.assertTrue(needs)
         self.assertIn("outside", reason)
 
+    def test_plugins_dir_read_no_confirmation(self) -> None:
+        plugin_root = Path("/home/user/.dogent/plugins").resolve()
+        needs, _ = should_confirm_tool_use(
+            "Read",
+            {"file_path": "/home/user/.dogent/plugins/claude/.claude-plugin/plugin.json"},
+            cwd=self.cwd,
+            allowed_roots=[self.cwd, plugin_root],
+        )
+        self.assertFalse(needs)
+
     def test_delete_requires_confirmation(self) -> None:
         needs, reason = should_confirm_tool_use(
             "Bash",

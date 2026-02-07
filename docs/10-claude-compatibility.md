@@ -39,6 +39,8 @@ Dogent 会加载以下位置的 Claude commands：
 /claude:<plugin>:<command>
 ```
 
+Dogent 会在启动时把内置插件安装到 `~/.dogent/plugins`，并在新工作区默认加入 `~/.dogent/plugins/claude`。
+
 ---
 
 ## 3. 其它 Claude 资产（skills / agents）

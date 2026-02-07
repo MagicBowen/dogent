@@ -10,7 +10,7 @@
     "primary_language": "Chinese",
     "learn_auto": true,
     "editor_mode": "default",
-    "claude_plugins": []
+    "claude_plugins": ["~/.dogent/plugins/claude"]
   },
   "llm_profiles": {
     "deepseek": {
