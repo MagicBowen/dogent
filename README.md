@@ -1,5 +1,7 @@
 # Dogent
 
+[English](./README.md) | [中文](./README.zh.md)
+
 ![](./docs/assets/images/dogent-logo.png)
 
 Dogent is a CLI agent focused on **local document writing**, built on the Claude Agent SDK. 
@@ -85,3 +87,7 @@ Complete documentation lives in `docs/` (recommended reading order):
 10. [docs/10-claude-compatibility.md](docs/10-claude-compatibility.md) - Claude compatibility: commands/plugins reuse
 11. [docs/11-troubleshooting.md](docs/11-troubleshooting.md) - Troubleshooting and debugging
 12. [docs/12-appendix.md](docs/12-appendix.md) - Appendix: env vars and third-party API setup
+
+## License
+
+MIT
