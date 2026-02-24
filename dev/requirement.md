@@ -29,6 +29,7 @@
 
 ## Pending Requirements
 
+[History lost: editor part]
 [support builtin commands/skills/sub-agents]
 
 [support more document template]
