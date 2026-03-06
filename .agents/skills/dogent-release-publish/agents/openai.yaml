@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dogent Release Publish"
+  short_description: "Prepare and publish an accepted Dogent release"
+  default_prompt: "Use this skill to update the changelog and version, build release artifacts, tag the current commit, and publish the accepted Dogent release according to dev/package.md."

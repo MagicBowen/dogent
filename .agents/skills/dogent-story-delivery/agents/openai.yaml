@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dogent Story Delivery"
+  short_description: "Implement and test Dogent stories before manual UAT"
+  default_prompt: "Use this skill to implement an approved Dogent story, add automated tests, run the unittest suite, and update sprint tracking so the work is ready for manual UAT."

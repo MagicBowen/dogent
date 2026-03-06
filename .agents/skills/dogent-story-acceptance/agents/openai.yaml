@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dogent Story Acceptance"
+  short_description: "Fix UAT defects and close out accepted Dogent stories"
+  default_prompt: "Use this skill after the user updates dev/sprint_uat.md to fix reported bugs, refresh retest instructions, and mark stories accepted only after the current release UAT passes."

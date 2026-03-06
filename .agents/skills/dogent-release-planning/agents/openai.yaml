@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dogent Release Planning"
+  short_description: "Plan requirement updates into design, stories, and UAT"
+  default_prompt: "Use this skill to process a Dogent release requirement update into sprint design, sprint plan, and sprint UAT entries."
