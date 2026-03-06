@@ -27,9 +27,16 @@
 
 ---
 
+## Release 0.9.26
+
+- When the user invokes the editor with `CTRL+E`, edits the prompt, and sends it using `CTRL+J`. The prompt edited via CTRL+E does not appear later when the user uses the Up Arrow to recall historical commands and prompts. This issue needs to be fixed.
+
+- When the user recall the historical prompt edited by `CTRL+E` with Up Arrow, the content of the prompt should be exactly the same as the content edited by `CTRL+E`, user could edit the prompt directly or edit the prompt by invoking `CTRL+E` again;
+
+---
+
 ## Pending Requirements
 
-[History lost: editor part]
 [support builtin commands/skills/sub-agents]
 
 [support more document template]

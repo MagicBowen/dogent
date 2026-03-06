@@ -66,3 +66,25 @@ User Test Results: Accepted (2026-02-07)
 3) Confirm it mentions “Claude PPTX skill” and includes the GitHub link.
 
 User Test Results: Accepted (2026-02-07)
+
+---
+
+## Release 0.9.26
+### Story 1 – Preserve CTRL+E Prompt Recall History
+1) Run `dogent` in a sample workspace.
+2) At the main prompt, press `Ctrl+E` to open the markdown editor.
+3) Enter a multiline prompt, for example:
+   ```markdown
+   Summarize these notes:
+
+   - item 1
+   - item 2
+   ```
+4) Submit from the editor with `Ctrl+J`.
+5) After the task returns to the prompt, press Up Arrow once.
+6) Confirm the recalled prompt content is exactly the same as what was submitted from the editor, including blank lines, list markers, and spacing.
+7) Edit the recalled prompt directly in the main prompt and confirm the text is editable.
+8) With the recalled prompt still loaded, press `Ctrl+E` again and confirm the editor opens with the same recalled content prefilled.
+9) Open the editor once more, type some text, then exit without submitting. Press Up Arrow again and confirm the discarded text was not added as a new history entry.
+
+User Test Results: Accepted (2026-03-06)

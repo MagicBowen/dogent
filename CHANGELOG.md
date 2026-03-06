@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.26 - 2026-03-06
+
+### Fixed
+- Prompts submitted from the `Ctrl+E` markdown editor are now recorded in prompt recall history, so Up Arrow can restore them later in the same session.
+- Recalled `Ctrl+E` prompts now preserve the exact submitted multiline content, including blank lines and spacing, for further inline editing or reopening in the editor.
+- Discarded or cancelled `Ctrl+E` editor sessions no longer create prompt history entries.
+
+---
+
 ## 0.9.25 - 2026-02-07
 
 ### Added

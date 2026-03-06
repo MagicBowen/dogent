@@ -71,3 +71,17 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Accepted
 - Verification: Doc review.
+
+---
+
+## Release 0.9.26
+### Story 1: Preserve CTRL+E Prompt Recall History
+- User Value: After submitting a prompt from the `Ctrl+E` markdown editor, I can recall that exact prompt with Up Arrow and continue editing it inline or reopen it in the editor.
+- Acceptance:
+  - A prompt submitted from `Ctrl+E` is added to the same prompt history used by Up Arrow recall.
+  - Recalled content exactly matches the submitted editor text, including multiline formatting and spacing.
+  - Discarded/cancelled editor sessions do not create history entries.
+  - Existing direct prompt submissions and prompt-history limits keep working unchanged.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-03-06)
+- Verification: Unit tests for editor-submit history append, exact multiline preservation, discard behavior, plus full `python -m unittest discover -s tests -v`.

@@ -16,10 +16,11 @@ from dogent.cli import (
 
 
 class FakeSession:
-    def __init__(self, responses) -> None:
+    def __init__(self, responses, *, history=None) -> None:
         self._responses = list(responses)
         self.defaults = []
         self.calls = 0
+        self.history = history
 
     async def prompt_async(self, _prompt: str, **kwargs):
         self.defaults.append(kwargs.get("default"))
@@ -70,6 +71,106 @@ class MultilineEditorTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(result, "final")
             self.assertEqual(cli.session.defaults[1], "draft")
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_read_input_editor_submit_appends_prompt_history(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(record=True, force_terminal=False, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
+            history = []
+
+            class HistoryStub:
+                def append_string(self, text: str) -> None:
+                    history.append(text)
+
+            cli.session = FakeSession(
+                [MultilineEditRequest("draft")], history=HistoryStub()
+            )
+            cli._can_use_multiline_editor = mock.Mock(return_value=True)  # type: ignore[assignment]
+            cli._open_multiline_editor = mock.AsyncMock(  # type: ignore[assignment]
+                return_value=EditorOutcome(action="submit", text="edited")
+            )
+
+            result = await cli._read_input(
+                prompt="dogent> ",
+                allow_multiline_editor=True,
+                capture_editor_submission=True,
+            )
+
+            self.assertEqual(result, "edited")
+            self.assertEqual(history, ["edited"])
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_read_input_editor_submit_preserves_multiline_history(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(record=True, force_terminal=False, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
+            history = []
+            submitted = "line 1\n\n- bullet\nline 4"
+
+            class HistoryStub:
+                def append_string(self, text: str) -> None:
+                    history.append(text)
+
+            cli.session = FakeSession(
+                [MultilineEditRequest("draft")], history=HistoryStub()
+            )
+            cli._can_use_multiline_editor = mock.Mock(return_value=True)  # type: ignore[assignment]
+            cli._open_multiline_editor = mock.AsyncMock(  # type: ignore[assignment]
+                return_value=EditorOutcome(action="submit", text=submitted)
+            )
+
+            result = await cli._read_input(
+                prompt="dogent> ",
+                allow_multiline_editor=True,
+                capture_editor_submission=True,
+            )
+
+            self.assertEqual(result, submitted)
+            self.assertEqual(history, [submitted])
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_read_input_editor_discard_does_not_append_prompt_history(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(record=True, force_terminal=False, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
+            history = []
+
+            class HistoryStub:
+                def append_string(self, text: str) -> None:
+                    history.append(text)
+
+            cli.session = FakeSession(
+                [MultilineEditRequest("draft"), "final"], history=HistoryStub()
+            )
+            cli._can_use_multiline_editor = mock.Mock(return_value=True)  # type: ignore[assignment]
+            cli._open_multiline_editor = mock.AsyncMock(  # type: ignore[assignment]
+                return_value=EditorOutcome(action="discard", text="draft")
+            )
+
+            result = await cli._read_input(
+                prompt="dogent> ",
+                allow_multiline_editor=True,
+                capture_editor_submission=True,
+            )
+
+            self.assertEqual(result, "final")
+            self.assertEqual(history, [])
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

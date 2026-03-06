@@ -4657,6 +4657,17 @@ class DogentCLI:
             todos=self.todo_manager.export_items(),
         )
 
+    def _append_prompt_session_history(self, text: str) -> None:
+        cleaned = text.strip()
+        if not cleaned or not self.session:
+            return
+        history = getattr(self.session, "history", None)
+        if history is None:
+            return
+        append_string = getattr(history, "append_string", None)
+        if callable(append_string):
+            append_string(text)
+
     def _reset_prompt_history(self) -> None:
         if not self.session:
             return
@@ -4785,6 +4796,8 @@ class DogentCLI:
                         default_text = editor_outcome.text
                         continue
                     if editor_outcome.action == "submit":
+                        if capture_editor_submission:
+                            self._append_prompt_session_history(editor_outcome.text)
                         if capture_editor_submission:
                             self._pending_editor_submission = editor_outcome
                         return editor_outcome.text

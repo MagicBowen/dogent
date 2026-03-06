@@ -147,3 +147,52 @@
 - Temp file tests:
   - Track a temp file and ensure delete via Bash skips confirmation.
   - Ensure list clears between tasks.
+
+---
+
+## Release 0.9.26
+
+### Goal
+- Preserve prompts submitted from the `Ctrl+E` multiline editor in the same prompt history used by Up Arrow recall.
+- When recalled, restore the exact submitted text so the user can edit inline immediately or reopen the editor with `Ctrl+E`.
+
+### Current Baseline
+- Main prompt input uses `PromptSession` with `LimitedInMemoryHistory`, seeded from `HistoryManager.prompt_history_strings()`.
+- Normal prompt submissions entered directly in the prompt session are added to prompt_toolkit history automatically.
+- `Ctrl+E` returns a `MultilineEditRequest`, opens `_open_multiline_editor()`, and on submit returns the edited text from `_read_input()`.
+- That editor-submit path does not explicitly append the final text into `self.session.history`, so the Up Arrow recall list can miss the edited prompt during the current session.
+- Durable prompt history in `.dogent/history.json` is populated later by `HistoryManager.append(..., user_input=...)` when the request is actually sent to the agent.
+
+### UX + Behavior
+- After a user submits text from the `Ctrl+E` editor with `Ctrl+J`, pressing Up Arrow from the main prompt recalls that exact text.
+- Recalled text must match the final editor submission byte-for-byte, including newlines and spacing.
+- Recalled editor-submitted prompts behave the same as normal recalled prompts:
+  - the user can edit inline in the main prompt;
+  - the user can press `Ctrl+E` again to continue editing from that recalled content.
+- History behavior remains limited to user prompts; no new command-history behavior is introduced.
+
+### Implementation Plan
+- Add a small helper on `DogentCLI` to append submitted prompt text into the active prompt session history:
+  - no-op when `self.session` or `self.session.history` is unavailable;
+  - ignore empty or whitespace-only text;
+  - call `append_string()` when supported by the history object.
+- In `_read_input(...)`, when an editor outcome is submitted and the context is the main prompt flow, append `editor_outcome.text` to session history before returning it.
+- Keep the durable history source unchanged:
+  - agent request logging continues to write `user_input` into `.dogent/history.json`;
+  - future sessions still rebuild prompt recall from `HistoryManager.prompt_history_strings()`.
+- Do not append editor cancellations/discards to history.
+- Avoid double-recording:
+  - direct prompt submissions continue to rely on prompt_toolkit's normal history handling;
+  - only the editor-submit path gets the explicit append.
+
+### Edge Cases + Notes
+- Multi-line prompts must remain a single history entry, not one entry per line.
+- Recalling a multiline prompt should preserve line breaks so Up Arrow enters multiline editing/navigation behavior consistently.
+- The helper should be safe with alternate history implementations and degrade silently if `append_string` is unavailable.
+- Clarification/file-edit editor flows should not be changed unless they intentionally use the same main prompt history semantics.
+
+### Tests
+- Add a unit test for `_read_input(...)` showing that a `MultilineEditRequest` followed by editor submit appends the final text to session history.
+- Add a unit test that the appended history text preserves embedded newlines exactly.
+- Add a unit test that editor discard/cancel does not append anything to prompt history.
+- Keep existing prompt history limit behavior unchanged; reuse `LimitedInMemoryHistory` in tests where possible.
