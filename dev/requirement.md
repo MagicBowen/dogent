@@ -37,6 +37,11 @@
 
 ## Pending Requirements
 
+[update to newest version of claude agent sdk]
+- use the inner tools such as Agent, AskUserQuestion...
+- use the structured output of claude agent sdk
+- update the newest skills(pptx...) from claude agent sdk
+
 [support builtin commands/skills/sub-agents]
 
 [support more document template]
