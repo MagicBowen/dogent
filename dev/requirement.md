@@ -51,6 +51,7 @@
 - blog
 - software design document
 - software usage manual
+- consultant proposal
 
 [support mutiple language]
 - support multiple languages: en & zh;
