@@ -41,6 +41,7 @@
 - use the inner tools such as Agent, AskUserQuestion...
 - use the structured output of claude agent sdk
 - update the newest skills(pptx...) from claude agent sdk
+- update to the newest LLMs
 
 [support builtin commands/skills/sub-agents]
 
