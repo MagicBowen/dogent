@@ -40,6 +40,7 @@
 - @file references resolve within the current workspace; avoid reading outside project boundaries.
 - When using prompt_toolkit, avoid raw stdin/termios reads in parallel; if an Esc listener is needed, ensure it drains escape sequences and exits cleanly before the next prompt to prevent IME/arrow-key echo issues.
 - If you interrupt but keep the SDK client/session open, drain messages until the ResultMessage to avoid stale results.
+- All usage of the Claude Agent SDK SHOULD refer to the examples and tutorials under the `claude` directory (especially `python_sdk_guildline.md` therein). Do **not** guess the interfaces, parameters, or usage patterns.
 
 ## Process & Quality Requirements
 - All functions must have automated tests; extend `tests/` alongside new code.
