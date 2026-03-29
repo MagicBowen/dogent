@@ -39,6 +39,7 @@ DEFAULT_PROJECT_CONFIG: Dict[str, Any] = {
     "authorizations": {},
     "plugins": [],
 }
+BUILTIN_PLUGIN_PATHS = ["~/.dogent/plugins/dogent"]
 GLOBAL_DEFAULTS_KEY = "workspace_defaults"
 GLOBAL_LLM_PROFILES_KEY = "llm_profiles"
 GLOBAL_WEB_PROFILES_KEY = "web_profiles"
@@ -864,9 +865,17 @@ class ConfigManager:
     def _load_plugins(
         self, project_cfg: Dict[str, Any], *, warn: bool = True
     ) -> list[Path]:
+        resolved: list[Path] = []
+        seen: set[str] = set()
+        for path in self._builtin_plugin_paths():
+            key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            resolved.append(path)
         raw = (project_cfg or {}).get("plugins")
         if raw is None:
-            return []
+            return resolved
         if isinstance(raw, str):
             entries = [raw]
         elif isinstance(raw, list):
@@ -876,9 +885,7 @@ class ConfigManager:
                 self.console.print(
                     "[yellow]Ignoring plugins: expected a list of paths.[/yellow]"
                 )
-            return []
-        resolved: list[Path] = []
-        seen: set[str] = set()
+            return resolved
         for entry in entries:
             if not isinstance(entry, str):
                 if warn:
@@ -906,6 +913,19 @@ class ConfigManager:
             seen.add(key)
             resolved.append(resolved_path)
         return resolved
+
+    def _builtin_plugin_paths(self) -> list[Path]:
+        paths: list[Path] = []
+        for raw in BUILTIN_PLUGIN_PATHS:
+            path = Path(raw).expanduser()
+            manifest = path / ".claude-plugin" / "plugin.json"
+            if not manifest.exists():
+                continue
+            try:
+                paths.append(path.resolve())
+            except Exception as exc:
+                log_exception("config", exc)
+        return paths
     
     def _normalize_web_profile(self, raw: Any) -> Optional[str]:
         if raw is None:

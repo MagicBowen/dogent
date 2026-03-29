@@ -9,7 +9,7 @@ from rich.console import Console
 from .features.doc_templates import DocumentTemplateManager
 from .core.file_refs import FileAttachment
 from .config.paths import DogentPaths
-from .config.resources import read_prompt_text, read_template_text
+from .config.resources import read_prompt_text
 from .core.todo import TodoManager
 from .core.session_log import log_exception
 from .core.history import HistoryManager
@@ -275,5 +275,7 @@ class PromptBuilder:
         return read_prompt_text(name)
 
     def _load_default_doc_template(self) -> str:
-        text = read_template_text("doc_general.md").strip()
-        return text or "General document template not available."
+        resolved = self.doc_templates.resolve("general")
+        if resolved and resolved.content.strip():
+            return resolved.content.strip()
+        return "General document template not available."

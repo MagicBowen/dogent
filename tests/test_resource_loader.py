@@ -26,7 +26,7 @@ class ResourceLoaderTests(unittest.TestCase):
         self.assertIn("Return ONLY valid JSON", vision_prompt)
 
     def test_read_template_text(self) -> None:
-        template_text = read_template_text("doc_general.md")
+        template_text = read_template_text("general/SKILL.md")
         self.assertIn("General Document Template", template_text)
 
     def test_read_schema_text(self) -> None:
@@ -41,7 +41,7 @@ class ResourceLoaderTests(unittest.TestCase):
     def test_iter_dir_lists_templates(self) -> None:
         entries = iter_dir("templates")
         names = {entry.name for entry in entries}
-        self.assertIn("doc_general.md", names)
+        self.assertIn("general", names)
 
     def test_resource_path(self) -> None:
         resources_root = resource_path("resources")

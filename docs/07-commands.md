@@ -66,6 +66,26 @@ dogent -p "写一份 README 提纲"
 
 ---
 
+### /template
+
+查看可用模板，或启动模板创建/优化工作流。
+
+```text
+/template
+/template list
+/template create <free text requirements>
+/template optimize <template> [free text requirements]
+```
+
+说明：
+
+- 直接输入 `/template` 会显示模板库存，效果等同于 `/template list`
+- 输入 `/template ` 时会补全 `list`、`create` 和 `optimize`
+- `/template create` 后可以直接跟自然语言需求；需求中仍可使用 `@file` 与 `@@template` 引用上下文
+- `/template optimize` 不带模板名时会显示模板列表和用法提示
+
+---
+
 ### /profile
 
 查看或切换 profile。
@@ -160,7 +180,9 @@ dogent -p "写一份 README 提纲"
 - 插件路径中需要包含 `.claude-plugin/plugin.json`
 - `~/.claude/plugins` 中的插件命令会以 `/claude:<plugin>:<name>` 形式出现
 - `~/.dogent/plugins` 中的插件命令会以 `/<plugin>:<name>` 形式出现
-- Dogent 会在启动时把内置插件安装到 `~/.dogent/plugins`，并在新工作区默认加入 `~/.dogent/plugins/claude`
+- Dogent 会在启动时把内置插件安装到 `~/.dogent/plugins`
+- `~/.dogent/plugins/dogent` 会作为 Dogent 原生内置插件自动启用，不需要写进 `.dogent/dogent.json`
+- 其他插件（包括 `~/.dogent/plugins/claude`）按需通过 `.dogent/dogent.json` 的 `plugins` 配置启用
 
 ---
 
@@ -178,6 +200,7 @@ dogent -p "写一份 README 提纲"
 - 输入 `/`：显示命令提示
 - 输入 `@`：提示文件补全
 - 输入 `@@`：提示模板补全
+- 在 `/template create ...` 的自由文本需求中，同样支持 `@` 文件补全和 `@@` 模板补全
 - `!<command>`：执行工作区内 shell 命令
 
 ---

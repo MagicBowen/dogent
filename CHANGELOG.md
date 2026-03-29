@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.28 - 2026-03-29
+
+### Added
+- Native `/template` workflows for listing, creating, and optimizing document templates from the CLI.
+- A built-in Dogent `doc-template-creator` skill for template authoring and optimization.
+- Support for using `@file` and `@@template` references inside `/template create` briefs, including interactive completion.
+
+### Changed
+- Document templates now use the skill-style `SKILL.md` directory format, with reusable references under `templates/`.
+- Built-in document templates were migrated to the new layout and are still available through `/init` and `@@`.
+- The Dogent built-in plugin under `~/.dogent/plugins/dogent` is now auto-enabled without requiring `dogent.json` configuration.
+
+### Fixed
+- `/template` inventory and generated template metadata now read descriptions reliably from YAML frontmatter.
+- `/template` completion now includes `list` and keeps file/template completion available inside `/template create` free-text input.
+
+---
+
 ## 0.9.27 - 2026-03-29
 
 ### Added

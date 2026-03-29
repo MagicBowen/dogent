@@ -384,7 +384,15 @@ class ConfigTests(unittest.TestCase):
             options = manager.build_options("sys")
 
             self.assertEqual(
-                [{"type": "local", "path": str(plugin_root.resolve())}],
+                [
+                    {
+                        "type": "local",
+                        "path": str(
+                            (Path(tmp_home) / ".dogent" / "plugins" / "dogent").resolve()
+                        ),
+                    },
+                    {"type": "local", "path": str(plugin_root.resolve())},
+                ],
                 options.plugins,
             )
         if original_home is not None:
@@ -408,7 +416,17 @@ class ConfigTests(unittest.TestCase):
             manager = ConfigManager(paths, console=console)
             options = manager.build_options("sys")
 
-            self.assertEqual([], options.plugins)
+            self.assertEqual(
+                [
+                    {
+                        "type": "local",
+                        "path": str(
+                            (Path(tmp_home) / ".dogent" / "plugins" / "dogent").resolve()
+                        ),
+                    },
+                ],
+                options.plugins,
+            )
             output = console.export_text()
             self.assertIn("Claude plugin not found", output)
         if original_home is not None:
@@ -426,13 +444,13 @@ class ConfigTests(unittest.TestCase):
             manager.create_config_template()
 
             data = json.loads(paths.config_file.read_text(encoding="utf-8"))
-            self.assertEqual(["~/.dogent/plugins/claude"], data.get("plugins"))
+            self.assertEqual([], data.get("plugins"))
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
             os.environ.pop("HOME", None)
 
-    def test_existing_workspace_config_does_not_inject_builtin_plugin(self) -> None:
+    def test_existing_workspace_config_keeps_explicit_plugins_empty(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
@@ -462,8 +480,10 @@ class ConfigTests(unittest.TestCase):
             paths = DogentPaths(Path(tmp))
             ConfigManager(paths)
 
-            manifest = home_plugins / "claude" / ".claude-plugin" / "plugin.json"
-            self.assertTrue(manifest.exists())
+            claude_manifest = home_plugins / "claude" / ".claude-plugin" / "plugin.json"
+            dogent_manifest = home_plugins / "dogent" / ".claude-plugin" / "plugin.json"
+            self.assertTrue(claude_manifest.exists())
+            self.assertTrue(dogent_manifest.exists())
             self.assertFalse((home_plugins / "claude" / "stale.txt").exists())
         if original_home is not None:
             os.environ["HOME"] = original_home

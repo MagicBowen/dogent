@@ -9,6 +9,4 @@ build/
 .dogent/memory.md
 .dogent/history.json
 .claude-local/
-claude-agent-sdk-python/
-uats/sample_workspace/
-claude-agent-sdk/skills/*
+samples/

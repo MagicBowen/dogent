@@ -337,16 +337,24 @@ class DogentCompleter(Completer):
     def get_completions(self, document: Document, complete_event):  # type: ignore[override]
         text = document.text_before_cursor
         if text.startswith("/"):
-            for comp in self._command_completions(text):
-                yield comp
-            return
-
-        if self.template_provider and DOC_TEMPLATE_TOKEN in text:
-            template_completions = list(self._match_templates(text))
-            if template_completions:
-                for comp in template_completions:
+            command_completions = list(self._command_completions(text))
+            if command_completions:
+                for comp in command_completions:
                     yield comp
                 return
+            if self._has_active_template_token(text):
+                for comp in self._match_templates(text):
+                    yield comp
+                return
+            if "@" in text:
+                for comp in self._match_files(text):
+                    yield comp
+            return
+
+        if self._has_active_template_token(text):
+            for comp in self._match_templates(text):
+                yield comp
+            return
 
         if "@" in text:
             for comp in self._match_files(text):
@@ -371,6 +379,10 @@ class DogentCompleter(Completer):
                 if len(tokens) == 2:
                     return self._profile_value_completions(tokens[1], "")
                 return []
+            if command == "/template":
+                if len(tokens) == 2 and tokens[1] == "optimize":
+                    return self._template_value_completions("")
+                return []
             return []
 
         if len(tokens) == 1 and text.endswith(" "):
@@ -379,6 +391,12 @@ class DogentCompleter(Completer):
         arg_prefix = "" if text.endswith(" ") else tokens[-1]
         if command == "/profile" and len(tokens) >= 2:
             return self._profile_value_completions(tokens[1], arg_prefix)
+        if command == "/template" and len(tokens) >= 2:
+            if len(tokens) == 2:
+                return self._arg_completions(command, arg_prefix)
+            if len(tokens) == 3 and tokens[1] == "optimize":
+                return self._template_value_completions(arg_prefix)
+            return []
         return self._arg_completions(command, arg_prefix)
 
     def _arg_completions(self, command: str, arg_prefix: str) -> Iterable[Completion]:
@@ -405,6 +423,8 @@ class DogentCompleter(Completer):
                 "all",
                 "custom",
             ]
+        elif command == "/template":
+            options = ["create", "optimize", "list"]
         elif command == "/init" and self.template_provider:
             options = list(self.template_provider())
         elif command == "/edit":
@@ -426,6 +446,17 @@ class DogentCompleter(Completer):
             return []
         values = [val for val in self.profile_provider(target.lower()) if isinstance(val, str)]
         matches = [opt for opt in values if opt.startswith(arg_prefix)]
+        return [Completion(opt, start_position=-len(arg_prefix)) for opt in matches]
+
+    def _template_value_completions(self, arg_prefix: str) -> Iterable[Completion]:
+        options = list(self.template_provider()) if self.template_provider else []
+        if not options:
+            return []
+        matches = []
+        for opt in options:
+            name = opt.split(":", 1)[1] if ":" in opt else opt
+            if opt.startswith(arg_prefix) or name.startswith(arg_prefix):
+                matches.append(opt)
         return [Completion(opt, start_position=-len(arg_prefix)) for opt in matches]
 
     def _match_files(self, text: str) -> Iterable[Completion]:
@@ -515,6 +546,15 @@ class DogentCompleter(Completer):
             Completion(opt, start_position=-len(partial), display=opt)
             for opt in matches
         ]
+
+    def _has_active_template_token(self, text: str) -> bool:
+        if not self.template_provider:
+            return False
+        token_index = text.rfind(DOC_TEMPLATE_TOKEN)
+        if token_index == -1:
+            return False
+        partial = text[token_index + len(DOC_TEMPLATE_TOKEN) :]
+        return " " not in partial and "\n" not in partial
 
 
 def _should_move_within_multiline(document: Document, direction: str) -> bool:

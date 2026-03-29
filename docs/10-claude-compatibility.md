@@ -40,7 +40,7 @@ Dogent 会加载以下位置的 Claude commands：
 - `~/.dogent/plugins` 中的插件命令：/<plugin>:<command>
 ```
 
-Dogent 会在启动时把内置插件安装到 `~/.dogent/plugins`，并在新工作区默认加入 `~/.dogent/plugins/claude`。
+Dogent 会在启动时把内置插件安装到 `~/.dogent/plugins`。其中 `~/.dogent/plugins/dogent` 会自动启用；其他插件仍通过 `.dogent/dogent.json` 的 `plugins` 配置决定是否启用。
 
 ---
 
@@ -57,7 +57,8 @@ Dogent 会将项目内 `.claude/` 目录传递给 Claude Agent SDK，方便复�
 
 - 若你已有 Claude Code 项目，可直接拷贝 `.claude/commands` 到当前项目
 - 将共享命令放在 `~/.claude/commands` 便于跨项目复用
-- 插件建议集中配置在 `~/.claude/plugins`，然后通过 `plugins` 引用
+- Claude 生态插件建议集中配置在 `~/.claude/plugins`，然后通过 `plugins` 引用
+- Dogent 原生内置技能放在 `~/.dogent/plugins/dogent`，例如模板创建相关技能
 
 ---
 

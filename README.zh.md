@@ -64,8 +64,15 @@ dogent>  Use template @@built-in:technical_blog to write a technical blog about 
 在交互模式中：
 - 输入 `@` 引用工作区内文件。
 - 输入 `@@` 引用可用文档模板。
+- 在 `/template create <需求>` 的自由文本中，同样可以继续使用 `@file` 与 `@@template` 引用上下文。
 - 按 Enter 提交；Dogent 会规划任务并生成内容。
 - 按 `Esc` 可中断并补充信息或调整需求。
+
+模板工作流：
+- `/template` 或 `/template list` 用于查看当前可用模板清单。
+- 输入 `/template ` 时会弹出 `list`、`create`、`optimize`。
+- `/template create <需求>` 会启动内置模板创建工作流。
+- `/template optimize <template> [需求]` 会优化现有模板。
 
 多行输入可按 `Ctrl+E` 打开 CLI Markdown 编辑器，编辑后按 `Ctrl+J` 提交。
 

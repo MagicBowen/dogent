@@ -50,7 +50,7 @@ Dogent 的配置分为「全局配置」与「工作区配置」，两者协作�
 - `editor_mode`：`default` 或 `vi`
 - `debug`：调试日志开关与级别
 - `authorizations`：权限记忆（详见权限章节）
-- `plugins`：Claude 插件根目录列表（新工作区默认包含 `~/.dogent/plugins/claude`）
+- `plugins`：额外启用的插件根目录列表。Dogent 原生内置插件 `~/.dogent/plugins/dogent` 会自动启用，无需在这里配置。
 
 示例：
 
@@ -66,7 +66,7 @@ Dogent 的配置分为「全局配置」与「工作区配置」，两者协作�
   "editor_mode": "default",
   "debug": false,
   "authorizations": {},
-  "plugins": ["~/.dogent/plugins/claude"]
+  "plugins": []
 }
 ```
 
@@ -95,7 +95,7 @@ Dogent 的配置分为「全局配置」与「工作区配置」，两者协作�
     "primary_language": "Chinese",
     "learn_auto": true,
     "editor_mode": "default",
-    "plugins": ["~/.dogent/plugins/claude"]
+    "plugins": []
   },
   "llm_profiles": { "deepseek": { ... } },
   "web_profiles": { "brave": { ... } },

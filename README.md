@@ -64,8 +64,15 @@ dogent>  Use template @@built-in:technical_blog to write a technical blog about 
 In interactive mode:
 - Type `@` to reference files in the workspace.
 - Type `@@` to reference available document templates.
+- `/template create <brief>` also accepts `@file` and `@@template` references inside the brief.
 - Press Enter to submit; Dogent will plan the task and generate content.
 - Press `Esc` to interrupt and provide more info or adjust requirements.
+
+Template workflows:
+- `/template` or `/template list` shows the available template inventory.
+- Typing `/template ` offers `list`, `create`, and `optimize`.
+- `/template create <brief>` starts the built-in template creator with free-text requirements.
+- `/template optimize <template> [brief]` refines an existing template.
 
 For multi-line input, press `Ctrl+E` to open the CLI markdown editor, then press `Ctrl+J` to submit.
 

@@ -70,6 +70,59 @@ class DogentCompleterTests(unittest.TestCase):
         self.assertIn("default", texts)
         self.assertIn("alpha", texts)
 
+    def test_template_command_shows_actions(self) -> None:
+        completer = DogentCompleter(Path("."), ["/template"])
+        comps = list(completer.get_completions(Document("/template "), None))
+        texts = [c.text for c in comps]
+        self.assertIn("create", texts)
+        self.assertIn("optimize", texts)
+        self.assertIn("list", texts)
+
+    def test_template_optimize_shows_template_names(self) -> None:
+        completer = DogentCompleter(
+            Path("."),
+            ["/template"],
+            template_provider=lambda: ["general", "built-in:resume", "global:research_report"],
+        )
+        comps = list(completer.get_completions(Document("/template optimize "), None))
+        texts = [c.text for c in comps]
+        self.assertIn("general", texts)
+        self.assertIn("built-in:resume", texts)
+        self.assertIn("global:research_report", texts)
+
+    def test_template_create_free_text_does_not_keep_showing_fixed_options(self) -> None:
+        completer = DogentCompleter(Path("."), ["/template"])
+        comps = list(
+            completer.get_completions(Document("/template create write one "), None)
+        )
+        self.assertEqual([], [c.text for c in comps])
+
+    def test_template_create_free_text_supports_file_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "brief.md").write_text("hi", encoding="utf-8")
+            completer = DogentCompleter(root, ["/template"])
+            comps = list(
+                completer.get_completions(Document("/template create use @"), None)
+            )
+            texts = [c.text for c in comps]
+            self.assertIn("brief.md", texts)
+
+    def test_template_create_free_text_supports_template_completion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            completer = DogentCompleter(
+                root,
+                ["/template"],
+                template_provider=lambda: ["reference_template", "built-in:resume"],
+            )
+            comps = list(
+                completer.get_completions(Document("/template create use @@"), None)
+            )
+            texts = [c.text for c in comps]
+            self.assertIn("reference_template", texts)
+            self.assertIn("built-in:resume", texts)
+
     def test_debug_command_shows_presets(self) -> None:
         completer = DogentCompleter(Path("."), ["/debug"])
         comps = list(completer.get_completions(Document("/debug "), None))

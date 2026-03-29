@@ -1,0 +1,8 @@
+{
+  "name": "dogent",
+  "description": "Built-in Dogent plugin for Dogent-native skills",
+  "version": "1.0.0",
+  "author": {
+    "name": "Dogent"
+  }
+}

@@ -44,9 +44,11 @@ class TemplateOverrideTests(unittest.TestCase):
             root = Path(tmp)
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
             cli = DogentCLI(root=root, console=console, interactive_prompts=False)
-            cli.paths.doc_templates_dir.mkdir(parents=True, exist_ok=True)
-            cli.paths.doc_templates_dir.joinpath("demo.md").write_text(
-                "# Demo\n\n## Introduction\nTest\n", encoding="utf-8"
+            template_dir = cli.paths.doc_templates_dir / "demo"
+            template_dir.mkdir(parents=True, exist_ok=True)
+            (template_dir / "SKILL.md").write_text(
+                "---\nname: demo\ndescription: Test\n---\n# Demo\n\nTest\n",
+                encoding="utf-8",
             )
 
             self.assertEqual(cli._normalize_template_override("demo"), "demo")

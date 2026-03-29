@@ -19,6 +19,7 @@ from rich import box
 from rich.align import Align
 from rich.console import Console, Group
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
@@ -352,6 +353,11 @@ class DogentCLI:
             "/edit",
             self._cmd_edit,
             "Edit a local text file in the markdown editor: /edit <path>.",
+        )
+        self._register_builtin_command(
+            "/template",
+            self._cmd_template,
+            "Manage document templates: /template [create|optimize|list].",
         )
         self._register_builtin_command(
             "/profile",
@@ -714,6 +720,57 @@ class DogentCLI:
         self._show_profile_table(show_available=False)
         return True
 
+    async def _cmd_template(self, command: str) -> bool:
+        parts = command.split(maxsplit=2)
+        action = parts[1].strip().lower() if len(parts) > 1 else ""
+        rest = parts[2].strip() if len(parts) > 2 else ""
+        if not action or action == "list":
+            self._show_template_inventory()
+            return True
+        if action == "create":
+            if not rest:
+                self._show_template_inventory(
+                    usage="Usage: /template create <free text requirements>"
+                )
+                return True
+            brief, attachments = self._prepare_template_workflow_brief(rest)
+            return await self._run_template_workflow(
+                self._build_template_create_message(brief),
+                attachments,
+            )
+        if action == "optimize":
+            if not rest:
+                self._show_template_inventory(
+                    usage="Usage: /template optimize <template> [free text requirements]"
+                )
+                return True
+            target, brief = self._parse_template_optimize_args(rest)
+            normalized_target = self._normalize_template_command_target(target)
+            if not normalized_target:
+                self._show_template_inventory(
+                    usage="Usage: /template optimize <template> [free text requirements]"
+                )
+                return True
+            prepared_brief, attachments = self._prepare_template_workflow_brief(brief)
+            return await self._run_template_workflow(
+                self._build_template_optimize_message(normalized_target, prepared_brief),
+                attachments,
+            )
+        self.console.print(
+            Panel(
+                "\n".join(
+                    [
+                        f"Unknown template action: {action}",
+                        "Valid actions: create, optimize, list",
+                        "Usage: /template",
+                    ]
+                ),
+                title="📄 Template",
+                border_style="red",
+            )
+        )
+        return True
+
     async def _select_profile(self, target: str) -> bool:
         options = self._profile_options(target)
         if not options:
@@ -856,6 +913,218 @@ class DogentCLI:
                 continue
             mapping[value.strip().lower()] = value
         return mapping
+
+    def _template_inventory_sections(self) -> list[tuple[str, list[str]]]:
+        sections: list[tuple[str, list[str]]] = []
+        general = self.doc_templates.resolve("general")
+        general_desc = general.description if general else ""
+        general_line = f"- general: {general_desc}" if general_desc else "- general"
+        sections.append(("Default", [general_line]))
+
+        templates = self.doc_templates.list_templates()
+        for title, source in [
+            ("Workspace", "workspace"),
+            ("Global", "global"),
+            ("Built-in", "built-in"),
+        ]:
+            lines: list[str] = []
+            for info in templates:
+                if info.source != source:
+                    continue
+                content = self.doc_templates.resolve(info.display_name)
+                description = content.description if content else ""
+                line = f"- {info.display_name}: {description}" if description else f"- {info.display_name}"
+                lines.append(line)
+            sections.append((title, lines or ["- (none)"]))
+        return sections
+
+    def _show_template_inventory(self, *, usage: str | None = None) -> None:
+        lines: list[str] = []
+        for title, entries in self._template_inventory_sections():
+            lines.append(f"{title}:")
+            lines.extend(entries)
+            lines.append("")
+        if usage:
+            lines.extend([usage, "", "Examples:", "- /template create write a bilingual software usage manual template", "- /template optimize built-in:resume make it more concise"])
+        body = "\n".join(lines).strip()
+        self.console.print(
+            Panel(
+                escape(body),
+                title="📄 Templates",
+                border_style="cyan",
+            )
+        )
+
+    def _parse_template_optimize_args(self, text: str) -> tuple[str, str]:
+        parts = text.split(maxsplit=1)
+        if not parts:
+            return "", ""
+        target = parts[0].strip()
+        brief = parts[1].strip() if len(parts) > 1 else ""
+        return target, brief
+
+    def _normalize_template_command_target(self, template_key: str) -> str | None:
+        cleaned = (template_key or "").strip()
+        if not cleaned:
+            return None
+        if cleaned.lower().startswith("workspace:"):
+            self.console.print(
+                Panel(
+                    "Workspace templates do not use the 'workspace:' prefix. Use the template name directly.",
+                    title="📄 Template",
+                    border_style="yellow",
+                )
+            )
+            return None
+        resolved = self.doc_templates.resolve(cleaned)
+        if resolved:
+            if cleaned.lower() == "general":
+                return "general"
+            if resolved.source == "workspace":
+                return resolved.name
+            return f"{resolved.source}:{resolved.name}"
+        known_global = self.doc_templates.names_for_source("global")
+        known_builtin = self.doc_templates.names_for_source("built-in")
+        if cleaned in known_global or cleaned in known_builtin:
+            hints = []
+            if cleaned in known_global:
+                hints.append(f"global:{cleaned}")
+            if cleaned in known_builtin:
+                hints.append(f"built-in:{cleaned}")
+            self.console.print(
+                Panel(
+                    f"Template '{cleaned}' is not a workspace template. Use {' or '.join(hints)}.",
+                    title="📄 Template",
+                    border_style="yellow",
+                )
+            )
+            return None
+        self.console.print(
+            Panel(
+                f"Unknown template: {cleaned}",
+                title="📄 Template",
+                border_style="yellow",
+            )
+        )
+        return None
+
+    def _build_template_create_message(self, brief: str) -> str:
+        return (
+            "Use the built-in Dogent skill `doc-template-creator` from the Dogent built-in plugin.\n\n"
+            "Mode: create\n"
+            "Default scope: workspace unless the user explicitly asks for a global template.\n"
+            "Task: create a document template in the standard Dogent template skill format.\n\n"
+            f"User brief:\n{brief.strip()}\n\n"
+            "Requirements:\n"
+            "- Use `SKILL.md` as the entry point for purpose, background, precautions, and file references.\n"
+            "- Put template summary metadata in the YAML frontmatter of `SKILL.md`.\n"
+            "- Write the YAML `description` as a single-line scalar on the same line as `description:`.\n"
+            "- Place reusable output structure references in `templates/`, sample outputs in `examples/`, and required multimedia assets in `assets/`.\n"
+            "- Use the new Dogent template directory format.\n"
+            "- Report the created template key and the files changed."
+        )
+
+    def _build_template_optimize_message(self, template_key: str, brief: str) -> str:
+        extra = brief.strip() if brief.strip() else "No extra user brief was provided. Improve the template based on its current content and structure."
+        return (
+            "Use the built-in Dogent skill `doc-template-creator` from the Dogent built-in plugin.\n\n"
+            "Mode: optimize\n"
+            f"Target template: {template_key}\n"
+            "Task: optimize the selected document template while preserving the standard Dogent template skill format.\n\n"
+            f"User brief:\n{extra}\n\n"
+            "Requirements:\n"
+            "- Inspect the existing template files before editing.\n"
+            "- Keep `SKILL.md` as the entry point for purpose, background, precautions, and file references.\n"
+            "- Keep template summary metadata in the YAML frontmatter of `SKILL.md`.\n"
+            "- Keep the YAML `description` as a single-line scalar on the same line as `description:`.\n"
+            "- Update `templates/`, `examples/`, and `assets/` as needed.\n"
+            "- Report the optimized template key and the files changed."
+        )
+
+    async def _run_template_workflow(
+        self, message: str, attachments: list[FileAttachment]
+    ) -> bool:
+        if not message.strip():
+            return True
+        if not await self._maybe_auto_init_for_request(message):
+            return True
+        if attachments:
+            self._show_attachments(attachments)
+        blocked = self._blocked_media_attachments(attachments)
+        if blocked:
+            self._show_vision_disabled_error(blocked)
+            return True
+        if self._armed_incident and self.auto_learn_enabled:
+            try:
+                if await self._confirm_save_lesson():
+                    await self._save_lesson_from_incident(self._armed_incident, message)
+            except SelectionCancelled:
+                self._armed_incident = None
+                return True
+            self._armed_incident = None
+        await self._run_with_interrupt(message, attachments)
+        return True
+
+    def _prepare_template_workflow_brief(
+        self, brief: str
+    ) -> tuple[str, list[FileAttachment]]:
+        message, template_refs = self._extract_template_references(brief)
+        normalized_refs: list[str] = []
+        for ref in template_refs:
+            normalized = self._normalize_template_override(ref)
+            if not normalized:
+                continue
+            normalized_refs.append(normalized)
+            self._show_template_reference(normalized)
+        message, attachments = self._resolve_attachments(message)
+        message = self._replace_file_references(message, attachments)
+        template_context = self._build_template_reference_context(normalized_refs)
+        if template_context:
+            if message.strip():
+                message = f"{message.strip()}\n\n{template_context}"
+            else:
+                message = template_context
+        return message.strip(), attachments
+
+    def _extract_template_references(self, message: str) -> tuple[str, list[str]]:
+        pattern = re.compile(re.escape(DOC_TEMPLATE_TOKEN) + r"(?!@)([^\s]+)")
+        references: list[str] = []
+
+        def replace(match: re.Match[str]) -> str:
+            raw = match.group(1)
+            cleaned = raw.rstrip(".,;:!?)]}")
+            suffix = raw[len(cleaned) :] if cleaned else ""
+            if cleaned:
+                references.append(cleaned)
+                return f"[doc template reference]: {cleaned}{suffix}"
+            return match.group(0)
+
+        replaced_message = pattern.sub(replace, message)
+        replaced_message = re.sub(r"[ \t]{2,}", " ", replaced_message).strip()
+        return replaced_message, references
+
+    def _build_template_reference_context(self, template_keys: list[str]) -> str:
+        sections: list[str] = []
+        seen: set[str] = set()
+        for key in template_keys:
+            if key in seen:
+                continue
+            seen.add(key)
+            resolved = self.doc_templates.resolve(key)
+            if not resolved:
+                continue
+            sections.append(
+                "\n".join(
+                    [
+                        f"## Referenced Template: {key}",
+                        "",
+                        resolved.content,
+                    ]
+                ).strip()
+            )
+        if not sections:
+            return ""
+        return "Referenced template context:\n\n" + "\n\n".join(sections)
 
     def _profile_display_label(self, target: str, value: str | None) -> str:
         if target == "web":
@@ -4288,9 +4557,9 @@ class DogentCLI:
                 "- `.dogent/lessons.md`: lessons learned",
                 "",
                 "## Templates",
-                "- Workspace: `.dogent/templates/<name>.md`",
-                "- Global: `~/.dogent/templates/<name>.md` (use `global:<name>`)",
-                "- Built-in: `dogent/templates/<name>.md` (use `built-in:<name>`)",
+                "- Workspace: `.dogent/templates/<name>/SKILL.md`",
+                "- Global: `~/.dogent/templates/<name>/SKILL.md` (use `global:<name>`)",
+                "- Built-in: `dogent/templates/<name>/SKILL.md` (use `built-in:<name>`)",
                 "",
                 "## Permissions",
                 "- Access outside workspace and destructive operations require confirmation.",

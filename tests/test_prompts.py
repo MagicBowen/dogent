@@ -14,6 +14,22 @@ from dogent.core.todo import TodoItem, TodoManager
 
 
 class PromptTests(unittest.TestCase):
+    def _write_template(
+        self,
+        root: Path,
+        name: str,
+        skill_text: str,
+        *,
+        templates: dict[str, str] | None = None,
+    ) -> None:
+        template_dir = root / name
+        template_dir.mkdir(parents=True, exist_ok=True)
+        (template_dir / "SKILL.md").write_text(skill_text, encoding="utf-8")
+        for rel_path, text in (templates or {}).items():
+            ref_path = template_dir / "templates" / rel_path
+            ref_path.parent.mkdir(parents=True, exist_ok=True)
+            ref_path.write_text(text, encoding="utf-8")
+
     def test_prompts_include_todos_and_files(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
@@ -104,8 +120,10 @@ class PromptTests(unittest.TestCase):
             paths.doc_preferences.write_text("prefs", encoding="utf-8")
             templates_dir = paths.doc_templates_dir
             templates_dir.mkdir(parents=True, exist_ok=True)
-            templates_dir.joinpath("demo.md").write_text(
-                "# Demo\n\n## Introduction\nDemo template.", encoding="utf-8"
+            self._write_template(
+                templates_dir,
+                "demo",
+                "---\nname: demo\ndescription: Demo template.\n---\n# Demo\n\n## Introduction\nDemo intro.\n\n## Writing Requirements\nDemo requirements.",
             )
 
             todo_manager = TodoManager()
@@ -115,7 +133,8 @@ class PromptTests(unittest.TestCase):
                 config={"doc_template": "demo"}
             )
 
-            self.assertIn("Demo template.", system_prompt)
+            self.assertIn("Demo requirements.", system_prompt)
+            self.assertNotIn("Demo intro.", system_prompt)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -135,7 +154,8 @@ class PromptTests(unittest.TestCase):
             builder = PromptBuilder(paths, todo_manager, history)
             system_prompt = builder.build_system_prompt(config={"doc_template": "general"})
 
-            self.assertIn("General Document Template", system_prompt)
+            self.assertIn("Start with a brief overview or context.", system_prompt)
+            self.assertNotIn("General-purpose template for professional documents", system_prompt)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -151,8 +171,10 @@ class PromptTests(unittest.TestCase):
             paths.doc_preferences.write_text("prefs", encoding="utf-8")
             templates_dir = paths.doc_templates_dir
             templates_dir.mkdir(parents=True, exist_ok=True)
-            templates_dir.joinpath("override.md").write_text(
-                "# Override\n\n## Introduction\nOverride template.", encoding="utf-8"
+            self._write_template(
+                templates_dir,
+                "override",
+                "---\nname: override\ndescription: Override template.\n---\n# Override\n\n## Introduction\nOverride intro.\n\n## Writing Requirements\nOverride requirements.",
             )
 
             todo_manager = TodoManager()
@@ -162,9 +184,39 @@ class PromptTests(unittest.TestCase):
             system_prompt = builder.build_system_prompt(config=config)
             user_prompt = builder.build_user_prompt("msg", [], config=config)
 
-            self.assertNotIn("Override template.", system_prompt)
+            self.assertNotIn("Override requirements.", system_prompt)
             self.assertIn("Doc Template Reference", user_prompt)
-            self.assertIn("Override template.", user_prompt)
+            self.assertIn("Override requirements.", user_prompt)
+            self.assertNotIn("Override intro.", user_prompt)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_doc_template_templates_are_appended_to_prompt_content(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.doc_preferences.write_text("prefs", encoding="utf-8")
+            self._write_template(
+                paths.doc_templates_dir,
+                "demo",
+                "---\nname: demo\ndescription: Demo template.\n---\n# Demo\n\n## Introduction\nBase intro.\n\n## Writing Requirements\nBase template.",
+                templates={"sections.md": "Section rules."},
+            )
+
+            todo_manager = TodoManager()
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo_manager, history)
+            system_prompt = builder.build_system_prompt(config={"doc_template": "demo"})
+
+            self.assertIn("Base template.", system_prompt)
+            self.assertNotIn("Base intro.", system_prompt)
+            self.assertIn("## Output Template: templates/sections.md", system_prompt)
+            self.assertIn("Section rules.", system_prompt)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
