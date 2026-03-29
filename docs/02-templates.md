@@ -1,107 +1,235 @@
 # 模板体系与使用方式
 
-Dogent 的模板体系决定了不同文档类型的输出结构与写作规则，保证专业文档的内容风格与结构的一致性。本章聚焦模板来源、优先级与使用方式。
+Dogent 的文档模板决定输出文档的结构、写作规则与约束。本章说明模板来源、标准格式、使用方式，以及如何通过新的 `/template` 工作流创建或优化模板。
 
 ## 1. 模板的三层来源
 
 Dogent 支持三种层级的模板：
 
 1) **内置模板（built-in）**  
-   随包发布，适合作为默认模板或示例。目前随包发布的模板只有如下几个（更多模板可以通过后文介绍的自定义方式进行创建）：
-   - `built-in:general`：通用写作模板，如果没有配置，默认使用该模板
-   - `built-in:technical_blog`：技术博客模板
-   - `built-in:research_report`：研究报告模板
-   - `built-in:resume`：个人简历模板
+   随软件包发布，适合作为默认模板或参考模板。当前内置模板包括：
+   - `general`：通用写作模板；未配置模板时默认使用它
+   - `built-in:resume`：简历模板
+   - `built-in:research-report`：研究报告模板
+   - `built-in:technical-blog`：技术博客模板
 
 2) **全局模板（global）**  
-   用户自定义，放在 `~/.dogent/templates/`，适合团队或个人跨项目复用。
+   用户自定义，放在 `~/.dogent/templates/`，适合跨项目复用。
 
 3) **工作区模板（workspace）**  
-   用户自定义，放在项目工作区内 `.dogent/templates/` 目录下，适合当前工作区内使用。
+   用户自定义，放在当前项目的 `.dogent/templates/`，适合当前工作区使用。
 
-**模板目录命名规则**：`<name>/SKILL.md`，使用时直接写 `<name>`。
+使用规则：
+
+- 工作区模板直接使用 `<name>`
+- 全局模板使用 `global:<name>`
+- 内置模板使用 `built-in:<name>`
+- `general` 是默认模板名，通常可直接写 `general`
 
 ---
 
-## 2. 使用模板的几种方式
+## 2. 新模板标准格式
+
+从 `0.9.28` 开始，Dogent 只支持新的目录式模板格式，不再支持旧的单文件 `<name>.md` 模板。
+
+标准结构如下：
+
+```text
+<template-root>/
+├── SKILL.md
+├── templates/   # 可选，放可复用的输出结构参考
+├── examples/    # 可选，放示例输出
+└── assets/      # 可选，放图片或其它素材
+```
+
+对应路径：
+
+- 工作区模板：`.dogent/templates/<name>/SKILL.md`
+- 全局模板：`~/.dogent/templates/<name>/SKILL.md`
+- 内置模板：`dogent/templates/<name>/SKILL.md`
+
+### 2.1 `SKILL.md` 的职责
+
+`SKILL.md` 是模板入口文件，应该清楚说明：
+
+- 模板用途
+- 背景与适用场景
+- 写作注意事项
+- 如何使用 `templates/`、`examples/`、`assets/` 中的文件
+
+同时，`SKILL.md` 顶部必须带 YAML 头部，至少包含：
+
+```markdown
+---
+name: proposal
+description: 商务提案模板，用于项目范围、方案与报价说明。
+---
+```
+
+注意：
+
+- `description` 必须写在同一行，不能写成多行 YAML block scalar。
+- Dogent 会用 `description` 作为 `/init`、`@@`、`/template` 列表中的摘要说明。
+
+### 2.2 Dogent 如何读取模板
+
+Dogent 读取模板时遵循以下规则：
+
+- 模板摘要来自 `SKILL.md` 头部 YAML 的 `description`
+- 注入提示词时，会去掉 `SKILL.md` 开头的标题和 `## Introduction` 部分
+- `templates/*.md` 会按稳定顺序追加到模板内容中，作为输出结构参考
+- `examples/` 与 `assets/` 不会自动注入提示词，但应该在 `SKILL.md` 中明确说明其用途
+- 旧格式如 `.dogent/templates/proposal.md` 不会被加载，也不会出现在补全列表中
+
+如果模板很简单，也可以只有一个 `SKILL.md`，不必强行拆出 `templates/`、`examples/`、`assets/`。
+
+---
+
+## 3. 使用模板的几种方式
 
 ### 方式 A：通过 `/init` 指定模板
 
 ```text
-> /init resume
-> /init built-in:research_report
-> /init global:proposal
+/init resume
+/init built-in:research-report
+/init global:proposal
 ```
 
-- **工作区模板**不需要前缀，放在当前工作目录的 `.dogent/templates/<name>/SKILL.md` 下；使用 `/init` 命令加空格后，会自动出现在可选模板列表中。
-- **全局模板**使用 `global:` 前缀，放在用户目录的 `~/.dogent/templates/<name>/SKILL.md` 下；使用 `/init` 命令加空格后，会自动出现在可选模板列表中。
-- **内置模板**使用 `built-in:` 前缀，软件包自带。
+- 工作区模板不需要前缀
+- 全局模板使用 `global:`
+- 内置模板使用 `built-in:`
+- 输入 `/init ` 后会弹出可选模板列表
 
-### 方式 B：在 `.dogent/dogent.json` 中设置
+### 方式 B：在 `.dogent/dogent.json` 中设置默认模板
 
 ```json
 {
-  "doc_template": "built-in:research_report"
+  "doc_template": "built-in:research-report"
 }
 ```
 
-### 方式 C：临时覆盖（只对当前请求生效）
+### 方式 C：在当前请求中临时覆盖
 
-在用户输入前加上 `@@`：
+在 prompt 中使用 `@@<template>`：
 
 ```text
-请根据我的工作经历生成一份简历初稿，使用 @@global:resume 模板，突出技术能力。
+请根据我的工作经历生成一份简历初稿，使用 @@built-in:resume 模板，突出技术能力。
 ```
 
-这不会修改任何配置文件，仅对本轮有效。
+这只对当前请求生效，不会修改配置文件。
 
 ---
 
-## 3. 让 `/init` “自动智能选择”模板
+## 4. `/template` 命令
 
-当 `/init` 的参数不是一个已知模板时，Dogent 会进入 **Init Wizard** 模式：
+Dogent 提供原生 `/template` 命令来查看模板库存，或启动模板创建/优化工作流：
 
 ```text
-> /init 我需要写一份 B2B 产品的市场分析报告
+/template
+/template list
+/template create <自然语言需求>
+/template optimize <template> [自然语言补充要求]
 ```
 
-向导会：
+行为说明：
 
-- 尝试匹配一个合适的模板（如 `research_report`）
-- 生成 `.dogent/dogent.md` 的初稿
-- 将配置自动写入 `.dogent/dogent.json`
-
-这是一种“让 `/init` 自动理解需求并给出模板建议”的方式。
+- `/template` 与 `/template list` 等价，都会显示可用模板清单
+- 输入 `/template ` 时，会弹出 `list`、`create`、`optimize`
+- `/template create` 后面可以直接跟自然语言需求
+- `/template optimize` 不带模板名时，会显示可用模板与用法提示
 
 ---
 
-## 4. 创建自定义模板
+## 5. 使用 `/template create` 创建模板
 
-### 创建工作区模板
+这是推荐的模板创建方式。
+
+示例：
+
+```text
+/template create 创建一个软件设计文档模板，用于后端服务 RFC，要求包含背景、目标、非目标、架构方案、风险、发布计划
+```
+
+`/template create` 的特点：
+
+- 默认在当前工作区下创建模板：`.dogent/templates/<name>/`
+- 如果你明确要求全局模板，Dogent 才会创建到 `~/.dogent/templates/<name>/`
+- Dogent 会调用内置的 `doc-template-creator` 技能来生成或修改模板文件
+- 生成结果遵循新的 `SKILL.md + 可选 templates/examples/assets` 结构
+
+### 5.1 在创建需求中引用文件和已有模板
+
+`/template create` 的自由文本需求中，仍然可以继续使用：
+
+- `@file`：引用工作区文件
+- `@@template`：引用已有模板
+
+例如：
+
+```text
+/template create 参考 @docs/rfc_guidelines.md 和 @@built-in:research-report，创建一个适合技术方案评审的 RFC 模板
+```
+
+在交互输入中：
+
+- 输入 `@` 可以弹出文件补全
+- 输入 `@@` 可以弹出模板补全
+
+这对创建复杂模板很有用，因为你可以把已有规范文档、样例文档、已有模板一起作为设计上下文。
+
+---
+
+## 6. 手动创建模板
+
+如果你不想通过 `/template create` 自动生成，也可以手动创建。
+
+### 6.1 创建工作区模板
 
 ```bash
 mkdir -p .dogent/templates/proposal/templates
 mkdir -p .dogent/templates/proposal/examples
 ```
 
-编辑 `.dogent/templates/proposal/SKILL.md`。模板需要使用 skill 风格目录结构，推荐把简短摘要写在 YAML 头部，把模板用途、背景、注意事项写在 `SKILL.md`，再把可复用的输出结构放进 `templates/`：
+编辑 `.dogent/templates/proposal/SKILL.md`：
 
 ```markdown
 ---
 name: proposal
-description: 商务提案模板
+description: 商务提案模板，用于项目范围、方案与报价说明。
 ---
 
-# Proposal Template
+# Proposal
 
-## Writing Principles
-本模板的写作原则和要求。
+## Introduction
+- Purpose: 用于商务提案、方案说明与报价沟通。
+- Background: 面向客户沟通场景。
+- Precautions: 需要兼顾商业可读性与交付边界。
 
-## Document Structure
-本文档类型的输出结构说明。
+## Writing Requirements
+- 明确项目背景、目标、方案、范围、时间与报价。
+- 使用专业但不夸张的表达。
+- 对假设、风险、依赖项做显式说明。
+
+## Companion Files
+- `templates/proposal_structure.md`: 提案标准结构
+- `examples/sample_proposal.md`: 示例片段
 ```
 
-可参考的目录结构：
+再创建可复用结构文件：
+
+```markdown
+## Proposal Structure
+
+1. Executive Summary
+2. Background and Goals
+3. Proposed Solution
+4. Scope and Deliverables
+5. Timeline
+6. Pricing and Terms
+7. Risks and Assumptions
+```
+
+参考目录结构：
 
 ```text
 .dogent/templates/proposal/
@@ -110,21 +238,29 @@ description: 商务提案模板
 │   └── proposal_structure.md
 ├── examples/
 │   └── sample_proposal.md
-└── assets/            # 仅在需要多媒体素材时使用
+└── assets/
 ```
 
-- `SKILL.md`：入口文件，说明模板的用途、背景、注意事项，以及如何使用其他文件。
-- `templates/*.md`：放可复用的输出结构参考。
-- `examples/`：放样例输出。
-- `assets/`：放多媒体素材，并在 `SKILL.md` 中明确引用。
+说明：
 
-配置好的模板，可以在交互中使用 `@@proposal` 进行引用，或者在初始化工作区时使用：
+- `SKILL.md`：入口文件，说明模板用途、背景、注意事项与文件引用
+- `templates/*.md`：放可复用的输出结构参考
+- `examples/`：放样例输出
+- `assets/`：放图片或多媒体素材，并在 `SKILL.md` 中明确说明
+
+创建完成后，可以这样使用：
 
 ```text
-> /init proposal
+/init proposal
 ```
 
-### 创建全局模板
+或：
+
+```text
+请按 @@proposal 模板输出一份提案初稿。
+```
+
+### 6.2 创建全局模板
 
 ```bash
 mkdir -p ~/.dogent/templates
@@ -134,23 +270,40 @@ cp -R .dogent/templates/proposal ~/.dogent/templates/proposal
 使用时：
 
 ```text
-> /init global:proposal
+/init global:proposal
 ```
 
 ---
 
-## 5. 模板与文件引用的配合（`@@` 与 `@`）
+## 7. 使用 `/template optimize` 优化模板
 
-- `@@<template>`：临时指定模板，仅对当前请求生效。
-- `@<file>`：引用本地文件作为上下文。
+`/template optimize` 用于在已有模板基础上继续优化：
+
+```text
+/template optimize proposal 增强风险说明和交付边界约束
+/template optimize built-in:resume make the template more concise for senior backend engineers
+```
+
+行为说明：
+
+- 会先读取现有模板文件，再进行优化
+- 会保留当前模板 key，除非你明确要求重命名
+- 会继续保持新的目录式模板格式，不会退回旧 `.md` 单文件格式
+
+---
+
+## 8. 模板与文件引用的配合
+
+- `@@<template>`：临时指定模板，仅当前请求有效
+- `@<file>`：引用本地文件作为上下文
 
 示例：
 
 ```text
-使用模板 @@built-in:research_report，参考 @docs/market_notes.md 中的背景信息，输出研究报告提纲。
+使用模板 @@built-in:research-report，参考 @docs/market_notes.md 中的背景信息，输出研究报告提纲。
 ```
 
-对于 Excel，可用在文件名后面使用 `#SheetName` 指定具体的 Excel 文件中的工作表：
+对于 Excel 文件，可以在文件名后追加 `#SheetName`：
 
 ```text
 @data/sales.xlsx#Q4
@@ -158,33 +311,15 @@ cp -R .dogent/templates/proposal ~/.dogent/templates/proposal
 
 ---
 
-## 6. 模板选择与优先级
+## 9. 模板选择优先级
 
-常见使用优先级（从高到低）：
+常见优先级从高到低为：
 
-1) **临时覆盖：`@@<template>`**（用户在 Dogent 的 CLI 中输入 prompt 的时候，可以使用 `@@` 引用可用的文档模板，指示 agent 按照指定模板要求进行撰写）
-2) **工作区配置：`.dogent/dogent.json` 的 `doc_template`**（本工作目录下文档写作的默认模板，可以手动修改该配置更换模板，也可以使用 `/init <template>` 命令更换模板配置）
-3) **默认模板：`general` -> 内置 `dogent/templates/general/SKILL.md`**（当没有指定和配置任何文档模板，该工作目录下的文档写作默认采用该内置模板）
+1) `@@<template>` 临时覆盖
+2) `.dogent/dogent.json` 中的 `doc_template`
+3) 默认模板 `general`
 
-此外，`.dogent/dogent.md` 中的 **Template Overrides / Template Supplements** 会作为模板的“额外约束”，可以手动修改该 markdown 文件，在其中增加更多模板之外的要求和约束。
-
----
-
-## 7. `/template` 命令
-
-Dogent 还提供原生 `/template` 命令来查看模板库存或启动模板工作流：
-
-```text
-/template
-/template list
-/template create <自然语言需求>
-/template optimize <template> [自然语言补充要求]
-```
-
-- 直接回车执行 `/template` 时，会显示当前可用模板清单。
-- 输入 `/template ` 时会弹出 `list`、`create` 与 `optimize` 选项。
-- `/template create` 后面可以直接跟自然语言描述，也可以在需求中继续使用 `@file` 引用工作区文件、使用 `@@template` 引用已有模板作为参考上下文。
-- `/template optimize` 不带模板名时，会显示可用模板和用法提示。
+此外，`.dogent/dogent.md` 中的 **Template Overrides / Template Supplements** 会作为模板之外的额外写作约束，一并注入提示词。
 
 ---
 
