@@ -227,6 +227,7 @@ class DogentCLI:
             history=self.history_manager,
             console=self.console,
             permission_prompt=self._prompt_tool_permission,
+            sdk_question_prompt=self._prompt_sdk_questions,
             session_logger=self.session_logger,
         )
         dependency_prompt = (
@@ -2981,6 +2982,134 @@ class DogentCLI:
             return None, "cancelled"
         return answers, None
 
+    async def _prompt_sdk_questions(
+        self, input_data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        raw_questions = input_data.get("questions")
+        if not isinstance(raw_questions, list) or not 1 <= len(raw_questions) <= 4:
+            self.console.print(
+                Panel(
+                    "AskUserQuestion payload must contain 1-4 questions.",
+                    title="Clarification",
+                    border_style="red",
+                )
+            )
+            return None
+        answers: dict[str, str] = {}
+        total = len(raw_questions)
+        self.console.print(
+            Panel(
+                "Claude needs a short clarification before continuing.",
+                title="Clarification",
+                border_style="cyan",
+            )
+        )
+        for index, question in enumerate(raw_questions, start=1):
+            answer = await self._prompt_sdk_question(question, index=index, total=total)
+            if answer is None:
+                return None
+            question_text = str(question.get("question") or "").strip()
+            if not question_text:
+                return None
+            answers[question_text] = answer
+        return {"questions": raw_questions, "answers": answers}
+
+    async def _auto_sdk_question_prompt(
+        self, input_data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        raw_questions = input_data.get("questions")
+        if not isinstance(raw_questions, list) or not raw_questions:
+            return None
+        answers = {
+            str(question.get("question") or ""): CLARIFICATION_SKIP_TEXT
+            for question in raw_questions
+            if isinstance(question, dict) and str(question.get("question") or "").strip()
+        }
+        if not answers:
+            return None
+        return {"questions": raw_questions, "answers": answers}
+
+    async def _deny_sdk_question_prompt(
+        self, _input_data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        return None
+
+    async def _prompt_sdk_question(
+        self, question_data: dict[str, Any], *, index: int, total: int
+    ) -> str | None:
+        question_text = str(question_data.get("question") or "").strip()
+        if not question_text:
+            return None
+        header = str(question_data.get("header") or "").strip()
+        raw_options = question_data.get("options")
+        if not isinstance(raw_options, list) or not 2 <= len(raw_options) <= 4:
+            return None
+        options: list[tuple[str, str]] = []
+        for option in raw_options:
+            if not isinstance(option, dict):
+                return None
+            label = str(option.get("label") or "").strip()
+            description = str(option.get("description") or "").strip()
+            if not label:
+                return None
+            options.append((label, description))
+        multi_select = bool(question_data.get("multiSelect"))
+        title = f"Clarification {index}/{total}"
+        lines = []
+        if header:
+            lines.append(f"[{header}]")
+            lines.append("")
+        lines.append(question_text)
+        lines.append("")
+        for option_index, (label, description) in enumerate(options, start=1):
+            marker = "*" if option_index == 1 else " "
+            detail = f" - {description}" if description else ""
+            lines.append(f"{marker} {option_index}) {label}{detail}")
+        lines.append("")
+        if multi_select:
+            lines.append(
+                "Enter one or more numbers separated by commas, or press Enter for the default."
+            )
+        else:
+            lines.append("Enter a number to select, or press Enter for the default.")
+        lines.append("Type esc to cancel.")
+        self.console.print(
+            Panel("\n".join(lines), title=title, border_style="cyan")
+        )
+        try:
+            response_raw = await self._read_input(
+                prompt="Choice: ", allow_multiline_editor=False
+            )
+        except (EOFError, KeyboardInterrupt):
+            return None
+        response = (response_raw or "").strip()
+        if response.lower() in {"esc", "escape", "cancel"}:
+            return None
+        if not response:
+            return options[0][0]
+        if not multi_select:
+            if response.isdigit():
+                choice = int(response)
+                if 1 <= choice <= len(options):
+                    return options[choice - 1][0]
+            return options[0][0]
+        selections: list[str] = []
+        seen: set[int] = set()
+        for part in response.split(","):
+            cleaned = part.strip()
+            if not cleaned or not cleaned.isdigit():
+                continue
+            choice = int(cleaned)
+            if not 1 <= choice <= len(options):
+                continue
+            if choice in seen:
+                continue
+            seen.add(choice)
+            selections.append(options[choice - 1][0])
+        if not selections:
+            return options[0][0]
+        return ", ".join(selections)
+
     async def _collect_outline_edit(
         self, payload: OutlineEditPayload
     ) -> tuple[str | None, str | None]:
@@ -4277,12 +4406,19 @@ class DogentCLI:
             self._auto_permission_prompt if auto else self._deny_permission_prompt
         )
         self.agent.set_permission_prompt(permission_prompt)
-        outcome = await self._run_noninteractive(
-            message,
-            attachments,
-            config_override=self._build_prompt_override(template_override),
-            auto=auto,
+        sdk_question_prompt = (
+            self._auto_sdk_question_prompt if auto else self._deny_sdk_question_prompt
         )
+        self.agent.set_sdk_question_prompt(sdk_question_prompt)
+        try:
+            outcome = await self._run_noninteractive(
+                message,
+                attachments,
+                config_override=self._build_prompt_override(template_override),
+                auto=auto,
+            )
+        finally:
+            self.agent.set_sdk_question_prompt(self._prompt_sdk_questions)
         code = self._exit_code_for_outcome(outcome)
         if code == 0:
             self.console.print("Completed.")

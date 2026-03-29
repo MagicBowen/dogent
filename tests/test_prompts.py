@@ -170,6 +170,26 @@ class PromptTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_system_prompt_distinguishes_sdk_questions_and_ui_requests(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            todo_manager = TodoManager()
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo_manager, history)
+
+            system_prompt = builder.build_system_prompt()
+
+            self.assertIn("Use `AskUserQuestion` for simple clarification only", system_prompt)
+            self.assertIn("Use the MCP tool `mcp__dogent__ui_request`", system_prompt)
+            self.assertIn("Plain-text questions are not allowed", system_prompt)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
 
 if __name__ == "__main__":
     unittest.main()

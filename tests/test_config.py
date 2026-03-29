@@ -547,6 +547,47 @@ class ConfigTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_build_options_adds_pre_tool_use_hook_with_callback(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            manager = ConfigManager(paths)
+
+            def can_use_tool(*_args, **_kwargs):
+                return None
+
+            options = manager.build_options("sys", can_use_tool=can_use_tool)
+            self.assertIn("PreToolUse", options.hooks)
+            self.assertEqual(len(options.hooks["PreToolUse"]), 1)
+            self.assertEqual(options.hooks["PreToolUse"][0].matcher, None)
+            self.assertEqual(len(options.hooks["PreToolUse"][0].hooks), 1)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_build_options_preserves_explicit_pre_tool_use_hooks(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            manager = ConfigManager(paths)
+
+            async def dummy_hook(*_args, **_kwargs):
+                return {}
+
+            def can_use_tool(*_args, **_kwargs):
+                return None
+
+            hooks = {"PreToolUse": [HookMatcher(matcher=None, hooks=[dummy_hook])]}
+            options = manager.build_options("sys", can_use_tool=can_use_tool, hooks=hooks)
+            self.assertEqual(options.hooks, hooks)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
     def test_build_options_registers_hooks(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
@@ -560,6 +601,65 @@ class ConfigTests(unittest.TestCase):
             hooks = {"PreToolUse": [HookMatcher(matcher=None, hooks=[dummy_hook])]}
             options = manager.build_options("sys", hooks=hooks)
             self.assertEqual(options.hooks, hooks)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_build_options_forwards_explicit_tools_and_disallowed_tools(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            manager = ConfigManager(paths)
+
+            options = manager.build_options(
+                "sys",
+                tools=[],
+                disallowed_tools=["Bash"],
+                permission_mode="acceptEdits",
+            )
+            self.assertEqual(options.tools, [])
+            self.assertEqual(options.disallowed_tools, ["Bash"])
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_build_options_uses_agent_tool_and_project_capability_roots(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.claude_dir.mkdir(parents=True, exist_ok=True)
+            manager = ConfigManager(paths)
+
+            options = manager.build_options("sys")
+
+            self.assertIn("Agent", options.allowed_tools)
+            self.assertNotIn("Task", options.allowed_tools)
+            self.assertEqual(options.add_dirs, [str(paths.dogent_dir), str(paths.claude_dir)])
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_build_options_enables_partial_streaming_from_project_config(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            paths.dogent_dir.mkdir(parents=True, exist_ok=True)
+            paths.config_file.write_text(
+                json.dumps({"partial_streaming": True}),
+                encoding="utf-8",
+            )
+            manager = ConfigManager(paths)
+
+            options = manager.build_options("sys")
+
+            self.assertTrue(options.include_partial_messages)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

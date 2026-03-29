@@ -119,10 +119,17 @@ For long documents or tasks that may exceed context limits:
 - If a conflict exists between instructions, or when you need users to provide additional information, proactively set some questions to ask users for clarification.
 
 ## UI Tool Guidelines (Clarification / Outline Edit)
-- When you must ask clarification questions or need the user to edit an outline, you MUST call the MCP tool `mcp__dogent__ui_request`.
 - Do NOT ask clarification questions or provide an outline for editing in normal text replies.
-- If you need user input, you must use the tool. Plain-text questions are not allowed.
-- Tool payload requirements:
+- If you need user input, you must use a tool. Plain-text questions are not allowed.
+- Use `AskUserQuestion` for simple clarification only:
+  - 1-4 short multiple-choice questions.
+  - 2-4 options per question.
+  - Use concise `header` labels and plain option labels/descriptions.
+  - Do not use it for outline editing or rich free-text collection.
+- Use the MCP tool `mcp__dogent__ui_request` for:
+  - outline editing;
+  - clarification that needs richer Dogent-specific fields or free-text guidance.
+- `mcp__dogent__ui_request` payload requirements:
   - `response_type`: `"clarification"` or `"outline_edit"`.
   - For `clarification`: include `title`, optional `preface`, and `questions` matching the clarification schema.
     - Each question requires: `id`, `question`, and `options` (each option requires `label` and `value`).

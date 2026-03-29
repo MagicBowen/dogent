@@ -196,3 +196,153 @@
 - Add a unit test that the appended history text preserves embedded newlines exactly.
 - Add a unit test that editor discard/cancel does not append anything to prompt history.
 - Keep existing prompt history limit behavior unchanged; reuse `LimitedInMemoryHistory` in tests where possible.
+
+---
+
+## Release 0.9.27
+
+### Goal
+- Align Dogent's Claude Agent SDK integration with the `claude-agent-sdk>=0.1.51` behavior already referenced in `pyproject.toml`.
+- Make tool approvals and SDK-native user questions reliable under the documented Python streaming pattern.
+- Stop treating `allowed_tools` as a hard tool-surface restriction in helper flows.
+- Switch Dogent's primary subagent tool naming from `Task` to `Agent` while preserving compatibility with SDK outputs that may still mention `Task`.
+- Support project builtin commands/skills/sub-agents under both `<workspace>/.claude/` and `<workspace>/.dogent/`.
+- Use SDK structured output for suitable one-shot flows that currently depend on free-text JSON parsing.
+- Improve runtime permission handling with SDK permission suggestions/updates.
+- Add better tool metadata, runtime observability, and opt-in partial streaming where the new SDK provides clear value.
+
+### Current Baseline
+- `pyproject.toml` already requires `claude-agent-sdk>=0.1.51`, so this release is mainly an integration-alignment release rather than only a dependency bump.
+- `ConfigManager.build_options()` currently uses `allowed_tools` as the main built-in tool list when `can_use_tool` is absent, and omits `allowed_tools` entirely when `can_use_tool` is present.
+- `InitWizard` and `ClaudeLessonDrafter` both use `allowed_tools=[]`, which no longer guarantees a no-tools workflow under the current SDK permission semantics.
+- `AgentRunner._can_use_tool()` handles permission prompts only; it has no dedicated `AskUserQuestion` branch.
+- `AgentRunner._can_use_tool()` ignores `ToolPermissionContext.suggestions` and does not return `updated_permissions`.
+- The main system prompt currently requires all clarification and outline-edit interactions to go through `mcp__dogent__ui_request`.
+- Dogent's default built-in tool list still includes `Task` instead of `Agent`.
+- Dogent already loads `.claude/commands`, configured plugin commands, and plugin roots, but it does not yet treat project `.dogent` commands/skills/agents as first-class SDK-facing capability roots.
+- Dogent currently renders completed assistant blocks and cost, but it does not surface partial messages, cumulative usage fields, cache-token fields, or documented rate-limit / task progress events.
+- Dogent's custom MCP tools currently provide no `ToolAnnotations`.
+
+### SDK Alignment Strategy
+- Keep Dogent's main interactive agent on the normal Claude Code tool preset surface, plus Dogent MCP tools/plugins, and treat `allowed_tools` only as auto-approval input, not as the source of truth for what tools exist.
+- For helper flows that need an actual restricted tool surface, use the SDK `tools` option explicitly:
+  - `tools=[]` for no-tool one-shot generation flows.
+  - `tools=[..., "AskUserQuestion"]` only when a restricted helper flow must still ask simple clarifying questions.
+- Use `disallowed_tools` only where Dogent needs an explicit deny rule in Python; do not rely on `allowed_tools=[]` to mean "Claude cannot call tools".
+
+### Permissions + Tool Approval Design
+- Add the documented dummy `PreToolUse` hook for sessions that pass `can_use_tool`, so Python streaming stays open long enough for approvals and `AskUserQuestion`.
+- Keep Dogent's existing permission UX and persistent authorization storage in `.dogent/dogent.json` for normal tool approvals.
+- Extend `_can_use_tool()` with an early `AskUserQuestion` branch before normal permission evaluation:
+  - parse SDK question payloads;
+  - collect answers through the CLI;
+  - return `PermissionResultAllow(updated_input={...})` with the original `questions` and the collected `answers`.
+- Continue routing risky built-in tools such as `Bash`, `Write`, and `Edit` through Dogent's current permission checks after the `AskUserQuestion` fast path.
+- When the user chooses "Allow" or "Allow and remember", use SDK `context.suggestions` and `PermissionResultAllow(updated_permissions=...)` where they match Dogent's runtime intent, while still persisting remembered authorizations into `.dogent/dogent.json`.
+- Preserve existing temp-file and safe-root permission exceptions from earlier releases.
+
+### Clarification + Outline Editing Design
+- Update the main system prompt so the agent uses:
+  - `AskUserQuestion` for simple clarification only;
+  - `mcp__dogent__ui_request` for outline editing and any clarification that needs richer Dogent-specific semantics.
+- Treat "simple clarification" as the SDK-supported shape:
+  - up to 1-4 short questions;
+  - 2-4 options per question;
+  - no rich outline editing;
+  - no dependency on custom schema fields such as `placeholder` for correctness.
+- Keep Dogent's existing clarification UI code for `mcp__dogent__ui_request` because it still covers:
+  - outline editing;
+  - richer free-text collection;
+  - current custom fields such as `recommended`, `allow_freeform`, and `placeholder`.
+- Since the SDK docs say `AskUserQuestion` is not currently available inside subagents, Dogent should not rely on it as the only clarification path in subagent-driven flows.
+
+### Project Commands + Skills + Subagents Design
+- Replace `Task` with `Agent` in Dogent's default tool configuration and prompt/docs where Dogent describes the current SDK tool name.
+- Keep compatibility checks for both `Task` and `Agent` in any streamed-message inspection, display, or denial-handling logic that interprets SDK output, because the local SDK docs note mixed naming may still appear in some message fields.
+- Extend project capability discovery so Dogent supports builtin commands/skills/sub-agents under both:
+  - `<workspace>/.claude/`
+  - `<workspace>/.dogent/`
+- Keep current `.claude/commands` support, and add parallel project `.dogent/commands` discovery for builtin Dogent-facing commands.
+- Extend SDK capability roots so project `.dogent` and project `.claude` can both contribute skills/agents/hooks using the latest filesystem/plugin structure expected by the SDK.
+- Treat the SDK skill-first/plugin-agent structure as the preferred direction, while keeping existing command loading behavior compatible during the transition.
+
+### Structured Output Design
+- Migrate the init wizard to SDK structured output first because it already expects a machine-readable payload with:
+  - `doc_template`
+  - `primary_language`
+  - `dogent_md`
+- Replace the current free-text JSON extraction path in `InitWizard` with:
+  - `tools=[]`;
+  - `output_format={"type": "json_schema", "schema": ...}`;
+  - reading `ResultMessage.structured_output` as the primary success path.
+- Keep a defensive fallback for malformed or missing structured output during the transition so CLI failures remain diagnosable instead of silently producing bad config.
+- Leave `ClaudeLessonDrafter` on free-text output for now unless the implementation reveals a concrete need for structured fields there; the release requirement asks to start using structured output in suitable one-shot flows, not to convert every helper workflow at once.
+
+### Tool Annotation Design
+- Add `ToolAnnotations` to Dogent MCP tools where the SDK can benefit from stronger behavior hints.
+- Initial targets:
+  - document read/export/convert tools where read-only semantics are clear;
+  - `analyze_media`;
+  - custom web tools;
+  - `ui_request`.
+- Keep annotations conservative; only mark a tool read-only or open-world when the tool behavior actually matches that contract.
+
+### Observability + Streaming Design
+- Extend Dogent's result/event handling so SDK runtime metadata is captured and surfaced where useful:
+  - cumulative `ResultMessage.usage`;
+  - cache-token related usage fields when present;
+  - `RateLimitEvent`;
+  - `TaskStartedMessage`, `TaskProgressMessage`, and `TaskNotificationMessage`.
+- Preserve the current concise CLI by default:
+  - log full usage/event detail in debug/session logging;
+  - surface user-facing warnings for rate limits and important background-task status changes.
+- Add optional partial-response rendering using the SDK partial-message API (`include_partial_messages` / `StreamEvent`) for long-running outputs.
+- Keep partial streaming opt-in for this release rather than default-on, matching the reviewed decision from the spike.
+
+### Implementation Plan
+- Update `ConfigManager.build_options()` to separate:
+  - true tool-surface restriction (`tools`);
+  - auto-approval hints (`allowed_tools`);
+  - runtime approval handling (`can_use_tool` + hooks).
+- Add a reusable helper for the documented dummy `PreToolUse` hook and apply it whenever Dogent passes `can_use_tool`.
+- Extend `AgentRunner` with `AskUserQuestion` input parsing and answer collection, reusing the existing CLI interaction layer where possible.
+- Extend permission responses to use SDK runtime permission updates where they improve the current flow without replacing Dogent's persistent authorization model.
+- Update prompts/docs so the model knows when to choose `AskUserQuestion` versus `mcp__dogent__ui_request`.
+- Update command/capability discovery so `.dogent` and `.claude` project roots can both contribute builtin commands/skills/sub-agents.
+- Update `InitWizard` to use structured output and true no-tool restriction.
+- Add annotations to selected Dogent MCP tools.
+- Extend runner/logging code to capture usage/rate-limit/background-task events and support opt-in partial streaming.
+- Update any helper-flow option builders that still depend on `allowed_tools=[]` as if it disables tools.
+
+### Edge Cases + Notes
+- If a restricted flow specifies a `tools` array and still needs SDK clarification, `AskUserQuestion` must be included explicitly or Claude cannot call it.
+- If `AskUserQuestion` input is malformed or exceeds SDK limits, Dogent should deny that request cleanly and let the session surface an actionable error instead of falling into the normal permission prompt.
+- SDK `updated_permissions` should be treated as session-scoped runtime state, not as a replacement for Dogent's persistent workspace authorization file.
+- Project `.dogent` capability discovery must not break existing `.dogent/dogent.json` config/bootstrap responsibilities.
+- Structured-output failures should remain observable in logs/tests; Dogent should not silently fall back to partial free text that looks valid but misses required fields.
+- Partial streaming must not corrupt the existing final-message rendering, interrupt handling, or history/session logs.
+- Release `0.9.27` still postpones file checkpointing / rewind and broader session-management commands from the SDK upgrade analysis.
+
+### Tests
+- Config tests:
+  - verify helper flows use `tools=[]` or explicit `tools=[...]` when true restriction is intended;
+  - verify default interactive options use `Agent` as the primary subagent tool name;
+  - verify the documented `PreToolUse` hook is attached when `can_use_tool` is enabled.
+- Command / capability discovery tests:
+  - verify project `.dogent/commands` and `.claude/commands` are both discovered correctly;
+  - verify project capability roots for `.dogent` and `.claude` are passed to the SDK as intended.
+- Agent runner tests:
+  - `AskUserQuestion` requests are intercepted before normal permission evaluation;
+  - collected answers are returned through `PermissionResultAllow(updated_input=...)`;
+  - runtime permission updates use SDK suggestions/updated permissions without regressing persistent authorization writes;
+  - normal tool approvals still follow the current permission prompt path.
+- Prompt/behavior tests:
+  - system prompt instructions distinguish simple clarification from outline editing.
+- Wizard tests:
+  - successful structured output populates `WizardResult`;
+  - missing/invalid structured output fails in a controlled way;
+  - the wizard no longer depends on free-text JSON scraping as the primary path.
+- Tool metadata / observability tests:
+  - selected MCP tools expose the intended annotations;
+  - usage / rate-limit / task-progress events are logged or surfaced in the expected paths;
+  - partial streaming stays opt-in and does not break final response rendering.

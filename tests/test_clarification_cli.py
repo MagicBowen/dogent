@@ -246,6 +246,48 @@ class ClarificationCliTests(unittest.IsolatedAsyncioTestCase):
         else:
             os.environ.pop("HOME", None)
 
+    async def test_prompt_sdk_questions_collects_single_and_multi_select_answers(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            cli = DogentCLI(root=Path(tmp), console=console, interactive_prompts=False)
+            with mock.patch.object(
+                cli,
+                "_read_input",
+                new=mock.AsyncMock(side_effect=["2", "1, 2"]),
+            ):
+                result = await cli._prompt_sdk_questions(
+                    {
+                        "questions": [
+                            {
+                                "question": "Choose a style",
+                                "header": "Style",
+                                "options": [
+                                    {"label": "Formal", "description": "Business tone"},
+                                    {"label": "Casual", "description": "Relaxed tone"},
+                                ],
+                                "multiSelect": False,
+                            },
+                            {
+                                "question": "Choose sections",
+                                "header": "Parts",
+                                "options": [
+                                    {"label": "Intro", "description": "Opening"},
+                                    {"label": "Summary", "description": "Closing"},
+                                ],
+                                "multiSelect": True,
+                            },
+                        ]
+                    }
+                )
+            self.assertEqual(result["answers"]["Choose a style"], "Casual")
+            self.assertEqual(result["answers"]["Choose sections"], "Intro, Summary")
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
     async def test_other_choice_strips_trailing_period(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:

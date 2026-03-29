@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import SdkMcpTool, tool
+from mcp.types import ToolAnnotations
 
 from .document_io import (
     DEFAULT_MAX_CHARS,
@@ -96,7 +97,17 @@ def create_dogent_doc_tools(root: Path) -> list[SdkMcpTool]:
         "additionalProperties": False,
     }
 
-    @tool("read_document", "Read a document and return text content.", read_schema)
+    @tool(
+        "read_document",
+        "Read a document and return text content.",
+        read_schema,
+        annotations=ToolAnnotations(
+            title="Read Document",
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+    )
     async def read_document_tool(args: dict[str, Any]) -> dict[str, Any]:
         raw_path = str(args.get("path") or "").strip()
         if not raw_path:
@@ -137,7 +148,17 @@ def create_dogent_doc_tools(root: Path) -> list[SdkMcpTool]:
         lines.append(result.content or "(no content)")
         return {"content": [{"type": "text", "text": "\n".join(lines)}]}
 
-    @tool("export_document", "Export a Markdown file to PDF or DOCX.", export_schema)
+    @tool(
+        "export_document",
+        "Export a Markdown file to PDF or DOCX.",
+        export_schema,
+        annotations=ToolAnnotations(
+            title="Export Document",
+            readOnlyHint=False,
+            destructiveHint=False,
+            openWorldHint=False,
+        ),
+    )
     async def export_document_tool(args: dict[str, Any]) -> dict[str, Any]:
         raw_md_path = str(args.get("md_path") or "").strip()
         raw_output_path = str(args.get("output_path") or "").strip()
@@ -187,6 +208,12 @@ def create_dogent_doc_tools(root: Path) -> list[SdkMcpTool]:
         "convert_document",
         "Convert between DOCX, PDF, and Markdown files.",
         convert_schema,
+        annotations=ToolAnnotations(
+            title="Convert Document",
+            readOnlyHint=False,
+            destructiveHint=False,
+            openWorldHint=False,
+        ),
     )
     async def convert_document_tool(args: dict[str, Any]) -> dict[str, Any]:
         raw_input_path = str(args.get("input_path") or "").strip()

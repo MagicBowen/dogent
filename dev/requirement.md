@@ -35,15 +35,20 @@
 
 ---
 
+## Release 0.9.27
+
+- Upgrade `claude-agent-sdk` to `0.1.51` and align Dogent's Claude SDK integration with the latest official tutorials and examples under the `claude` directory.
+- Fix Dogent's tool approval integration to match the latest SDK streaming pattern, including the documented hook handling required by `can_use_tool`, and start using SDK permission `suggestions` / `updated_permissions` where useful while still keeping Dogent's persistent authorizations in `.dogent/dogent.json`.
+- Stop using `allowed_tools` as if it were a strict whitelist, and update the related configuration, helper flows, and tests so restricted flows only expose the intended tools under the latest SDK semantics.
+- Replace Dogent's default subagent tool naming from `Task` to `Agent` in configuration and docs, and support project builtin commands/skills/sub-agents under `<workspace>/.claude/` and `<workspace>/.dogent/` according to the latest SDK plugin / filesystem-agent structure.
+- For simple clarification flows, use the SDK built-in `AskUserQuestion`; for complex outline editing or richer custom input flows, keep using Dogent's existing `mcp__dogent__ui_request`.
+- Start using the SDK structured output capability in suitable one-shot flows, especially flows that currently depend on strict JSON text parsing, and add automated tests for the upgraded parsing path.
+- Add `ToolAnnotations` to Dogent custom MCP tools where appropriate, so read-only and open-world tools provide better behavior hints to the SDK.
+- Add richer SDK runtime feedback in Dogent, including cumulative `ResultMessage.usage`, cache-token fields, rate-limit / task progress notifications, and optional partial response streaming in the CLI for long-running outputs.
+
+---
+
 ## Pending Requirements
-
-[update to newest version of claude agent sdk]
-- use the inner tools such as Agent, AskUserQuestion...
-- use the structured output of claude agent sdk
-- update the newest skills(pptx...) from claude agent sdk
-- update to the newest LLMs
-
-[support builtin commands/skills/sub-agents]
 
 [support more document template]
 - resume

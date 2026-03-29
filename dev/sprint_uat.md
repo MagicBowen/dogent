@@ -88,3 +88,60 @@ User Test Results: Accepted (2026-02-07)
 9) Open the editor once more, type some text, then exit without submitting. Press Up Arrow again and confirm the discarded text was not added as a new history entry.
 
 User Test Results: Accepted (2026-03-06)
+
+---
+
+## Release 0.9.27
+### Story 1 – SDK Permission + Tool-Control Alignment
+1) In a fresh shell, set a temp home: `export HOME=$(mktemp -d)`.
+2) From repo root, install editable if needed: `pip install -e .`.
+3) Run `dogent` in `sample/`.
+4) Ask Dogent to read a safe file inside the workspace. Confirm no unexpected permission prompt appears.
+5) Ask Dogent to write or edit a file outside the workspace (for example under `~/.claude/` or another protected path). Confirm Dogent still shows the normal approval UI.
+6) When prompted, choose the equivalent of "Allow and remember". Confirm the task continues and the remembered authorization is written into `sample/.dogent/dogent.json`.
+7) Repeat the same operation in the same workspace. Confirm Dogent does not ask again for the remembered path/pattern.
+8) Trigger a helper flow that should have restricted tool access (for example `/init`). Confirm it does not unexpectedly read/write unrelated files or invoke unrelated tools just because `allowed_tools=[]` was previously used.
+
+User Test Results: Accepted (2026-03-29)
+
+### Story 2 – Native Clarification with AskUserQuestion
+1) Run `dogent` in a sample workspace.
+2) Give Dogent a task that is intentionally ambiguous but should only need a short multiple-choice clarification, for example a request with two plausible output styles.
+3) Confirm Dogent presents a simple SDK-style clarification question with selectable options instead of falling back to a normal text reply.
+4) Select one option and confirm Dogent continues the task using that answer.
+5) Give Dogent a task that requires outline editing or richer custom input.
+6) Confirm Dogent uses the existing Dogent outline-edit / richer-input flow instead of forcing the same SDK multiple-choice question UI.
+
+User Test Results: Accepted (2026-03-29)
+
+### Story 3 – Structured Output for the Init Wizard
+1) In a fresh sample workspace, remove any existing `.dogent` directory if present.
+2) Run `dogent` and invoke `/init`.
+3) Answer the init request with enough detail to generate a workspace setup.
+4) Confirm the init flow completes successfully and writes the expected setup content without showing malformed raw JSON in the CLI.
+5) Open the generated workspace config/content files and confirm the chosen `doc_template`, `primary_language`, and generated `dogent_md` content are applied correctly.
+6) Repeat once with a slightly different prompt and confirm the wizard still returns a clean result rather than failing due to fragile JSON text parsing.
+
+User Test Results: Accepted (2026-03-29)
+
+### Story 4 – Project Builtin Commands + Skills + Subagents
+1) In a sample workspace, create `<workspace>/.claude/commands/test-claude.md` with a simple description line.
+2) Create `<workspace>/.dogent/commands/test-dogent.md` with a simple description line.
+3) Run `dogent` and confirm both commands appear in the available command/help listing with distinct names.
+4) Add `<workspace>/.claude/skills/test-claude-skill/SKILL.md` with a short description, then restart `dogent`.
+5) Add `<workspace>/.dogent/skills/test-dogent-skill/SKILL.md` with a short description, then restart `dogent`.
+6) Run a task that should use subagent support. Confirm Dogent aligns with `Agent` as the primary tool naming and does not regress if any SDK output still references legacy `Task`.
+7) Confirm the project `.claude` / `.dogent` capability roots are active for skills/subagents and that existing plugin-provided commands still appear after the discovery changes.
+
+User Test Results: Accepted (2026-03-29)
+
+### Story 5 – Tool Metadata + Runtime Feedback + Opt-in Partial Streaming
+1) Run `dogent` in a sample workspace with debug/session logging enabled according to the release implementation notes.
+2) Trigger a task that uses read-only Dogent MCP tools (for example document reading or web/vision analysis if configured). Confirm the task still works after tool annotations are added.
+3) Run a longer task and confirm the final output still renders normally.
+4) Check the relevant debug/session log output and confirm cumulative usage fields, task progress/notification events, and any rate-limit warnings are recorded or surfaced as designed.
+5) Enable the new opt-in partial streaming mode by setting `"partial_streaming": true` in `<workspace>/.dogent/dogent.json`, then restart `dogent`.
+6) Run another long output task and confirm partial response updates appear during generation.
+7) Confirm interrupt handling and the final completed response still behave correctly when partial streaming is enabled.
+
+User Test Results: Accepted (2026-03-29)

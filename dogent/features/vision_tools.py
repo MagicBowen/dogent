@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import SdkMcpTool, tool
+from mcp.types import ToolAnnotations
 from typing import TYPE_CHECKING
 from .vision import VisionAnalysisError, VisionManager, classify_media
 from ..core.session_log import log_exception
@@ -34,7 +35,17 @@ def create_dogent_vision_tools(root: Path, config: "ConfigManager") -> list[SdkM
 
     vision_manager = VisionManager(config.paths, console=config.console)
 
-    @tool("analyze_media", "Analyze an image or video file.", schema)
+    @tool(
+        "analyze_media",
+        "Analyze an image or video file.",
+        schema,
+        annotations=ToolAnnotations(
+            title="Analyze Media",
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+    )
     async def analyze_media_tool(args: dict[str, Any]) -> dict[str, Any]:
         raw_path = str(args.get("path") or "").strip()
         if not raw_path:

@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, Optional
 from rich.console import Console
 
 from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server
+from claude_agent_sdk.types import HookMatcher
 
 from .. import __version__
 from ..features.document_tools import DOGENT_DOC_ALLOWED_TOOLS, create_dogent_doc_tools
@@ -33,6 +34,7 @@ DEFAULT_PROJECT_CONFIG: Dict[str, Any] = {
     "primary_language": "Chinese",
     "learn_auto": True,
     "editor_mode": "default",
+    "partial_streaming": False,
     "debug": False,
     "authorizations": {},
     "plugins": [],
@@ -42,6 +44,10 @@ GLOBAL_LLM_PROFILES_KEY = "llm_profiles"
 GLOBAL_WEB_PROFILES_KEY = "web_profiles"
 GLOBAL_VISION_PROFILES_KEY = "vision_profiles"
 GLOBAL_IMAGE_PROFILES_KEY = "image_profiles"
+
+
+async def _approval_keepalive_hook(*_args: object, **_kwargs: object) -> dict[str, bool]:
+    return {"continue_": True}
 
 
 @dataclass
@@ -487,6 +493,19 @@ class ConfigManager:
                 normalized["editor_mode"] = DEFAULT_PROJECT_CONFIG["editor_mode"]
         else:
             normalized["editor_mode"] = DEFAULT_PROJECT_CONFIG["editor_mode"]
+        raw_partial_streaming = normalized.get("partial_streaming")
+        if raw_partial_streaming is None:
+            normalized["partial_streaming"] = DEFAULT_PROJECT_CONFIG["partial_streaming"]
+        elif isinstance(raw_partial_streaming, str):
+            normalized["partial_streaming"] = raw_partial_streaming.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "y",
+                "on",
+            }
+        else:
+            normalized["partial_streaming"] = bool(raw_partial_streaming)
         raw_debug = normalized.get("debug")
         normalized["debug"] = self._normalize_debug(raw_debug)
         raw_authorizations = normalized.get("authorizations")
@@ -598,12 +617,15 @@ class ConfigManager:
         *,
         can_use_tool=None,
         hooks=None,
+        tools=None,
+        disallowed_tools: list[str] | None = None,
         permission_mode: str | None = None,
     ) -> ClaudeAgentOptions:
         """Construct ClaudeAgentOptions for this workspace."""
         settings = self.load_settings()
         project_cfg = self.load_project_config()
         env = self._build_env(settings)
+        partial_streaming = bool(project_cfg.get("partial_streaming"))
 
         use_custom_web = bool(settings.web_profile)
         vision_enabled = self._vision_enabled(project_cfg)
@@ -623,7 +645,7 @@ class ConfigManager:
                 "Bash",
                 "Grep",
                 "Glob",
-                "Task",
+                "Agent",
                 "WebFetch" if not use_custom_web else None,
                 "WebSearch" if not use_custom_web else None,
                 "TodoWrite",
@@ -635,20 +657,20 @@ class ConfigManager:
             allowed_tools.extend(DOGENT_DOC_ALLOWED_TOOLS)
             allowed_tools.extend(DOGENT_UI_ALLOWED_TOOLS)
         doc_tools = create_dogent_doc_tools(self.paths.root)
-        tools = list(doc_tools)
-        tools.extend(create_dogent_ui_tools())
+        mcp_tools = list(doc_tools)
+        mcp_tools.extend(create_dogent_ui_tools())
         if vision_enabled:
             if allowed_tools is not None:
                 allowed_tools.extend(DOGENT_VISION_ALLOWED_TOOLS)
-            tools.extend(create_dogent_vision_tools(self.paths.root, self))
+            mcp_tools.extend(create_dogent_vision_tools(self.paths.root, self))
         if image_enabled:
             if allowed_tools is not None:
                 allowed_tools.extend(DOGENT_IMAGE_ALLOWED_TOOLS)
-            tools.extend(create_dogent_image_tools(self.paths.root, self))
+            mcp_tools.extend(create_dogent_image_tools(self.paths.root, self))
         if use_custom_web:
             if allowed_tools is not None:
                 allowed_tools.extend(DOGENT_WEB_ALLOWED_TOOLS)
-            tools.extend(
+            mcp_tools.extend(
                 create_dogent_web_tools(
                     root=self.paths.root,
                     web_profile_name=settings.web_profile,
@@ -657,13 +679,14 @@ class ConfigManager:
             )
         mcp_servers = {
             "dogent": create_sdk_mcp_server(
-                name="dogent", version=__version__, tools=tools
+                name="dogent", version=__version__, tools=mcp_tools
             )
         }
 
         add_dirs = []
-        if self.paths.claude_dir.exists():
-            add_dirs.append(str(self.paths.claude_dir))
+        for capability_root in (self.paths.dogent_dir, self.paths.claude_dir):
+            if capability_root.exists():
+                add_dirs.append(str(capability_root))
 
         fallback_model = (
             settings.small_model
@@ -675,6 +698,10 @@ class ConfigManager:
         if resolved_permission_mode is None:
             resolved_permission_mode = "default" if can_use_tool else "acceptEdits"
 
+        resolved_hooks = hooks
+        if can_use_tool is not None:
+            resolved_hooks = self._ensure_permission_callback_hooks(hooks)
+
         options_kwargs = {
             "system_prompt": system_prompt,
             "cwd": str(self.paths.root),
@@ -683,17 +710,34 @@ class ConfigManager:
             "permission_mode": resolved_permission_mode,
             "setting_sources": ["user", "project"],
             "add_dirs": add_dirs,
+            "include_partial_messages": partial_streaming,
             "env": env,
             "mcp_servers": mcp_servers,
             "can_use_tool": can_use_tool,
-            "hooks": hooks,
+            "hooks": resolved_hooks,
             "plugins": plugins,
         }
+        if tools is not None:
+            options_kwargs["tools"] = tools
         if allowed_tools is not None:
             options_kwargs["allowed_tools"] = allowed_tools
+        if disallowed_tools is not None:
+            options_kwargs["disallowed_tools"] = list(disallowed_tools)
 
         options = ClaudeAgentOptions(**options_kwargs)
         return options
+
+    def _ensure_permission_callback_hooks(self, hooks: Any) -> dict[str, list[HookMatcher]]:
+        merged: dict[str, list[HookMatcher]] = {}
+        if isinstance(hooks, dict):
+            for name, matchers in hooks.items():
+                if isinstance(matchers, list):
+                    merged[name] = list(matchers)
+        if not merged.get("PreToolUse"):
+            merged["PreToolUse"] = [
+                HookMatcher(matcher=None, hooks=[_approval_keepalive_hook])
+            ]
+        return merged
 
     def _build_env(self, settings: DogentSettings) -> Dict[str, str]:
         env: Dict[str, str] = {}

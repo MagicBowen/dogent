@@ -238,10 +238,18 @@ class SessionLogger:
             }
         )
 
-    def log_result(self, source: str, *, result: str | None, is_error: bool | None) -> None:
+    def log_result(
+        self,
+        source: str,
+        *,
+        result: str | None,
+        is_error: bool | None,
+        usage: dict[str, Any] | None = None,
+        structured_output: Any = None,
+    ) -> None:
         if not self._session_enabled():
             return
-        if result is None and is_error is None:
+        if result is None and is_error is None and usage is None and structured_output is None:
             return
         self._write(
             {
@@ -252,7 +260,22 @@ class SessionLogger:
                 "content": {
                     "result": result,
                     "is_error": bool(is_error),
+                    "usage": usage,
+                    "structured_output": structured_output,
                 },
+            }
+        )
+
+    def log_runtime_event(self, source: str, event: str, content: Any | None = None) -> None:
+        if not self._session_enabled():
+            return
+        self._write(
+            {
+                "role": "system",
+                "source": source,
+                "event": event,
+                "type": LOG_TYPE_SESSION,
+                "content": content,
             }
         )
 

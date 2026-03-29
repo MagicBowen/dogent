@@ -5,7 +5,7 @@ import json
 import os
 import tempfile
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Iterable, Optional
 
@@ -24,6 +24,13 @@ from claude_agent_sdk import (
     PermissionResultAllow,
     PermissionResultDeny,
     ToolPermissionContext,
+)
+from claude_agent_sdk.types import (
+    PermissionUpdate,
+    StreamEvent,
+    TaskNotificationMessage,
+    TaskProgressMessage,
+    TaskStartedMessage,
 )
 
 from ..config import ConfigManager
@@ -102,6 +109,9 @@ class AgentRunner:
         dependency_prompt: Optional[
             Callable[[str, str], Awaitable[DependencyDecision]]
         ] = None,
+        sdk_question_prompt: Optional[
+            Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]]
+        ] = None,
         session_logger: SessionLogger | None = None,
     ) -> None:
         self.config = config
@@ -125,6 +135,7 @@ class AgentRunner:
         self._wait_indicator: LLMWaitIndicator | None = None
         self._permission_prompt = permission_prompt
         self._dependency_prompt = dependency_prompt
+        self._sdk_question_prompt = sdk_question_prompt
         self._session_logger = session_logger
         self._task_temp_files: set[Path] = set()
         self._temp_roots: list[Path] = self._resolve_temp_roots()
@@ -140,6 +151,9 @@ class AgentRunner:
         self._dependency_install_phase: str | None = None
         self._dependency_download_path: str | None = None
         self._dependency_missing: list[str] = []
+        self._partial_reply_stream_active = False
+        self._partial_reply_seen = False
+        self._last_task_progress: dict[str, str] = {}
 
     async def reset(self) -> None:
         """Close current session so it can be re-created with new settings."""
@@ -179,6 +193,15 @@ class AgentRunner:
     ) -> None:
         """Update the dependency install prompt callback for subsequent runs."""
         self._dependency_prompt = dependency_prompt
+
+    def set_sdk_question_prompt(
+        self,
+        sdk_question_prompt: Optional[
+            Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]]
+        ],
+    ) -> None:
+        """Update the SDK-native AskUserQuestion callback for subsequent runs."""
+        self._sdk_question_prompt = sdk_question_prompt
 
     def pop_clarification_payload(self) -> ClarificationPayload | None:
         payload = self._clarification_payload
@@ -229,6 +252,9 @@ class AgentRunner:
         self._clarification_payload = None
         self._outline_edit_payload = None
         self._task_temp_files.clear()
+        self._partial_reply_stream_active = False
+        self._partial_reply_seen = False
+        self._last_task_progress = {}
         preview = (
             user_message
             if self._is_clarification_answers(user_message)
@@ -344,6 +370,22 @@ class AgentRunner:
                     saw_result = True
                     break
                 continue
+            if isinstance(message, StreamEvent):
+                if not self._abort_requested:
+                    self._handle_stream_event(message)
+                continue
+            if self._is_rate_limit_event(message):
+                self._handle_rate_limit_event(message)
+                continue
+            if isinstance(message, TaskStartedMessage):
+                self._handle_task_started(message)
+                continue
+            if isinstance(message, TaskProgressMessage):
+                self._handle_task_progress(message)
+                continue
+            if isinstance(message, TaskNotificationMessage):
+                self._handle_task_notification(message)
+                continue
             if isinstance(message, AssistantMessage):
                 if not self._abort_requested:
                     self._handle_assistant_message(message)
@@ -365,6 +407,7 @@ class AgentRunner:
     async def interrupt(self, reason: str) -> None:
         async with self._lock:
             self._interrupted = True
+            self._finish_partial_reply_stream()
             if self._dependency_installing:
                 message = self._dependency_interrupt_message(reason)
                 reason = message
@@ -401,6 +444,7 @@ class AgentRunner:
         if self._abort_finalized:
             return
         self._abort_finalized = True
+        self._finish_partial_reply_stream()
         reason = self._aborted_reason or "Aborted."
         todos_snapshot = self.todo_manager.export_items()
         remaining = self.todo_manager.remaining_markdown()
@@ -432,6 +476,7 @@ class AgentRunner:
         )
 
     def _handle_assistant_message(self, message: AssistantMessage) -> None:
+        self._finish_partial_reply_stream()
         text_blocks: list[str] = []
         ui_request_seen = False
         for block in message.content:
@@ -499,9 +544,10 @@ class AgentRunner:
             full_text = "\n\n".join(
                 part.strip() for part in text_blocks if part and part.strip()
             ).strip()
-            if full_text and not ui_request_seen:
+            if full_text and not ui_request_seen and not self._partial_reply_seen:
                 self.console.print(Panel(full_text, title="💬 Reply"))
                 self.console.print()
+        self._partial_reply_seen = False
 
     def _handle_ui_request(self, payload: object) -> bool:
         if not isinstance(payload, dict):
@@ -562,10 +608,12 @@ class AgentRunner:
     def _handle_result(self, message: ResultMessage) -> None:
         if self._abort_finalized:
             return
+        self._finish_partial_reply_stream()
         cost = f"${message.total_cost_usd:.4f}" if message.total_cost_usd is not None else "n/a"
         metrics = (
             f"Duration {message.duration_ms} ms | API {message.duration_api_ms} ms | Cost {cost}"
         )
+        usage_lines = self._format_usage_lines(getattr(message, "usage", None))
         todos_snapshot = self.todo_manager.export_items()
         remaining = self.todo_manager.remaining_markdown()
         is_error = bool(getattr(message, "is_error", False))
@@ -577,6 +625,8 @@ class AgentRunner:
                 "agent",
                 result=result_text or None,
                 is_error=bool(getattr(message, "is_error", False)),
+                usage=getattr(message, "usage", None),
+                structured_output=getattr(message, "structured_output", None),
             )
         if self._aborted_reason:
             title = "🛑 Aborted"
@@ -589,6 +639,8 @@ class AgentRunner:
                 "",
                 metrics,
             ]
+            if usage_lines:
+                body_lines.extend(["", *usage_lines])
             history_summary = self._aborted_reason
         elif self._needs_outline_edit:
             title = "📝 Outline Edit"
@@ -606,6 +658,8 @@ class AgentRunner:
                 "",
                 metrics,
             ]
+            if usage_lines:
+                body_lines.extend(["", *usage_lines])
             history_summary = summary
         elif self._needs_clarification:
             title = "❓ Needs clarification"
@@ -619,6 +673,8 @@ class AgentRunner:
                 "",
                 metrics,
             ]
+            if usage_lines:
+                body_lines.extend(["", *usage_lines])
             history_summary = summary
         elif is_error:
             title = "❌ Failed"
@@ -632,6 +688,8 @@ class AgentRunner:
                 "",
                 metrics,
             ]
+            if usage_lines:
+                body_lines.extend(["", *usage_lines])
             history_summary = result_text or "Task failed"
         elif remaining:
             title = "🕓 Awaiting input"
@@ -644,6 +702,8 @@ class AgentRunner:
                 "",
                 metrics,
             ]
+            if usage_lines:
+                body_lines.extend(["", *usage_lines])
             history_summary = result_text or "Awaiting input."
         else:
             title = "✅ Completed"
@@ -653,6 +713,8 @@ class AgentRunner:
                 "",
                 metrics,
             ]
+            if usage_lines:
+                body_lines.extend(["", *usage_lines])
             history_summary = result_text or "Task completed"
 
         panel_text = "\n".join(line for line in body_lines if line).strip()
@@ -795,11 +857,22 @@ class AgentRunner:
         input_data: dict,
         context: ToolPermissionContext,
     ) -> PermissionResultAllow | PermissionResultDeny:
-        del context
         if not self.config:
             return PermissionResultAllow()
         if self._abort_requested and self._aborted_reason:
             return PermissionResultDeny(message=self._aborted_reason, interrupt=True)
+        if tool_name == "AskUserQuestion":
+            updated_input = await self._request_sdk_questions(input_data)
+            if updated_input is not None:
+                return PermissionResultAllow(updated_input=updated_input)
+            await self._handle_permission_denied(
+                "SDK-native clarification required.",
+                message="Clarification cancelled by user.",
+            )
+            return PermissionResultDeny(
+                message=self._aborted_reason or "Clarification cancelled by user.",
+                interrupt=True,
+            )
         if not await self._ensure_tool_dependencies(tool_name, input_data):
             return PermissionResultDeny(
                 message=self._aborted_reason or "Missing dependencies.",
@@ -829,16 +902,30 @@ class AgentRunner:
             return PermissionResultAllow()
         decision = await self._request_permission(tool_name, check.reason)
         if decision.allow:
+            updated_permissions = None
+            if decision.remember:
+                updated_permissions = self._session_permission_updates(context.suggestions)
             if decision.remember and check.targets:
                 with suppress(Exception):
                     self.config.add_authorizations(tool_name, check.targets)
             self._track_temp_files(tool_name, input_data)
-            return PermissionResultAllow()
+            return PermissionResultAllow(updated_permissions=updated_permissions)
         await self._handle_permission_denied(check.reason, message=decision.message)
         return PermissionResultDeny(
             message=self._aborted_reason or "User denied permission.",
             interrupt=True,
         )
+
+    def _session_permission_updates(
+        self, suggestions: Iterable[PermissionUpdate]
+    ) -> list[PermissionUpdate] | None:
+        updates: list[PermissionUpdate] = []
+        for suggestion in suggestions:
+            try:
+                updates.append(replace(suggestion, destination="session"))
+            except Exception:
+                continue
+        return updates or None
 
     def _resolve_temp_roots(self) -> list[Path]:
         roots: list[Path] = []
@@ -1057,6 +1144,195 @@ class AgentRunner:
             self._permission_prompt_active = False
             if was_running and decision.allow:
                 await self._start_wait_indicator()
+
+    async def _request_sdk_questions(
+        self, input_data: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        if not self._sdk_question_prompt:
+            return None
+        was_running = self._wait_indicator is not None
+        self._permission_prompt_active = True
+        if was_running:
+            await self._stop_wait_indicator()
+        try:
+            return await self._sdk_question_prompt(input_data)
+        finally:
+            self._permission_prompt_active = False
+            if was_running and not self._abort_requested and not self._abort_finalized:
+                await self._start_wait_indicator()
+
+    def _handle_stream_event(self, message: StreamEvent) -> None:
+        event = getattr(message, "event", None)
+        if not isinstance(event, dict):
+            return
+        if self._session_logger:
+            self._session_logger.log_runtime_event(
+                "agent",
+                "assistant.stream_event",
+                {
+                    "event": event,
+                    "parent_tool_use_id": getattr(message, "parent_tool_use_id", None),
+                },
+            )
+        if event.get("type") != "content_block_delta":
+            return
+        delta = event.get("delta")
+        if not isinstance(delta, dict) or delta.get("type") != "text_delta":
+            return
+        text = str(delta.get("text") or "")
+        if not text:
+            return
+        if not self._partial_reply_stream_active:
+            self.console.print("Streaming reply: ", end="")
+            self._partial_reply_stream_active = True
+        self.console.print(text, end="")
+        self._partial_reply_seen = True
+
+    def _finish_partial_reply_stream(self) -> None:
+        if not self._partial_reply_stream_active:
+            return
+        self.console.print()
+        self.console.print()
+        self._partial_reply_stream_active = False
+
+    def _format_usage_lines(self, usage: object) -> list[str]:
+        usage_data = self._coerce_dict(usage)
+        if not usage_data:
+            return []
+        summary: list[str] = []
+        input_tokens = usage_data.get("input_tokens")
+        output_tokens = usage_data.get("output_tokens")
+        cache_read = usage_data.get("cache_read_input_tokens")
+        cache_create = usage_data.get("cache_creation_input_tokens")
+        if input_tokens is not None:
+            summary.append(f"Input tokens: {input_tokens}")
+        if output_tokens is not None:
+            summary.append(f"Output tokens: {output_tokens}")
+        if cache_read is not None:
+            summary.append(f"Cache read tokens: {cache_read}")
+        if cache_create is not None:
+            summary.append(f"Cache creation tokens: {cache_create}")
+        if not summary:
+            return []
+        return ["Usage:", *[f"- {line}" for line in summary]]
+
+    def _coerce_dict(self, payload: object) -> dict[str, Any] | None:
+        if isinstance(payload, dict):
+            return dict(payload)
+        if payload is None:
+            return None
+        with suppress(Exception):
+            return dict(payload)  # type: ignore[arg-type]
+        return None
+
+    def _handle_task_started(self, message: TaskStartedMessage) -> None:
+        self._finish_partial_reply_stream()
+        detail = {
+            "task_id": message.task_id,
+            "task_type": getattr(message, "task_type", None),
+            "description": message.description,
+            "tool_use_id": getattr(message, "tool_use_id", None),
+            "data": getattr(message, "data", None),
+        }
+        if self._session_logger:
+            self._session_logger.log_runtime_event("agent", "task.started", detail)
+        self._last_task_progress[message.task_id] = message.description
+        body = message.description or f"Task {message.task_id} started."
+        self.console.print(
+            Panel(body, title="🧵 Background Task", border_style="cyan")
+        )
+        self.console.print()
+
+    def _handle_task_progress(self, message: TaskProgressMessage) -> None:
+        detail = {
+            "task_id": message.task_id,
+            "description": message.description,
+            "last_tool_name": getattr(message, "last_tool_name", None),
+            "usage": self._coerce_dict(getattr(message, "usage", None)),
+            "data": getattr(message, "data", None),
+        }
+        if self._session_logger:
+            self._session_logger.log_runtime_event("agent", "task.progress", detail)
+        previous = self._last_task_progress.get(message.task_id)
+        if message.description and message.description != previous:
+            self._finish_partial_reply_stream()
+            body_lines = [message.description]
+            usage_lines = self._format_usage_lines(getattr(message, "usage", None))
+            if usage_lines:
+                body_lines.extend(["", *usage_lines])
+            self.console.print(
+                Panel("\n".join(body_lines), title="🧵 Task Progress", border_style="cyan")
+            )
+            self.console.print()
+            self._last_task_progress[message.task_id] = message.description
+
+    def _handle_task_notification(self, message: TaskNotificationMessage) -> None:
+        self._finish_partial_reply_stream()
+        detail = {
+            "task_id": message.task_id,
+            "status": message.status,
+            "summary": message.summary,
+            "output_file": message.output_file,
+            "usage": self._coerce_dict(getattr(message, "usage", None)),
+            "data": getattr(message, "data", None),
+        }
+        if self._session_logger:
+            self._session_logger.log_runtime_event("agent", "task.notification", detail)
+        title = "🧵 Task Complete"
+        border_style = "green"
+        if message.status == "failed":
+            title = "🧵 Task Failed"
+            border_style = "red"
+        elif message.status == "stopped":
+            title = "🧵 Task Stopped"
+            border_style = "yellow"
+        lines = [message.summary or f"Task {message.task_id} {message.status}."]
+        if getattr(message, "output_file", None):
+            lines.extend(["", f"Output: {message.output_file}"])
+        usage_lines = self._format_usage_lines(getattr(message, "usage", None))
+        if usage_lines:
+            lines.extend(["", *usage_lines])
+        self.console.print(
+            Panel("\n".join(lines), title=title, border_style=border_style)
+        )
+        self.console.print()
+        self._last_task_progress.pop(message.task_id, None)
+
+    def _is_rate_limit_event(self, message: object) -> bool:
+        return bool(
+            getattr(message, "subtype", None) == "rate_limit"
+            or hasattr(message, "rate_limit_info")
+        )
+
+    def _handle_rate_limit_event(self, message: object) -> None:
+        info = getattr(message, "rate_limit_info", None)
+        if info is None:
+            info = getattr(message, "data", None)
+        detail = self._coerce_dict(info)
+        if self._session_logger:
+            self._session_logger.log_runtime_event("agent", "rate_limit", detail)
+        if not detail:
+            return
+        status = str(detail.get("status") or "").strip().lower()
+        if status not in {"allowed_warning", "rejected"}:
+            return
+        self._finish_partial_reply_stream()
+        lines = [f"Status: {status}"]
+        limit_type = detail.get("rate_limit_type")
+        if limit_type:
+            lines.append(f"Limit: {limit_type}")
+        utilization = detail.get("utilization")
+        if utilization is not None:
+            lines.append(f"Utilization: {utilization}")
+        resets_at = detail.get("resets_at")
+        if resets_at is not None:
+            lines.append(f"Resets at: {resets_at}")
+        title = "⚠️ Rate Limit Warning" if status == "allowed_warning" else "⛔ Rate Limited"
+        border_style = "yellow" if status == "allowed_warning" else "red"
+        self.console.print(
+            Panel("\n".join(lines), title=title, border_style=border_style)
+        )
+        self.console.print()
 
     async def _request_dependency_install(
         self, tool_name: str, message: str

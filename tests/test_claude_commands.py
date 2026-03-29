@@ -37,6 +37,36 @@ class ClaudeCommandsTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_loads_project_dogent_commands_and_skills(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            dogent_commands = Path(tmp) / ".dogent" / "commands"
+            dogent_commands.mkdir(parents=True, exist_ok=True)
+            (dogent_commands / "brief.md").write_text(
+                "---\ndescription: Write a brief\n---\nBody",
+                encoding="utf-8",
+            )
+            dogent_skill = Path(tmp) / ".dogent" / "skills" / "summarize"
+            dogent_skill.mkdir(parents=True, exist_ok=True)
+            (dogent_skill / "SKILL.md").write_text(
+                "---\ndescription: Summarize documents\n---\nBody",
+                encoding="utf-8",
+            )
+
+            specs = load_claude_commands(Path(tmp))
+            names = {spec.name: spec.description for spec in specs}
+            canonicals = {spec.name: spec.canonical for spec in specs}
+
+            self.assertEqual(names.get("/dogent:brief"), "Write a brief")
+            self.assertEqual(names.get("/dogent:summarize"), "Summarize documents")
+            self.assertEqual(canonicals.get("/dogent:brief"), "/brief")
+            self.assertEqual(canonicals.get("/dogent:summarize"), "/summarize")
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
     def test_command_registers_with_prefix(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:

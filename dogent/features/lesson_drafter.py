@@ -91,7 +91,7 @@ class ClaudeLessonDrafter:
             cwd=str(self.paths.root),
             model=model,
             permission_mode="acceptEdits",
-            allowed_tools=[],
+            tools=[],
             env=env,
         )
 

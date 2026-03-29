@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.27 - 2026-03-29
+
+### Added
+- SDK-native clarification for simple multiple-choice follow-up questions via `AskUserQuestion`.
+- Project command and skill discovery from both workspace `.claude` and `.dogent` roots.
+- SDK-aware runtime feedback for usage, task progress, rate-limit warnings, and opt-in partial response streaming.
+
+### Changed
+- `/init` now uses structured SDK output for `doc_template`, `primary_language`, and generated `dogent.md` content.
+- Dogent now treats `Agent` as the primary subagent tool name while remaining compatible with legacy SDK `Task` references.
+- Selected Dogent MCP tools now publish conservative `ToolAnnotations` to improve SDK behavior hints.
+
+### Fixed
+- Permission callbacks now follow the documented Claude Agent SDK streaming hook pattern and apply session-scoped permission suggestions without replacing persisted workspace authorizations.
+- Restricted helper flows now use explicit SDK `tools` restrictions instead of relying on `allowed_tools=[]`.
+
+---
+
 ## 0.9.26 - 2026-03-06
 
 ### Fixed

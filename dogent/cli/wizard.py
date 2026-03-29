@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from rich.console import Console
 
@@ -22,6 +22,18 @@ class WizardResult:
     doc_template: str | None
     primary_language: str | None
     dogent_md: str
+
+
+INIT_WIZARD_OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["doc_template", "primary_language", "dogent_md"],
+    "properties": {
+        "doc_template": {"type": "string", "minLength": 1},
+        "primary_language": {"type": "string", "minLength": 1},
+        "dogent_md": {"type": "string", "minLength": 1},
+    },
+}
 
 
 class InitWizard:
@@ -69,6 +81,7 @@ class InitWizard:
             await client.query(built_prompt)
             parts: list[str] = []
             last_result: str | None = None
+            structured_output: object | None = None
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
@@ -80,13 +93,19 @@ class InitWizard:
                             parts.append(block.text)
                 elif isinstance(message, ResultMessage):
                     last_result = message.result or None
+                    structured_output = getattr(message, "structured_output", None)
                     if self._session_logger:
                         self._session_logger.log_result(
                             "init_wizard",
                             result=last_result,
                             is_error=bool(getattr(message, "is_error", False)),
+                            usage=getattr(message, "usage", None),
+                            structured_output=structured_output,
                         )
                     break
+            parsed = self._parse_wizard_payload(structured_output)
+            if parsed:
+                return parsed
             text = "\n".join(part.strip("\n") for part in parts if part.strip())
             if not text:
                 text = (last_result or "").strip()
@@ -103,8 +122,9 @@ class InitWizard:
             await client.disconnect()
 
     @staticmethod
-    def _parse_wizard_payload(text: str) -> WizardResult | None:
-        payload = InitWizard._load_json_payload(text)
+    def _parse_wizard_payload(payload: object) -> WizardResult | None:
+        if isinstance(payload, str):
+            payload = InitWizard._load_json_payload(payload)
         if not isinstance(payload, dict):
             return None
         dogent_md = payload.get("dogent_md")
@@ -158,7 +178,8 @@ class InitWizard:
             cwd=str(self.paths.root),
             model=model,
             permission_mode="acceptEdits",
-            allowed_tools=[],
+            tools=[],
+            output_format={"type": "json_schema", "schema": INIT_WIZARD_OUTPUT_SCHEMA},
             env=env,
         )
 

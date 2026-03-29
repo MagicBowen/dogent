@@ -19,16 +19,17 @@ def load_claude_commands(
     project_root: Path, *, user_root: Optional[Path] = None
 ) -> list[ClaudeCommandSpec]:
     specs: dict[str, ClaudeCommandSpec] = {}
-    user_dir = (user_root or Path.home()) / ".claude" / "commands"
-    project_dir = project_root / ".claude" / "commands"
-    for commands_dir in (user_dir, project_dir):
-        for path in _iter_command_files(commands_dir):
-            canonical = f"/{path.stem}"
-            name = f"/claude:{path.stem}"
-            description = _command_description(path)
-            specs[name] = ClaudeCommandSpec(
-                name=name, canonical=canonical, description=description
-            )
+    user_dir = (user_root or Path.home()) / ".claude"
+    for spec in _load_command_specs(user_dir, namespace="claude", include_skills=False):
+        specs[spec.name] = spec
+    for spec in _load_command_specs(
+        project_root / ".claude", namespace="claude", include_skills=True
+    ):
+        specs[spec.name] = spec
+    for spec in _load_command_specs(
+        project_root / ".dogent", namespace="dogent", include_skills=True
+    ):
+        specs[spec.name] = spec
     return list(specs.values())
 
 
@@ -62,6 +63,50 @@ def _iter_command_files(commands_dir: Path) -> Iterable[Path]:
     if not commands_dir.exists() or not commands_dir.is_dir():
         return []
     return sorted(commands_dir.rglob("*.md"))
+
+
+def _iter_skill_files(skills_dir: Path) -> Iterable[Path]:
+    if not skills_dir.exists() or not skills_dir.is_dir():
+        return []
+    return sorted(skills_dir.rglob("SKILL.md"))
+
+
+def _load_command_specs(
+    root: Path, *, namespace: str, include_skills: bool
+) -> list[ClaudeCommandSpec]:
+    specs: list[ClaudeCommandSpec] = []
+    commands_dir = root / "commands"
+    for path in _iter_command_files(commands_dir):
+        command_name = path.stem
+        specs.append(_build_command_spec(path, namespace=namespace, command_name=command_name))
+    if not include_skills:
+        return specs
+    skills_dir = root / "skills"
+    for path in _iter_skill_files(skills_dir):
+        command_name = _skill_command_name(skills_dir, path)
+        if not command_name:
+            continue
+        specs.append(_build_command_spec(path, namespace=namespace, command_name=command_name))
+    return specs
+
+
+def _build_command_spec(
+    path: Path, *, namespace: str, command_name: str
+) -> ClaudeCommandSpec:
+    canonical = f"/{command_name}"
+    name = f"/{namespace}:{command_name}"
+    description = _command_description(path)
+    return ClaudeCommandSpec(name=name, canonical=canonical, description=description)
+
+
+def _skill_command_name(skills_dir: Path, path: Path) -> str:
+    try:
+        relative = path.relative_to(skills_dir)
+    except Exception:
+        return path.parent.name
+    parts = list(relative.parts[:-1])
+    cleaned = [part.strip() for part in parts if part.strip()]
+    return ":".join(cleaned)
 
 
 def _command_description(path: Path) -> str:

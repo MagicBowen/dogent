@@ -13,6 +13,7 @@ from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool
+from mcp.types import ToolAnnotations
 
 from .. import __version__
 from ..core.session_log import log_exception
@@ -277,6 +278,12 @@ def create_dogent_web_tools(
         "web_search",
         "Search the web (and images) via a user-configured search API in ~/.dogent/dogent.json",
         web_search_schema,
+        annotations=ToolAnnotations(
+            title="Dogent Web Search",
+            readOnlyHint=True,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
     )
     async def web_search(args: dict[str, Any]) -> dict[str, Any]:
         query = str(args.get("query") or "").strip()
@@ -394,6 +401,12 @@ def create_dogent_web_tools(
         "web_fetch",
         "Fetch a URL. Extract readable text for HTML, or download images into output_dir and return a Markdown link.",
         web_fetch_schema,
+        annotations=ToolAnnotations(
+            title="Dogent Web Fetch",
+            readOnlyHint=False,
+            destructiveHint=False,
+            openWorldHint=True,
+        ),
     )
     async def web_fetch(args: dict[str, Any]) -> dict[str, Any]:
         url = str(args.get("url") or "").strip()

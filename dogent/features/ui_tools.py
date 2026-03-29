@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from claude_agent_sdk import SdkMcpTool, tool
+from mcp.types import ToolAnnotations
 
 
 DOGENT_UI_ALLOWED_TOOLS = ["mcp__dogent__ui_request"]
@@ -59,6 +60,12 @@ def create_dogent_ui_tools() -> list[SdkMcpTool]:
         "ui_request",
         "Request Dogent UI interaction for clarification or outline editing.",
         schema,
+        annotations=ToolAnnotations(
+            title="Dogent UI Request",
+            readOnlyHint=True,
+            destructiveHint=False,
+            openWorldHint=False,
+        ),
     )
     async def ui_request_tool(args: dict[str, Any]) -> dict[str, Any]:
         return {
