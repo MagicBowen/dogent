@@ -11,12 +11,13 @@ from typing import Any, Dict, Iterable, Optional
 
 from rich.console import Console
 
-from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server
+from claude_agent_sdk import ClaudeAgentOptions
 from claude_agent_sdk.types import HookMatcher
 
 from .. import __version__
 from ..features.document_tools import DOGENT_DOC_ALLOWED_TOOLS, create_dogent_doc_tools
 from ..features.ui_tools import DOGENT_UI_ALLOWED_TOOLS, create_dogent_ui_tools
+from ..core.sdk_mcp import create_dogent_sdk_mcp_server
 from .paths import DogentPaths
 from .resources import read_config_text, read_schema_text
 from ..features.vision_tools import DOGENT_VISION_ALLOWED_TOOLS, create_dogent_vision_tools
@@ -679,7 +680,7 @@ class ConfigManager:
                 )
             )
         mcp_servers = {
-            "dogent": create_sdk_mcp_server(
+            "dogent": create_dogent_sdk_mcp_server(
                 name="dogent", version=__version__, tools=mcp_tools
             )
         }

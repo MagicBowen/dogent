@@ -16,6 +16,24 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 
 ---
 
+## Release 0.9.29
+
+### Story 1: Built-in MCP Runtime Alignment
+- User Value: As a Dogent user, I can rely on built-in Dogent MCP tools such as document reading and web fetching to execute correctly on the latest Claude Agent SDK / MCP stack.
+- Acceptance: Dogent's in-process MCP server registration follows the current low-level MCP request/result contract; built-in Dogent MCP tools can be listed and called successfully through the MCP round-trip path; `mcp__dogent__read_document` and other built-in tools no longer fail before their business logic runs; existing tool names, schemas, and annotations remain intact.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-04-05)
+- Verification: Automated MCP round-trip tests cover document, UI, web, vision, and image tool families; `python -m unittest discover -s tests -v` passes.
+
+### Story 2: Release Hardening For 0.9.29
+- User Value: As a Dogent user, I receive a stable release package whose default repo config does not contain accidental credential-like values and whose automated verification is green.
+- Acceptance: Repo default global profile templates use placeholders instead of credential-like values; release docs are updated for the MCP runtime fix; the release is built from a passing unit-test baseline.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-04-05)
+- Verification: Config tests pass after placeholder cleanup; release notes and tracking docs updated for 0.9.29.
+
+---
+
 ## Release 0.9.28
 
 ### Story 1: Skill-Style Template Catalog

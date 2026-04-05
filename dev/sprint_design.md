@@ -1,6 +1,56 @@
 # Design
 
 
+## Release 0.9.29
+
+### Goal
+
+Restore reliable execution of Dogent's built-in MCP tools on the latest Claude Agent SDK / MCP package stack, ensure the fix follows the current low-level MCP server contract, and add regression coverage for real MCP tool round-trips.
+
+### Problem Summary
+
+- Dogent's built-in MCP tools are registered through the SDK `@tool` surface, but the runtime path that turns those tool definitions into an in-process MCP server is no longer compatible with the currently installed SDK/MCP combination.
+- The visible symptom is that built-in tools such as `mcp__dogent__read_document` and `mcp__dogent__web_fetch` appear available but fail before their actual tool logic runs.
+- Direct unit tests of tool handlers are not enough to catch this class of failure because the bug lives in the MCP server registration / call path.
+
+### Design Direction
+
+- Keep Dogent's tool definitions on the current Claude Agent SDK `SdkMcpTool` + `@tool(...)` surface.
+- Move Dogent's in-process MCP server registration to a Dogent-owned builder that targets the current `mcp.server.lowlevel.Server` request-handler contract directly.
+- Register `tools/list` and `tools/call` using the current `mcp.types` request/result models, while preserving the same tool names, schemas, and `ToolAnnotations`.
+- Use the Dogent MCP server builder wherever Dogent creates its own in-process MCP server config.
+
+### Tool Call Behavior
+
+- `tools/list` should return the existing Dogent tool definitions with their JSON schemas and annotations intact.
+- `tools/call` should:
+  - validate arguments against the registered input schema;
+  - call the Dogent tool handler with the original argument payload;
+  - normalize the tool response into `mcp.types.CallToolResult` content blocks without a second wrap/unwrap layer;
+  - preserve `is_error` from the Dogent tool result as `isError` in MCP responses.
+
+### Scope
+
+- Update Dogent's main MCP server registration path used by `ConfigManager.build_options`.
+- Update any other Dogent-owned MCP server factory that still routes through the older helper path.
+- Do not change the user-facing MCP tool IDs or the actual tool business logic unless needed for the server registration fix.
+
+### Test Strategy
+
+- Keep existing annotation tests.
+- Add regression tests that exercise real Dogent MCP `tools/list` and `tools/call` round-trips for built-in tool families:
+  - document tools
+  - UI tools
+  - web tools
+  - vision tools
+  - image tools
+- Run the full `python -m unittest discover -s tests -v` suite before release.
+
+### Release Hygiene
+
+- Replace any credential-like repo default profile values with placeholders before publishing the release.
+
+
 ## Release 0.9.28
 
 ### Goal

@@ -12,10 +12,11 @@ from typing import Any, Callable, Optional
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
-from claude_agent_sdk import SdkMcpTool, create_sdk_mcp_server, tool
+from claude_agent_sdk import SdkMcpTool, tool
 from mcp.types import ToolAnnotations
 
 from .. import __version__
+from ..core.sdk_mcp import create_dogent_sdk_mcp_server
 from ..core.session_log import log_exception
 
 DOGENT_WEB_ALLOWED_TOOLS = ["mcp__dogent__web_search", "mcp__dogent__web_fetch"]
@@ -537,4 +538,4 @@ def create_dogent_web_mcp_server(
         web_profile_cfg=web_profile_cfg,
         http_get=http_get,
     )
-    return create_sdk_mcp_server(name="dogent-web", version=__version__, tools=tools)
+    return create_dogent_sdk_mcp_server(name="dogent-web", version=__version__, tools=tools)

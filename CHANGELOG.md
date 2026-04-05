@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.29 - 2026-04-05
+
+### Fixed
+- Built-in Dogent MCP tools now execute correctly again on the latest Claude Agent SDK / MCP runtime path instead of failing before their actual tool logic runs.
+- Dogent's in-process MCP server registration now follows the current low-level MCP request/result contract for built-in document, UI, web, vision, and image tools.
+
+### Changed
+- Added regression coverage for real MCP `tools/list` and `tools/call` round-trips across all built-in Dogent MCP tool families.
+- Cleaned the shipped global default profile template so repo defaults use placeholders instead of credential-like values.
+
+---
+
 ## 0.9.28 - 2026-03-29
 
 ### Added

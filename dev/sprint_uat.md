@@ -13,6 +13,28 @@ User Test Results: Accepted (2026-02-03)
 
 ---
 
+## Release 0.9.29
+
+### Story 1 – Built-in MCP Runtime Alignment
+1. Start `dogent` in a sample workspace that contains a Markdown file such as `sample.md`.
+2. Ask Dogent to summarize `@sample.md`.
+3. Expect Dogent to call `mcp__dogent__read_document` successfully instead of failing immediately with an MCP tool error before file reading happens.
+4. With a configured Dogent web profile, ask Dogent to fetch or summarize a simple web page.
+5. Expect Dogent to use the built-in Dogent web MCP path successfully instead of failing immediately with an MCP tool error before the fetch logic runs.
+6. Optionally trigger another built-in Dogent MCP tool that is available in the current workspace configuration, such as the UI, vision, or image tool path, and confirm the tool either succeeds or returns a normal tool-level validation/business error rather than a broken MCP transport/runtime error.
+
+User Test Results: Accepted (2026-04-05)
+
+### Story 2 – Release Hardening For 0.9.29
+1. Review the repo default global config template under `dogent/resources/dogent_global_default.json`.
+2. Confirm shipped profile tokens are placeholders such as `replace-me`, not credential-like values.
+3. Run `python -m unittest discover -s tests -v`.
+4. Expect the full unit-test suite to pass before packaging the release.
+
+User Test Results: Accepted (2026-04-05)
+
+---
+
 ## Release 0.9.28
 
 ### Story 1 – Skill-Style Template Catalog

@@ -39,7 +39,7 @@
     },
     "glm5.1": {
       "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
-      "ANTHROPIC_AUTH_TOKEN": "4040b93f373f4c118d6cf3165cc4ee7e.jQ9QdJcHhGsJ3OWf",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me",
       "ANTHROPIC_MODEL": "GLM-5.1",
       "ANTHROPIC_SMALL_FAST_MODEL": "GLM-5.1",
       "API_TIMEOUT_MS": 600000,
