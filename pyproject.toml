@@ -37,6 +37,8 @@ dogent = [
   "resources/*.md",
   "resources/*.json",
   "resources/*.css",
+  "resources/*.js",
+  "resources/*.txt",
   "resources/tools/**",
   "plugins/**",
   "templates/**",

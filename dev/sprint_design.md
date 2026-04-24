@@ -50,6 +50,50 @@ Restore reliable execution of Dogent's built-in MCP tools on the latest Claude A
 
 - Replace any credential-like repo default profile values with placeholders before publishing the release.
 
+### Added Scope: Pre-rendered Markdown Export
+
+- Requirement source: the second `Release 0.9.29` block in `dev/requirement.md` adds Markdown-to-PDF/DOCX rendering scope after the already accepted MCP runtime work.
+
+### Markdown Export Goal
+
+Ensure Markdown-source exports to PDF and DOCX render visual blocks that require preprocessing, starting with Mermaid fenced code blocks, so the final files show diagrams instead of raw Mermaid source.
+
+### Markdown Export Baseline
+
+- `_markdown_to_pdf` renders Markdown to HTML through `markdown-it-py` and prints it with Playwright; Mermaid fences currently remain ordinary code blocks in the final PDF.
+- `_markdown_to_docx` normalizes image tags and then sends Markdown directly to pandoc; Mermaid fences currently remain raw code blocks in the final DOCX.
+- `convert_document_async` reuses the same Markdown export helpers for `md -> pdf` and `md -> docx`, so the current limitation exists on both tool paths.
+
+### Markdown Export Direction
+
+- Add a shared Markdown pre-render step before both `_markdown_to_pdf` and `_markdown_to_docx`.
+- The pre-render step should scan fenced code blocks for renderable languages. Release `0.9.29` scope only requires `mermaid`, but the dispatcher should remain extensible for future renderable block types.
+- For each Mermaid block, render a local diagram asset in a temporary working directory using a Dogent-owned HTML template plus bundled Mermaid JavaScript executed in Playwright Chromium.
+- Replace each Mermaid fence in the temporary Markdown copy with a standard Markdown image reference to the rendered asset, so both pandoc and the HTML/PDF path consume the same pre-rendered result.
+- Keep ordinary code fences unchanged.
+- Keep the user source file unchanged; only temporary Markdown and render assets participate in conversion.
+
+### Markdown Export Failure And Dependencies
+
+- Do not silently fall back to raw Mermaid source if a Mermaid block is detected but rendering fails. Return a clear export/conversion error instead.
+- Reuse Playwright Chromium as the rendering runtime instead of introducing a separate Node or Mermaid CLI dependency.
+- PDF export already depends on Playwright Chromium. Extend DOCX export/conversion dependency checks so Markdown sources that contain Mermaid fences also request Playwright and Chromium before conversion starts.
+- In full package mode, reuse bundled Chromium and ship Mermaid JavaScript in Dogent resources so rendering stays offline and deterministic.
+
+### Markdown Export Edge Cases
+
+- Multiple Mermaid blocks in one Markdown file should render to stable distinct filenames inside the temp workspace so repeated exports do not collide.
+- Existing relative image references in the Markdown must continue to resolve correctly after Mermaid block replacement.
+- Mermaid syntax errors should surface a readable error that points to the failing block instead of generating blank output.
+- This scope changes only Markdown-source export/conversion paths; DOCX/PDF read paths remain unchanged.
+
+### Markdown Export Tests
+
+- Add unit tests for Mermaid fence detection and replacement, while confirming non-Mermaid code fences remain untouched.
+- Add export-path tests that mock the Mermaid renderer and verify `_markdown_to_pdf`, `_markdown_to_docx`, and `convert_document_async` all run through the shared pre-render step for Markdown-source conversions.
+- Add dependency-manager tests covering `export_document` and `convert_document` for DOCX outputs with and without Mermaid fences.
+- Keep the full `python -m unittest discover -s tests -v` suite green after the change.
+
 
 ## Release 0.9.28
 

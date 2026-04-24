@@ -33,6 +33,18 @@ User Test Results: Accepted (2026-04-05)
 
 User Test Results: Accepted (2026-04-05)
 
+### Story 3 – Pre-render Mermaid Blocks In Markdown Export
+1. In a sample workspace, create `docs/diagram.md` that contains one Mermaid fenced block and one normal fenced code block such as Python.
+2. Start `dogent` in that workspace.
+3. Ask Dogent to export `docs/diagram.md` to `exports/diagram.pdf`.
+4. Ask Dogent to convert `docs/diagram.md` to `exports/diagram.docx`.
+5. Open `exports/diagram.pdf` and `exports/diagram.docx`.
+6. Expect the Mermaid block to appear as a rendered diagram in both files, and confirm the literal Mermaid source block is not shown.
+7. Confirm the ordinary non-Mermaid code block still appears as regular code text in both files rather than being turned into an image.
+8. If Dogent prompts to install Pandoc or Playwright dependencies, allow the install and retry; expect Mermaid-containing DOCX conversion to complete successfully after dependency setup instead of failing due to an undeclared renderer requirement.
+
+User Test Results: Accepted (2026-04-24)
+
 ---
 
 ## Release 0.9.28

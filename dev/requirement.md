@@ -22,6 +22,12 @@
 
 ---
 
+## Release 0.9.29
+
+- For tools that convert Markdown to PDF and DOCX: if the Markdown contains content that requires pre-rendering (such as Mermaid code blocks), the converted PDF or DOCX file must display the rendered visual result instead of the original raw code block content.
+
+---
+
 ## Pending Requirements
 
 [support more document template]

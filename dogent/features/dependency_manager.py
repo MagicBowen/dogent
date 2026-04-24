@@ -15,7 +15,12 @@ from typing import Callable, Iterable
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
 
-from .document_io import _package_mode, _resolve_pandoc_binary, _resolve_playwright_browsers_path
+from .document_io import (
+    _markdown_file_contains_mermaid,
+    _package_mode,
+    _resolve_pandoc_binary,
+    _resolve_playwright_browsers_path,
+)
 
 DEP_PYPANDOC = "pypandoc"
 DEP_PANDOC = "pandoc"
@@ -149,7 +154,11 @@ def _required_dependencies_for_tool(tool_name: str, input_data: dict) -> list[st
     if tool_name == "mcp__dogent__export_document":
         fmt = str(input_data.get("format") or "").strip().lower()
         if fmt == "docx":
-            return [DEP_PYPANDOC, DEP_PANDOC]
+            deps = [DEP_PYPANDOC, DEP_PANDOC]
+            md_path = str(input_data.get("md_path") or "").strip()
+            if md_path and _markdown_file_contains_mermaid(md_path):
+                deps.extend([DEP_PLAYWRIGHT, DEP_PLAYWRIGHT_CHROMIUM])
+            return _dedupe_ordered(deps)
         if fmt == "pdf":
             return [DEP_PLAYWRIGHT, DEP_PLAYWRIGHT_CHROMIUM]
         return []
@@ -180,6 +189,13 @@ def _dependencies_for_conversion(input_path: str, output_path: str) -> list[str]
     deps: list[str] = []
     if input_format == "docx" or output_format == "docx":
         deps.extend([DEP_PYPANDOC, DEP_PANDOC])
+    if (
+        input_format == "md"
+        and output_format == "docx"
+        and input_path
+        and _markdown_file_contains_mermaid(input_path)
+    ):
+        deps.extend([DEP_PLAYWRIGHT, DEP_PLAYWRIGHT_CHROMIUM])
     if input_format == "pdf":
         deps.append(DEP_PYMUPDF)
     if output_format == "pdf":

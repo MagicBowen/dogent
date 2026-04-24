@@ -11,14 +11,15 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, AsyncIterator, Iterable
 from urllib.parse import unquote, urlparse
 from xml.etree import ElementTree as ET
 
-from ..config.resources import read_config_text
+from ..config.resources import read_config_text, read_text
 from ..core.session_log import log_exception
 
 DEFAULT_MAX_CHARS = 15000
@@ -26,6 +27,7 @@ DEFAULT_XLSX_MAX_ROWS = 50
 DEFAULT_XLSX_MAX_COLS = 20
 PACKAGE_MODE_ENV = "DOGENT_PACKAGE_MODE"
 PDF_STYLE_FILENAME = "pdf_style.css"
+MERMAID_BUNDLE_FILENAME = "mermaid.min.js"
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,17 @@ class DocumentConvertResult:
     output_path: Path
     extracted_media_dir: Path | None
     notes: list[str]
+
+
+@dataclass(frozen=True)
+class MermaidRenderRequest:
+    index: int
+    line_number: int
+    definition: str
+    output_path: Path
+    replacement: str
+    start: int
+    end: int
 
 
 def _package_mode() -> str:
@@ -144,7 +157,9 @@ async def export_markdown_async(
 ) -> list[str]:
     normalized = format.strip().lower()
     if normalized == "docx":
-        _markdown_to_docx(md_path, output_path=output_path, workspace_root=workspace_root)
+        await _markdown_to_docx_async(
+            md_path, output_path=output_path, workspace_root=workspace_root
+        )
         return []
     if normalized == "pdf":
         return await _markdown_to_pdf(
@@ -186,7 +201,9 @@ async def convert_document_async(
             extract_media_dir=extract_media_dir,
         )
     elif input_format == "md" and output_format == "docx":
-        _markdown_to_docx(input_path, output_path=output_path, workspace_root=workspace_root)
+        await _markdown_to_docx_async(
+            input_path, output_path=output_path, workspace_root=workspace_root
+        )
     elif input_format == "md" and output_format == "pdf":
         style_notes = await _markdown_to_pdf(
             input_path,
@@ -221,7 +238,9 @@ async def convert_document_async(
         with tempfile.TemporaryDirectory() as tmp:
             tmp_md = Path(tmp) / "source.md"
             tmp_md.write_text(result.content, encoding="utf-8")
-            _markdown_to_docx(tmp_md, output_path=output_path, workspace_root=workspace_root)
+            await _markdown_to_docx_async(
+                tmp_md, output_path=output_path, workspace_root=workspace_root
+            )
     elif input_format == "xlsx" and output_format == "md":
         result = read_document(input_path, max_chars=0)
         if result.error:
@@ -939,6 +958,225 @@ def _detect_format(path: Path) -> str:
     return ""
 
 
+_FENCED_CODE_BLOCK_PATTERN = re.compile(
+    r"(?ms)^(?P<indent>[ ]{0,3})(?P<fence>`{3,}|~{3,})[ \t]*(?P<info>[^\n]*)\n"
+    r"(?P<body>.*?)(?:\n)?^(?P=indent)(?P=fence)[ \t]*$"
+)
+
+
+def _markdown_contains_mermaid(md_text: str) -> bool:
+    for match in _FENCED_CODE_BLOCK_PATTERN.finditer(md_text):
+        info = (match.group("info") or "").strip()
+        if _fenced_block_language(info) == "mermaid":
+            return True
+    return False
+
+
+def _markdown_file_contains_mermaid(path: str | Path) -> bool:
+    try:
+        md_text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:  # noqa: BLE001
+        log_exception("document_io", exc)
+        return False
+    return _markdown_contains_mermaid(md_text)
+
+
+def _fenced_block_language(info: str) -> str:
+    if not info:
+        return ""
+    token = info.split(None, 1)[0].strip()
+    if token.startswith("{") and token.endswith("}"):
+        token = token[1:-1].strip()
+    return token.lower()
+
+
+def _read_mermaid_bundle() -> str:
+    bundle = read_text("resources", MERMAID_BUNDLE_FILENAME)
+    if bundle:
+        return bundle
+    raise RuntimeError(
+        f"Bundled Mermaid runtime is missing: dogent/resources/{MERMAID_BUNDLE_FILENAME}"
+    )
+
+
+def _build_mermaid_renderer_html(bundle_js: str) -> str:
+    safe_bundle = bundle_js.replace("</script>", "<\\/script>")
+    return (
+        "<!doctype html>\n"
+        "<html>\n<head>\n"
+        "<meta charset=\"utf-8\" />\n"
+        "<style>\n"
+        "html, body { margin: 0; padding: 0; background: #ffffff; }\n"
+        "#capture { display: inline-block; padding: 12px; background: #ffffff; }\n"
+        "#capture svg { display: block; max-width: none !important; }\n"
+        "</style>\n"
+        "</head>\n<body>\n"
+        "<div id=\"capture\"></div>\n"
+        f"<script>{safe_bundle}</script>\n"
+        "<script>\n"
+        "if (!window.mermaid) {\n"
+        "  throw new Error('Bundled Mermaid runtime did not initialize.');\n"
+        "}\n"
+        "window.mermaid.initialize({\n"
+        "  startOnLoad: false,\n"
+        "  securityLevel: 'strict',\n"
+        "  theme: 'default'\n"
+        "});\n"
+        "window.dogentRenderMermaid = async (definition, renderId) => {\n"
+        "  const container = document.getElementById('capture');\n"
+        "  container.innerHTML = '';\n"
+        "  const rendered = await window.mermaid.render(renderId, definition);\n"
+        "  container.innerHTML = rendered.svg;\n"
+        "  const svg = container.querySelector('svg');\n"
+        "  if (!svg) {\n"
+        "    throw new Error('Mermaid did not produce an SVG element.');\n"
+        "  }\n"
+        "  svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');\n"
+        "  svg.style.maxWidth = 'none';\n"
+        "  if (document.fonts && document.fonts.ready) {\n"
+        "    await document.fonts.ready;\n"
+        "  }\n"
+        "};\n"
+        "</script>\n"
+        "</body>\n</html>\n"
+    )
+
+
+async def _render_mermaid_blocks(requests: list[MermaidRenderRequest]) -> None:
+    if not requests:
+        return
+
+    bundle_js = _read_mermaid_bundle()
+    _configure_playwright_browsers()
+    try:
+        from playwright.async_api import async_playwright
+    except Exception as exc:  # noqa: BLE001
+        log_exception("document_io", exc)
+        raise RuntimeError(
+            "Mermaid pre-render requires Playwright. Install dependency."
+        ) from exc
+
+    html = _build_mermaid_renderer_html(bundle_js)
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            page = await browser.new_page(
+                viewport={"width": 2200, "height": 2200},
+                device_scale_factor=2,
+            )
+            await page.set_content(html, wait_until="load")
+            for request in requests:
+                try:
+                    await page.evaluate(
+                        "(args) => window.dogentRenderMermaid(args.definition, args.renderId)",
+                        {
+                            "definition": request.definition,
+                            "renderId": f"dogent-mermaid-{request.index}",
+                        },
+                    )
+                    await page.locator("#capture svg").screenshot(
+                        path=str(request.output_path)
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log_exception("document_io", exc)
+                    raise RuntimeError(
+                        "Mermaid render failed for block "
+                        f"{request.index} near line {request.line_number}: {exc}"
+                    ) from exc
+            await browser.close()
+    except RuntimeError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log_exception("document_io", exc)
+        raise RuntimeError(
+            "Mermaid pre-render requires Playwright Chromium. Please install dependencies."
+        ) from exc
+
+
+async def _replace_mermaid_fences(
+    md_text: str,
+    *,
+    asset_dir: Path,
+    markdown_dir: Path,
+) -> str:
+    requests: list[MermaidRenderRequest] = []
+    for match in _FENCED_CODE_BLOCK_PATTERN.finditer(md_text):
+        info = (match.group("info") or "").strip()
+        if _fenced_block_language(info) != "mermaid":
+            continue
+        index = len(requests) + 1
+        output_path = asset_dir / f"mermaid-{index}.png"
+        rel_path = Path(os.path.relpath(output_path, markdown_dir)).as_posix()
+        target = _format_markdown_target(rel_path)
+        line_number = md_text.count("\n", 0, match.start()) + 1
+        indent = match.group("indent") or ""
+        requests.append(
+            MermaidRenderRequest(
+                index=index,
+                line_number=line_number,
+                definition=(match.group("body") or "").strip(),
+                output_path=output_path,
+                replacement=f"{indent}![Mermaid diagram {index}]({target})",
+                start=match.start(),
+                end=match.end(),
+            )
+        )
+
+    if not requests:
+        return md_text
+
+    await _render_mermaid_blocks(requests)
+
+    parts: list[str] = []
+    cursor = 0
+    for request in requests:
+        parts.append(md_text[cursor : request.start])
+        parts.append(request.replacement)
+        cursor = request.end
+    parts.append(md_text[cursor:])
+    return "".join(parts)
+
+
+@asynccontextmanager
+async def _prepare_markdown_export(
+    md_path: Path,
+    *,
+    workspace_root: Path | None = None,
+) -> AsyncIterator[Path]:
+    md_text = md_path.read_text(encoding="utf-8", errors="replace")
+    if not _markdown_contains_mermaid(md_text):
+        yield md_path
+        return
+
+    temp_parent = md_path.parent
+    with tempfile.TemporaryDirectory(
+        dir=str(temp_parent), prefix=".dogent-export-assets-"
+    ) as asset_dir_raw:
+        asset_dir = Path(asset_dir_raw)
+        prepared_md = await _replace_mermaid_fences(
+            md_text,
+            asset_dir=asset_dir,
+            markdown_dir=md_path.parent,
+        )
+        temp_file = tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            suffix=md_path.suffix,
+            prefix=".dogent-export-",
+            dir=str(temp_parent),
+            delete=False,
+        )
+        try:
+            temp_file.write(prepared_md)
+        finally:
+            temp_file.close()
+        temp_md_path = Path(temp_file.name)
+        try:
+            yield temp_md_path
+        finally:
+            temp_md_path.unlink(missing_ok=True)
+
+
 def _ensure_pandoc_available() -> None:
     if _package_mode() == "full":
         pandoc_path = _resolve_pandoc_binary()
@@ -1125,31 +1363,44 @@ def _format_pandoc_attrs(attrs: dict[str, str]) -> str:
 def _markdown_to_docx(
     md_path: Path, *, output_path: Path, workspace_root: Path | None = None
 ) -> None:
+    _run_async(
+        _markdown_to_docx_async(
+            md_path, output_path=output_path, workspace_root=workspace_root
+        )
+    )
+
+
+async def _markdown_to_docx_async(
+    md_path: Path, *, output_path: Path, workspace_root: Path | None = None
+) -> None:
     _ensure_pandoc_available()
     import pypandoc
 
-    md_text = md_path.read_text(encoding="utf-8", errors="replace")
-    normalized, _ = _normalize_markdown_for_docx(md_text)
-    resource_paths = [md_path.parent.resolve()]
-    if workspace_root:
-        root_resolved = workspace_root.resolve()
-        if root_resolved not in resource_paths:
-            resource_paths.append(root_resolved)
-    resource_arg = f"--resource-path={os.pathsep.join(str(p) for p in resource_paths)}"
-    extra_args = ["--standalone", resource_arg, "--highlight-style=tango"]
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_md = Path(tmp) / md_path.name
-        tmp_md.write_text(normalized, encoding="utf-8")
-        pypandoc.convert_file(
-            str(tmp_md),
-            to="docx",
-            format=(
-                "markdown+raw_html+link_attributes+pipe_tables"
-                "+multiline_tables+grid_tables+fenced_code_blocks"
-            ),
-            outputfile=str(output_path),
-            extra_args=extra_args,
+    async with _prepare_markdown_export(md_path, workspace_root=workspace_root) as prepared_md:
+        md_text = prepared_md.read_text(encoding="utf-8", errors="replace")
+        normalized, _ = _normalize_markdown_for_docx(md_text)
+        resource_paths = [prepared_md.parent.resolve()]
+        if workspace_root:
+            root_resolved = workspace_root.resolve()
+            if root_resolved not in resource_paths:
+                resource_paths.append(root_resolved)
+        resource_arg = (
+            f"--resource-path={os.pathsep.join(str(p) for p in resource_paths)}"
         )
+        extra_args = ["--standalone", resource_arg, "--highlight-style=tango"]
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_md = Path(tmp) / prepared_md.name
+            tmp_md.write_text(normalized, encoding="utf-8")
+            pypandoc.convert_file(
+                str(tmp_md),
+                to="docx",
+                format=(
+                    "markdown+raw_html+link_attributes+pipe_tables"
+                    "+multiline_tables+grid_tables+fenced_code_blocks"
+                ),
+                outputfile=str(output_path),
+                extra_args=extra_args,
+            )
 
 
 def _default_pdf_css() -> str:
@@ -1321,26 +1572,27 @@ async def _markdown_to_pdf(
     title: str | None,
     workspace_root: Path | None = None,
 ) -> list[str]:
-    md_text = md_path.read_text(encoding="utf-8", errors="replace")
-    css_text, warnings = _resolve_pdf_style(workspace_root)
-    header_template, footer_template = _build_pdf_header_footer(css_text)
-    html = _markdown_to_html(
-        md_text,
-        title=title or "Document",
-        css_text=css_text,
-        base_path=md_path.parent,
-        workspace_root=workspace_root,
-    )
-    with tempfile.TemporaryDirectory() as tmp:
-        html_path = Path(tmp) / "document.html"
-        html_path.write_text(html, encoding="utf-8")
-        await _html_to_pdf(
-            html,
-            output_path=output_path,
-            header_template=header_template,
-            footer_template=footer_template,
-            source_url=html_path.resolve().as_uri(),
+    async with _prepare_markdown_export(md_path, workspace_root=workspace_root) as prepared_md:
+        md_text = prepared_md.read_text(encoding="utf-8", errors="replace")
+        css_text, warnings = _resolve_pdf_style(workspace_root)
+        header_template, footer_template = _build_pdf_header_footer(css_text)
+        html = _markdown_to_html(
+            md_text,
+            title=title or "Document",
+            css_text=css_text,
+            base_path=prepared_md.parent,
+            workspace_root=workspace_root,
         )
+        with tempfile.TemporaryDirectory() as tmp:
+            html_path = Path(tmp) / "document.html"
+            html_path.write_text(html, encoding="utf-8")
+            await _html_to_pdf(
+                html,
+                output_path=output_path,
+                header_template=header_template,
+                footer_template=footer_template,
+                source_url=html_path.resolve().as_uri(),
+            )
     return warnings
 
 

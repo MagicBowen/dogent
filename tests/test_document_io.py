@@ -276,6 +276,18 @@ class DocumentIOTests(unittest.TestCase):
         self.assertIn('style="border: 0"', normalized)
         self.assertEqual(warnings, [])
 
+    def test_markdown_contains_mermaid_detects_mermaid_fences_only(self) -> None:
+        self.assertTrue(
+            document_io._markdown_contains_mermaid(
+                "```mermaid\ngraph TD\nA-->B\n```\n"
+            )
+        )
+        self.assertFalse(
+            document_io._markdown_contains_mermaid(
+                "```python\nprint('hi')\n```\n"
+            )
+        )
+
     def test_package_mode_resolves_bundled_tools(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "resources" / "tools"
@@ -347,6 +359,132 @@ class DocumentIOAsyncTests(unittest.IsolatedAsyncioTestCase):
             _, kwargs = html_to_pdf.await_args
             self.assertTrue(kwargs["source_url"].startswith("file://"))
 
+    async def test_prepare_markdown_export_rewrites_mermaid_fences(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            md_path = root / "note.md"
+            md_path.write_text(
+                "Before\n\n"
+                "```mermaid\n"
+                "graph TD\n"
+                "  A-->B\n"
+                "```\n\n"
+                "```python\n"
+                "print('keep me')\n"
+                "```\n",
+                encoding="utf-8",
+            )
+
+            async def fake_render(
+                requests: list[document_io.MermaidRenderRequest],
+            ) -> None:
+                self.assertEqual(len(requests), 1)
+                self.assertIn("graph TD", requests[0].definition)
+                requests[0].output_path.write_bytes(b"png")
+
+            with mock.patch(
+                "dogent.features.document_io._render_mermaid_blocks",
+                side_effect=fake_render,
+            ):
+                async with document_io._prepare_markdown_export(md_path) as prepared:
+                    prepared_text = prepared.read_text(encoding="utf-8")
+                    self.assertNotEqual(prepared, md_path)
+                    self.assertNotIn("```mermaid", prepared_text)
+                    self.assertIn("![Mermaid diagram 1](", prepared_text)
+                    self.assertIn("```python", prepared_text)
+                    prepared_path = prepared
+
+            self.assertFalse(prepared_path.exists())
+
+    async def test_markdown_to_pdf_prerenders_mermaid_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            md_path = tmp_path / "note.md"
+            md_path.write_text(
+                "```mermaid\n"
+                "graph TD\n"
+                "  A-->B\n"
+                "```\n",
+                encoding="utf-8",
+            )
+            output_path = tmp_path / "note.pdf"
+
+            async def fake_render(
+                requests: list[document_io.MermaidRenderRequest],
+            ) -> None:
+                requests[0].output_path.write_bytes(
+                    b"\x89PNG\r\n\x1a\n"
+                    b"\x00\x00\x00\rIHDR"
+                    b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00"
+                    b"\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\x0f\x00\x01"
+                    b"\x01\x01\x00\x18\xdd\x8d\xdb\x00\x00\x00\x00IEND\xaeB`\x82"
+                )
+
+            with (
+                mock.patch(
+                    "dogent.features.document_io._render_mermaid_blocks",
+                    side_effect=fake_render,
+                ),
+                mock.patch(
+                    "dogent.features.document_io._resolve_pdf_style",
+                    return_value=("body { color: #111; }", []),
+                ),
+                mock.patch(
+                    "dogent.features.document_io._html_to_pdf", new=mock.AsyncMock()
+                ) as html_to_pdf,
+            ):
+                await document_io._markdown_to_pdf(
+                    md_path,
+                    output_path=output_path,
+                    title="Note",
+                    workspace_root=tmp_path,
+                )
+
+            html_arg = html_to_pdf.await_args.args[0]
+            self.assertIn("Mermaid diagram 1", html_arg)
+            self.assertNotIn("graph TD", html_arg)
+
+    async def test_markdown_to_docx_prerenders_mermaid_blocks(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "workspace"
+            root.mkdir(parents=True, exist_ok=True)
+            md_path = root / "note.md"
+            md_path.write_text(
+                "```mermaid\n"
+                "graph TD\n"
+                "  A-->B\n"
+                "```\n",
+                encoding="utf-8",
+            )
+            output_path = root / "note.docx"
+            fake_pandoc = SimpleNamespace(convert_file=mock.Mock())
+            captured: dict[str, str] = {}
+
+            async def fake_render(
+                requests: list[document_io.MermaidRenderRequest],
+            ) -> None:
+                requests[0].output_path.write_bytes(b"png")
+
+            def capture_convert_file(*args, **kwargs):  # type: ignore[no-untyped-def]
+                captured["markdown"] = Path(args[0]).read_text(encoding="utf-8")
+
+            fake_pandoc.convert_file.side_effect = capture_convert_file
+
+            with (
+                mock.patch.dict(sys.modules, {"pypandoc": fake_pandoc}),
+                mock.patch(
+                    "dogent.features.document_io._render_mermaid_blocks",
+                    side_effect=fake_render,
+                ),
+                mock.patch("dogent.features.document_io._ensure_pandoc_available"),
+            ):
+                await document_io._markdown_to_docx_async(
+                    md_path, output_path=output_path, workspace_root=root
+                )
+
+            self.assertIn("![Mermaid diagram 1](", captured["markdown"])
+            self.assertNotIn("```mermaid", captured["markdown"])
+
     async def test_markdown_to_docx_uses_resource_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "workspace"
@@ -360,7 +498,7 @@ class DocumentIOAsyncTests(unittest.IsolatedAsyncioTestCase):
                 mock.patch.dict(sys.modules, {"pypandoc": fake_pandoc}),
                 mock.patch("dogent.features.document_io._ensure_pandoc_available"),
             ):
-                document_io._markdown_to_docx(
+                await document_io._markdown_to_docx_async(
                     md_path, output_path=output_path, workspace_root=root
                 )
             _, kwargs = fake_pandoc.convert_file.call_args

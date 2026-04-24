@@ -1,5 +1,7 @@
+import tempfile
 import unittest
 from unittest import mock
+from pathlib import Path
 
 from dogent.features import dependency_manager as dm
 
@@ -36,6 +38,63 @@ class DependencyManagerTests(unittest.TestCase):
                 "mcp__dogent__read_document", {"path": "file.docx"}
             )
         self.assertEqual(set(missing), {dm.DEP_PYPANDOC, dm.DEP_PANDOC})
+
+    def test_missing_dependencies_for_export_docx_with_mermaid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            md_path = Path(tmp) / "diagram.md"
+            md_path.write_text("```mermaid\ngraph TD\nA-->B\n```\n", encoding="utf-8")
+
+            def module_available(name: str) -> bool:
+                return name not in {"playwright", "pypandoc"}
+
+            with (
+                mock.patch.object(dm, "_module_available", side_effect=module_available),
+                mock.patch.object(dm, "_pandoc_available", return_value=False),
+                mock.patch.object(dm, "_playwright_chromium_available", return_value=False),
+            ):
+                missing = dm.missing_dependencies_for_tool(
+                    "mcp__dogent__export_document",
+                    {"format": "docx", "md_path": str(md_path)},
+                )
+
+        self.assertEqual(
+            set(missing),
+            {
+                dm.DEP_PYPANDOC,
+                dm.DEP_PANDOC,
+                dm.DEP_PLAYWRIGHT,
+                dm.DEP_PLAYWRIGHT_CHROMIUM,
+            },
+        )
+
+    def test_missing_dependencies_for_convert_markdown_docx_with_mermaid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            md_path = Path(tmp) / "diagram.md"
+            output_path = Path(tmp) / "diagram.docx"
+            md_path.write_text("```mermaid\ngraph TD\nA-->B\n```\n", encoding="utf-8")
+
+            def module_available(name: str) -> bool:
+                return name not in {"playwright", "pypandoc"}
+
+            with (
+                mock.patch.object(dm, "_module_available", side_effect=module_available),
+                mock.patch.object(dm, "_pandoc_available", return_value=False),
+                mock.patch.object(dm, "_playwright_chromium_available", return_value=False),
+            ):
+                missing = dm.missing_dependencies_for_tool(
+                    "mcp__dogent__convert_document",
+                    {"input_path": str(md_path), "output_path": str(output_path)},
+                )
+
+        self.assertEqual(
+            set(missing),
+            {
+                dm.DEP_PYPANDOC,
+                dm.DEP_PANDOC,
+                dm.DEP_PLAYWRIGHT,
+                dm.DEP_PLAYWRIGHT_CHROMIUM,
+            },
+        )
 
     def test_manual_instructions_include_download_path_on_install(self) -> None:
         with mock.patch.object(dm, "_os_name", return_value="linux"):

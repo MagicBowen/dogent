@@ -32,6 +32,13 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Acceptance Status: Accepted (2026-04-05)
 - Verification: Config tests pass after placeholder cleanup; release notes and tracking docs updated for 0.9.29.
 
+### Story 3: Pre-render Mermaid Blocks In Markdown Export
+- User Value: As a Dogent user, when I export Markdown documents containing Mermaid diagrams to PDF or DOCX, the final document shows the rendered diagram instead of raw Mermaid code.
+- Acceptance: Markdown-source export/conversion paths run a shared pre-render step for Mermaid fenced blocks before PDF/DOCX generation; the final PDF/DOCX shows rendered diagrams instead of Mermaid source; ordinary non-Mermaid code fences remain regular code text; DOCX export/conversion raises a clear error if Mermaid rendering fails instead of silently emitting raw code; dependency prompts cover Playwright/Chromium when Mermaid pre-rendering is required.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-04-24)
+- Verification: Automated tests cover Mermaid fence detection/rewrite, shared pre-render invocation across PDF/DOCX Markdown export paths, and content-aware dependency checks for Markdown-source DOCX export; `python -m unittest discover -s tests -v` passes.
+
 ---
 
 ## Release 0.9.28
