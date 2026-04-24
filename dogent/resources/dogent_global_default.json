@@ -16,24 +16,8 @@
     "deepseek": {
       "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
       "ANTHROPIC_AUTH_TOKEN": "replace-me",
-      "ANTHROPIC_MODEL": "deepseek-reasoner",
-      "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-chat",
-      "API_TIMEOUT_MS": 600000,
-      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
-    },
-    "glm4.7": {
-      "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
-      "ANTHROPIC_AUTH_TOKEN": "replace-me",
-      "ANTHROPIC_MODEL": "glm-4.7",
-      "ANTHROPIC_SMALL_FAST_MODEL": "glm-4.7",
-      "API_TIMEOUT_MS": 600000,
-      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
-    },
-    "poe-claude": {
-      "ANTHROPIC_BASE_URL": "https://api.poe.com",
-      "ANTHROPIC_AUTH_TOKEN": "replace-me",
-      "ANTHROPIC_MODEL": "Opus",
-      "ANTHROPIC_SMALL_FAST_MODEL": "Sonnet",
+      "ANTHROPIC_MODEL": "deepseek-v4-pro",
+      "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-v4-flash",
       "API_TIMEOUT_MS": 600000,
       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
     },
@@ -42,6 +26,14 @@
       "ANTHROPIC_AUTH_TOKEN": "replace-me",
       "ANTHROPIC_MODEL": "GLM-5.1",
       "ANTHROPIC_SMALL_FAST_MODEL": "GLM-5.1",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    },
+    "poe-claude": {
+      "ANTHROPIC_BASE_URL": "https://api.poe.com",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me",
+      "ANTHROPIC_MODEL": "Opus",
+      "ANTHROPIC_SMALL_FAST_MODEL": "Sonnet",
       "API_TIMEOUT_MS": 600000,
       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
     }
