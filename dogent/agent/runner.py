@@ -71,6 +71,8 @@ DOGENT_TOOL_DISPLAY_NAMES = {
     **DOGENT_UI_TOOL_DISPLAY_NAMES,
 }
 
+FOLLOWUP_STATUSES = {"needs_clarification", "needs_outline_edit", "awaiting_input"}
+
 
 @dataclass(frozen=True)
 class RunOutcome:
@@ -298,7 +300,7 @@ class AgentRunner:
                 await self._client.query(user_prompt)
 
             await self._stream_responses()
-            if not self._needs_clarification:
+            if not self._should_keep_client_for_followup():
                 await self._safe_disconnect()
             if self.last_outcome:
                 interaction_status = self.last_outcome.status
@@ -345,6 +347,13 @@ class AgentRunner:
             self._task_temp_files.clear()
             if self._session_logger:
                 self._session_logger.end_interaction("agent", status=interaction_status)
+
+    def _should_keep_client_for_followup(self) -> bool:
+        if self._needs_clarification or self._needs_outline_edit:
+            return True
+        if self.last_outcome is None:
+            return False
+        return self.last_outcome.status in FOLLOWUP_STATUSES
 
     async def abort(self, reason: str) -> None:
         async with self._lock:

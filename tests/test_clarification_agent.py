@@ -7,7 +7,7 @@ from unittest import mock
 
 from rich.console import Console
 
-from dogent.agent import AgentRunner
+from dogent.agent import AgentRunner, RunOutcome
 from dogent.config import ConfigManager
 from dogent.core.history import HistoryManager
 from dogent.config.paths import DogentPaths
@@ -67,6 +67,112 @@ class ClarificationAgentTests(unittest.IsolatedAsyncioTestCase):
                         ):
                             await runner.send_message("Need info", [], config_override=None)
                     safe_disconnect.assert_not_awaited()
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_send_message_keeps_session_on_awaiting_input(self) -> None:
+        class DummyClient:
+            def __init__(self) -> None:
+                self.options = SimpleNamespace(system_prompt="")
+
+            async def query(self, _prompt: str) -> None:
+                return None
+
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console()
+            todo = TodoManager(console=console)
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo, history)
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=builder,
+                todo_manager=todo,
+                history=history,
+                console=console,
+            )
+            runner._client = DummyClient()
+
+            async def fake_stream() -> None:
+                runner.last_outcome = RunOutcome(
+                    status="awaiting_input",
+                    summary="Awaiting input.",
+                    todos_snapshot=[],
+                    remaining_todos_markdown="- next step",
+                )
+
+            with mock.patch.object(
+                runner, "_stream_responses", new=mock.AsyncMock(side_effect=fake_stream)
+            ):
+                with mock.patch.object(
+                    runner, "_safe_disconnect", new=mock.AsyncMock()
+                ) as safe_disconnect:
+                    with mock.patch.object(
+                        runner, "_start_wait_indicator", new=mock.AsyncMock()
+                    ):
+                        with mock.patch.object(
+                            runner, "_stop_wait_indicator", new=mock.AsyncMock()
+                        ):
+                            await runner.send_message("Need info", [], config_override=None)
+                    safe_disconnect.assert_not_awaited()
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_send_message_disconnects_after_completion(self) -> None:
+        class DummyClient:
+            def __init__(self) -> None:
+                self.options = SimpleNamespace(system_prompt="")
+
+            async def query(self, _prompt: str) -> None:
+                return None
+
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console()
+            todo = TodoManager(console=console)
+            history = HistoryManager(paths)
+            builder = PromptBuilder(paths, todo, history)
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=builder,
+                todo_manager=todo,
+                history=history,
+                console=console,
+            )
+            runner._client = DummyClient()
+
+            async def fake_stream() -> None:
+                runner.last_outcome = RunOutcome(
+                    status="completed",
+                    summary="Done.",
+                    todos_snapshot=[],
+                    remaining_todos_markdown="",
+                )
+
+            with mock.patch.object(
+                runner, "_stream_responses", new=mock.AsyncMock(side_effect=fake_stream)
+            ):
+                with mock.patch.object(
+                    runner, "_safe_disconnect", new=mock.AsyncMock()
+                ) as safe_disconnect:
+                    with mock.patch.object(
+                        runner, "_start_wait_indicator", new=mock.AsyncMock()
+                    ):
+                        with mock.patch.object(
+                            runner, "_stop_wait_indicator", new=mock.AsyncMock()
+                        ):
+                            await runner.send_message("Finish", [], config_override=None)
+                    safe_disconnect.assert_awaited_once()
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

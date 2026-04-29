@@ -172,7 +172,8 @@ class ConfigTests(unittest.TestCase):
             manager.load_settings()
 
             output = buf.getvalue()
-            self.assertIn("placeholder credentials", output)
+            normalized_output = " ".join(output.split())
+            self.assertIn("placeholder credentials", normalized_output)
             self.assertIn("deepseek", output)
         if original_home is not None:
             os.environ["HOME"] = original_home
