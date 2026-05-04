@@ -1497,3 +1497,218 @@
   - selected MCP tools expose the intended annotations;
   - usage / rate-limit / task-progress events are logged or surfaced in the expected paths;
   - partial streaming stays opt-in and does not break final response rendering.
+
+## Release 0.9.28
+
+### Goal
+
+Refactor Dogent document templates from the current single-file Markdown format into a standard skill-style directory format, remove legacy-format compatibility, preserve `/init` and `@@` template selection through dropdown completion, and add a native `/template` command that can list templates and trigger built-in create/optimize flows.
+
+### Current Baseline
+
+- Document templates are currently loaded from flat Markdown files:
+  - workspace: `.dogent/templates/<name>.md`
+  - global: `~/.dogent/templates/<name>.md`
+  - built-in: `dogent/templates/<name>.md`
+- `DocumentTemplateManager` only understands single `.md` files and extracts introductions from inline `## Introduction` sections.
+- `/init` and `@@` already use template completion, but they depend on the flat-file loader.
+- Dogent auto-enables its built-in Dogent plugin under `~/.dogent/plugins/dogent`, and native CLI commands can invoke agent runs directly.
+- `/profile` already establishes the desired command UX pattern:
+  - `/profile` with no subcommand shows an overview instead of failing.
+  - `/profile <target>` with no value shows available options for that target.
+  - command completion proposes target values after the user types `/profile `.
+
+### Template Format Design
+
+- The only supported document-template format after this release is a skill-style directory:
+  - workspace: `.dogent/templates/<template_name>/SKILL.md`
+  - global: `~/.dogent/templates/<template_name>/SKILL.md`
+  - built-in: `dogent/templates/<template_name>/SKILL.md`
+- Legacy flat files such as `.dogent/templates/resume.md` are not loaded, not listed, and not migrated automatically.
+- Each template directory must contain `SKILL.md`. Companion files should follow the new layout:
+  - `templates/`: reusable output-structure references
+  - `examples/`: sample outputs
+  - `assets/`: multimedia assets when needed
+- Built-in templates will be rewritten into the same directory-based format so workspace/global/built-in templates follow one consistent mental model.
+
+### Template Content Assembly
+
+- `DocumentTemplateManager` should treat a template as a directory resource rather than a single file.
+- The template display name continues to use existing source prefixes:
+  - workspace: `resume`
+  - global: `global:resume`
+  - built-in: `built-in:resume`
+- Template introduction/description for lists, `/init`, and `@@` completion should come from the head YAML frontmatter in `SKILL.md`, using `description` as the primary field.
+- When Dogent injects template guidance into prompts, it should build a normalized template text block from:
+  - `SKILL.md`, with the title/introduction block removed before prompt injection
+  - optional Markdown reference files under `templates/`, appended in deterministic sorted order
+- `SKILL.md` acts as the human-facing entry point and should describe the template purpose, background, precautions, and companion files.
+- If `SKILL.md` contains an explicit `## Introduction` section, Dogent should omit that section from the injected template body because the summary already comes from YAML metadata.
+- If no `## Introduction` section exists, Dogent may trim the leading boilerplate lines from the top of `SKILL.md` before injecting the body so the prompt focuses on actionable template rules.
+- This keeps the authoring format aligned with skills while still letting document templates split summary metadata, usage scenarios, output format, and other instructions into separate files.
+
+### `/init` and `@@` Selection Behavior
+
+- `/init` template completion must continue to show all available template keys from workspace, global, and built-in sources.
+- `@@<template>` completion must continue to work for inline prompt overrides.
+- The init wizard template overview should describe templates using the new metadata extraction logic so standard skill-style templates remain selectable without special casing.
+- General/default template behavior remains unchanged from a user perspective, but the built-in general template also moves to the new directory format.
+
+### Native `/template` Command Design
+
+- Add a native built-in `/template` command.
+- Command intent:
+  - `/template` with no subcommand shows the available templates, equivalent to `/template list`.
+  - typing `/template ` should offer dropdown completion entries for `create` and `optimize`, matching the discoverability pattern the user requested.
+  - `/template list` shows all available templates grouped by source with one-line descriptions.
+  - `/template optimize` with no template key should show the available templates and usage guidance, similar to `/profile <target>` showing options when the value is missing.
+- Expected subcommands:
+  - `list`
+  - `create`
+  - `optimize`
+- `create` and `optimize` are the primary interactive workflows; `list` exists mainly as an explicit equivalent to bare `/template`.
+
+### `/template` Workflow Behavior
+
+- `/template create <brief>` should run an agent task that explicitly asks the model to use the built-in document-template-creator skill and create a new template in workspace scope unless the user says otherwise.
+- The free text after `/template create` is the authoritative creation brief and may contain template purpose, audience, structure, language, style, and other related requirements in one natural-language string.
+- `/template create` with no brief should show usage guidance or prompt for the missing request in interactive mode rather than silently doing nothing.
+- `/template optimize <template-key> <brief>` should run an agent task that explicitly asks the model to use the built-in document-template-creator skill to refine the named template.
+- `/template optimize <template-key>` should still be valid and ask the skill to improve the template using the template’s existing content as the baseline.
+- `/template optimize` with no template key should show the available templates and usage guidance instead of guessing a target.
+- The command should reuse existing confirmation/update patterns when the agent proposes edits under `.dogent/templates/`.
+
+### Built-in Skill Design
+
+- Add a built-in Claude skill dedicated to document-template authoring and optimization.
+- Suggested packaged location:
+  - `dogent/plugins/dogent/skills/doc-template-creator/`
+- The skill should:
+  - generate templates in the new skill-style directory layout
+  - explain where to place introduction, usage scenarios, output format, and supporting material
+  - support both create and optimize requests
+  - prefer workspace templates by default unless the user requests global scope
+- The native `/template` command should be a thin UX wrapper around this skill rather than reimplementing template-authoring logic inside the CLI.
+
+### Implementation Direction
+
+- Update template discovery and resolution code to scan template directories with `SKILL.md` instead of flat `.md` files.
+- Update built-in resource loading helpers to support directory-based template resources.
+- Rewrite shipped templates (`general`, `resume`, `research_report`, `technical_blog`) into directory-based resources.
+- Add `/template` command registration, handler logic, help text, and command completion support.
+- Reuse the existing command/completion style used by `/profile` so blank-command and missing-argument behaviors stay predictable.
+- Ensure docs and examples are updated from `<name>.md` paths to `<name>/SKILL.md` paths wherever they describe template authoring.
+
+### Edge Cases
+
+- If a template directory exists without `SKILL.md`, it should be ignored and should not appear in completion.
+- If multiple reference files exist, ordering must be deterministic so generated prompts are stable for tests.
+- If `SKILL.md` frontmatter is malformed, Dogent should skip description extraction gracefully instead of trying to recover summary text from the body.
+- If a user keeps old `<name>.md` files after upgrading, Dogent should not silently load them, because this release explicitly drops compatibility.
+- `/template optimize` must reject unknown template keys with an option list instead of starting a vague agent task.
+
+### Tests
+
+- Add unit tests for directory-based template listing, YAML description extraction, prompt-content assembly, introduction stripping, and prefix resolution across workspace/global/built-in sources.
+- Add tests that legacy flat `.md` templates are ignored.
+- Add CLI completion tests for `/template ` and any subsequent argument completion rules.
+- Add CLI command tests for:
+  - `/template`
+  - `/template list`
+  - `/template optimize` with missing template key
+  - `/template create ...`
+- Add CLI command tests confirming `/template create <free text>` preserves the full free-text brief when building the agent request.
+- Update existing `/init` and template-override tests to use the new directory-based fixtures.
+
+## Release 0.9.29
+
+### Goal
+
+Restore reliable execution of Dogent's built-in MCP tools on the latest Claude Agent SDK / MCP package stack, ensure the fix follows the current low-level MCP server contract, and add regression coverage for real MCP tool round-trips.
+
+### Problem Summary
+
+- Dogent's built-in MCP tools are registered through the SDK `@tool` surface, but the runtime path that turns those tool definitions into an in-process MCP server is no longer compatible with the currently installed SDK/MCP combination.
+- The visible symptom is that built-in tools such as `mcp__dogent__read_document` and `mcp__dogent__web_fetch` appear available but fail before their actual tool logic runs.
+- Direct unit tests of tool handlers are not enough to catch this class of failure because the bug lives in the MCP server registration / call path.
+
+### Design Direction
+
+- Keep Dogent's tool definitions on the current Claude Agent SDK `SdkMcpTool` + `@tool(...)` surface.
+- Move Dogent's in-process MCP server registration to a Dogent-owned builder that targets the current `mcp.server.lowlevel.Server` request-handler contract directly.
+- Register `tools/list` and `tools/call` using the current `mcp.types` request/result models, while preserving the same tool names, schemas, and `ToolAnnotations`.
+- Use the Dogent MCP server builder wherever Dogent creates its own in-process MCP server config.
+
+### Tool Call Behavior
+
+- `tools/list` should return the existing Dogent tool definitions with their JSON schemas and annotations intact.
+- `tools/call` should:
+  - validate arguments against the registered input schema;
+  - call the Dogent tool handler with the original argument payload;
+  - normalize the tool response into `mcp.types.CallToolResult` content blocks without a second wrap/unwrap layer;
+  - preserve `is_error` from the Dogent tool result as `isError` in MCP responses.
+
+### Scope
+
+- Update Dogent's main MCP server registration path used by `ConfigManager.build_options`.
+- Update any other Dogent-owned MCP server factory that still routes through the older helper path.
+- Do not change the user-facing MCP tool IDs or the actual tool business logic unless needed for the server registration fix.
+
+### Test Strategy
+
+- Keep existing annotation tests.
+- Add regression tests that exercise real Dogent MCP `tools/list` and `tools/call` round-trips for built-in tool families:
+  - document tools
+  - UI tools
+  - web tools
+  - vision tools
+  - image tools
+- Run the full `python -m unittest discover -s tests -v` suite before release.
+
+### Release Hygiene
+
+- Replace any credential-like repo default profile values with placeholders before publishing the release.
+
+### Added Scope: Pre-rendered Markdown Export
+
+- Requirement source: the second `Release 0.9.29` block in `dev/requirement.md` adds Markdown-to-PDF/DOCX rendering scope after the already accepted MCP runtime work.
+
+### Markdown Export Goal
+
+Ensure Markdown-source exports to PDF and DOCX render visual blocks that require preprocessing, starting with Mermaid fenced code blocks, so the final files show diagrams instead of raw Mermaid source.
+
+### Markdown Export Baseline
+
+- `_markdown_to_pdf` renders Markdown to HTML through `markdown-it-py` and prints it with Playwright; Mermaid fences currently remain ordinary code blocks in the final PDF.
+- `_markdown_to_docx` normalizes image tags and then sends Markdown directly to pandoc; Mermaid fences currently remain raw code blocks in the final DOCX.
+- `convert_document_async` reuses the same Markdown export helpers for `md -> pdf` and `md -> docx`, so the current limitation exists on both tool paths.
+
+### Markdown Export Direction
+
+- Add a shared Markdown pre-render step before both `_markdown_to_pdf` and `_markdown_to_docx`.
+- The pre-render step should scan fenced code blocks for renderable languages. Release `0.9.29` scope only requires `mermaid`, but the dispatcher should remain extensible for future renderable block types.
+- For each Mermaid block, render a local diagram asset in a temporary working directory using a Dogent-owned HTML template plus bundled Mermaid JavaScript executed in Playwright Chromium.
+- Replace each Mermaid fence in the temporary Markdown copy with a standard Markdown image reference to the rendered asset, so both pandoc and the HTML/PDF path consume the same pre-rendered result.
+- Keep ordinary code fences unchanged.
+- Keep the user source file unchanged; only temporary Markdown and render assets participate in conversion.
+
+### Markdown Export Failure And Dependencies
+
+- Do not silently fall back to raw Mermaid source if a Mermaid block is detected but rendering fails. Return a clear export/conversion error instead.
+- Reuse Playwright Chromium as the rendering runtime instead of introducing a separate Node or Mermaid CLI dependency.
+- PDF export already depends on Playwright Chromium. Extend DOCX export/conversion dependency checks so Markdown sources that contain Mermaid fences also request Playwright and Chromium before conversion starts.
+- In full package mode, reuse bundled Chromium and ship Mermaid JavaScript in Dogent resources so rendering stays offline and deterministic.
+
+### Markdown Export Edge Cases
+
+- Multiple Mermaid blocks in one Markdown file should render to stable distinct filenames inside the temp workspace so repeated exports do not collide.
+- Existing relative image references in the Markdown must continue to resolve correctly after Mermaid block replacement.
+- Mermaid syntax errors should surface a readable error that points to the failing block instead of generating blank output.
+- This scope changes only Markdown-source export/conversion paths; DOCX/PDF read paths remain unchanged.
+
+### Markdown Export Tests
+
+- Add unit tests for Mermaid fence detection and replacement, while confirming non-Mermaid code fences remain untouched.
+- Add export-path tests that mock the Mermaid renderer and verify `_markdown_to_pdf`, `_markdown_to_docx`, and `convert_document_async` all run through the shared pre-render step for Markdown-source conversions.
+- Add dependency-manager tests covering `export_document` and `convert_document` for DOCX outputs with and without Mermaid fences.
+- Keep the full `python -m unittest discover -s tests -v` suite green after the change.
