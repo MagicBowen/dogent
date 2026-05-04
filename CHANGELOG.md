@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.30 - 2026-05-04
+
+### Added
+- `claude/skills` is now managed as a Git submodule of `https://github.com/anthropics/skills` so maintainers can sync upstream Anthropic skills directly.
+- Added a manifest-driven preparation script for bundled Claude plugin skills, including update-or-fallback handling for the skills submodule.
+
+### Changed
+- Built-in Claude plugin skill packaging now copies only manifest-selected skills from the submodule before building release artifacts.
+- The default Claude plugin bundle keeps the `pptx` skill and no longer bundles `skill-creator`.
+- The minimum supported `claude-agent-sdk` version is now `0.1.72`.
+
+---
+
 ## 0.9.29 - 2026-04-05
 
 ### Fixed

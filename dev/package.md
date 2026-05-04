@@ -11,11 +11,20 @@
   - Ensure pyproject.toml (and any init.py with version) reads 0.1.0.
   - Commit that version bump before tagging.
 
-  3. Build the artifacts
+  3. Prepare bundled Claude plugin skills
+
+  git submodule update --init --recursive
+  python scripts/prepare_claude_plugin_skills.py
+
+  The preparation command attempts to update `claude/skills` to the newest
+  upstream submodule version first. If the update fails, it warns and uses the
+  currently checked-out submodule version.
+
+  4. Build the artifacts
 
   python -m build    # outputs dist/dogent-0.1.0-py3-none-any.whl and dist/dogent-0.1.0.tar.gz
 
-  4. Smoke-test the wheel in a fresh venv (optional but recommended)
+  5. Smoke-test the wheel in a fresh venv (optional but recommended)
 
   deactivate
   python3 -m venv .venv-test
@@ -24,12 +33,12 @@
   dogent --version      # or run a tiny plan to confirm it works
   deactivate
 
-  5. Tag the release in git
+  6. Tag the release in git
 
   git tag v0.1.0
   git push origin v0.1.0
 
-  6. Create the GitHub release and upload artifacts
+  7. Create the GitHub release and upload artifacts
 
   - Go to GitHub → Releases → “Draft a new release”.
   - Choose tag v0.1.0, add a title/notes.
@@ -38,9 +47,8 @@
       - dogent-0.1.0.tar.gz
   - Publish the release.
 
-  7. How users install from the GitHub release
+  8. How users install from the GitHub release
 
   pip install https://github.com/<org>/<repo>/releases/download/v0.1.0/dogent-0.1.0-py3-none-any.whl
   # or the sdist:
   pip install https://github.com/<org>/<repo>/releases/download/v0.1.0/dogent-0.1.0.tar.gz
-

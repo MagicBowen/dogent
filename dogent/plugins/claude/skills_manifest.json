@@ -1,0 +1,7 @@
+{
+  "source": "claude/skills/skills",
+  "target": "dogent/plugins/claude/skills",
+  "skills": [
+    "pptx"
+  ]
+}

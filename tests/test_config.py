@@ -485,6 +485,12 @@ class ConfigTests(unittest.TestCase):
             dogent_manifest = home_plugins / "dogent" / ".claude-plugin" / "plugin.json"
             self.assertTrue(claude_manifest.exists())
             self.assertTrue(dogent_manifest.exists())
+            self.assertTrue(
+                (home_plugins / "claude" / "skills" / "pptx" / "SKILL.md").exists()
+            )
+            self.assertFalse(
+                (home_plugins / "claude" / "skills" / "skill-creator").exists()
+            )
             self.assertFalse((home_plugins / "claude" / "stale.txt").exists())
         if original_home is not None:
             os.environ["HOME"] = original_home

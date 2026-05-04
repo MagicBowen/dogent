@@ -519,10 +519,6 @@ When I use dogent in a new environment, when dogent uses the `mcp__dogent__expor
 - Ensure the full `python -m unittest discover -s tests -v` suite passes after the fix.
 - Clean up any credential-like values accidentally left in repo default config templates and replace them with placeholders before release.
 
----
-
-## Release 0.9.29
-
 - For tools that convert Markdown to PDF and DOCX: if the Markdown contains content that requires pre-rendering (such as Mermaid code blocks), the converted PDF or DOCX file must display the rendered visual result instead of the original raw code block content.
 
 ---
