@@ -15,11 +15,15 @@
 
 [support more document template]
 - resume
-- research report
+- tech report
 - blog
 - software design document
 - software usage manual
 - consultant proposal
 
-[support mutiple language]
+[support mutiple languages]
 - support multiple languages: en & zh;
+
+[support textual & web]
+
+- https://github.com/Textualize/textual
