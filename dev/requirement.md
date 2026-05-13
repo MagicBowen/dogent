@@ -13,6 +13,9 @@
 
 ## Pending Requirements
 
+[issues]
+- How to deal the human confirmation in subagent?
+
 [support more document template]
 - resume
 - tech report
