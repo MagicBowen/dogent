@@ -15,6 +15,9 @@
 
 [issues]
 - How to deal the human confirmation in subagent?
+- Keep context when a iterator finished.
+- Question/Answer mode should follow the newest claude mode.
+- User can choose improving dogent.md or recording lessons when a iterator finished (session stop).
 
 [support more document template]
 - resume
