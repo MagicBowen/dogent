@@ -1,15 +1,8 @@
 # Original Requirements
 
+## Release 0.9.31
 
----
-
-## Release 0.9.30
-
-- change the folder claude/skills to a git submodule of https://github.com/anthropics/skills for auto sync from the source.
-- remove the pptx and skill-creator in the path dogent/plugins/claude/skills, and setup a manifiest file for me to decide which skills I want to copy from claude/skills (git submodule) when package and publish dogent.
-- before copying skills from claude/skills to dogent, update the claude/skills git submodule to the newest upstream version first. If the update fails, continue using the currently checked-out submodule version.
-
----
+There is an issue with the current design of Dogent. Once a task is completed, its corresponding task context is cleared. When users submit new requests within the same session, they have to re-enter much related information from previous conversations since the system cannot retain historical task data. Please analyze the existing agent loop workflow of Dogent and provide code modification solutions to keep all historical context persistent throughout the session until the user exits Dogent.
 
 ## Pending Requirements
 
