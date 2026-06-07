@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.31 - 2026-06-07
+
+### Added
+- Persistent session context: the agent now remembers all previous interactions within the same interactive session, so users do not need to re-enter information from earlier turns.
+- `/context` command shows current session info (turn count, session status).
+- `/context reset` clears conversation context mid-session without exiting Dogent.
+
+### Changed
+- The agent client stays connected across completed, errored, and interrupted tasks within an interactive session.
+- Changing an LLM/web/vision/image profile automatically resets the session context.
+- Exiting Dogent cleanly disconnects the agent.
+
+---
+
 ## 0.9.30 - 2026-05-04
 
 ### Added

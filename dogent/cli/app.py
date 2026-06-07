@@ -395,6 +395,11 @@ class DogentCLI:
             "Exit Dogent CLI gracefully.",
         )
         self._register_builtin_command(
+            "/context",
+            self._cmd_context,
+            "Manage session context: /context [reset].",
+        )
+        self._register_builtin_command(
             "/help",
             self._cmd_help,
             "Show Dogent usage, models, API, and available commands.",
@@ -4516,6 +4521,49 @@ class DogentCLI:
             if line.startswith("## "):
                 return True
         return False
+
+    async def _cmd_context(self, command: str) -> bool:
+        parts = command.split(maxsplit=1)
+        arg = parts[1].strip().lower() if len(parts) > 1 else ""
+        if arg == "reset":
+            await self.agent.reset()
+            self.console.print(
+                Panel(
+                    "Session context has been cleared. Starting fresh.",
+                    title="🔄 Context Reset",
+                    border_style="green",
+                )
+            )
+            return True
+        if not arg:
+            turn_count = getattr(self.agent, "_turn_count", 0)
+            has_client = self.agent._client is not None
+            lines = [
+                f"Turns this session: {turn_count}",
+                f"Session active: {'yes' if has_client else 'no'}",
+            ]
+            self.console.print(
+                Panel(
+                    "\n".join(lines),
+                    title="📋 Session Context",
+                    border_style="cyan",
+                )
+            )
+            return True
+        self.console.print(
+            Panel(
+                "\n".join(
+                    [
+                        f"Unknown context subcommand: {arg}",
+                        "Valid subcommands: reset",
+                        "Usage: /context [reset]",
+                    ]
+                ),
+                title="📋 Context",
+                border_style="red",
+            )
+        )
+        return True
 
     async def _cmd_exit(self, _: str) -> bool:
         await self._graceful_exit()

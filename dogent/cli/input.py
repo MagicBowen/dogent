@@ -425,6 +425,8 @@ class DogentCompleter(Completer):
             ]
         elif command == "/template":
             options = ["create", "optimize", "list"]
+        elif command == "/context":
+            options = ["reset"]
         elif command == "/init" and self.template_provider:
             options = list(self.template_provider())
         elif command == "/edit":

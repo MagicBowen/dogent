@@ -26,9 +26,7 @@ User Test Results: Accepted (2026-02-03)
 8. Press Esc during a long-running task to interrupt it, then send a new prompt.
 9. Expect the agent to still have context from previous turns after the interruption.
 
-User Test Results: Pending
-
-### Story 2 – Session Lifecycle Management (`/context reset`, Profile Changes, Exit)
+User Test Results: Accepted (2026-06-07)
 1. Start `dogent` and send a prompt to establish session context.
 2. Run `/context` and confirm a panel shows current session context info (e.g., turn count, status).
 3. Run `/context reset` and confirm a panel appears indicating the session was cleared.
@@ -42,4 +40,4 @@ User Test Results: Pending
 11. Expect the agent to only have cross-session history from `.dogent/history.json` (if any), not the full conversation from the previous session.
 12. Type `/context ` (with trailing space) and confirm the dropdown suggests `reset`.
 
-User Test Results: Pending
+User Test Results: Accepted (2026-06-07)

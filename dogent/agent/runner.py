@@ -156,6 +156,7 @@ class AgentRunner:
         self._partial_reply_stream_active = False
         self._partial_reply_seen = False
         self._last_task_progress: dict[str, str] = {}
+        self._turn_count: int = 0
 
     async def reset(self) -> None:
         """Close current session so it can be re-created with new settings."""
@@ -166,6 +167,32 @@ class AgentRunner:
                 await self._client.disconnect()
             self._client = None
             self._tool_name_by_id = {}
+            self._interrupted = False
+            self.last_outcome = None
+            self._aborted_reason = None
+            self._abort_requested = False
+            self._abort_finalized = False
+            self._abort_interrupt_sent = False
+            self._needs_clarification = False
+            self._needs_outline_edit = False
+            self._clarification_text = ""
+            self._clarification_seen = False
+            self._outline_edit_text = ""
+            self._outline_edit_seen = False
+            self._clarification_payload = None
+            self._outline_edit_payload = None
+            self._dependency_installing = False
+            self._dependency_manual_instructions = None
+            self._dependency_install_phase = None
+            self._dependency_download_path = None
+            self._dependency_missing = []
+            self._partial_reply_stream_active = False
+            self._partial_reply_seen = False
+            self._last_task_progress = {}
+            self._task_temp_files.clear()
+            self._last_summary = None
+            self._skip_todo_render_once = False
+            self._turn_count = 0
 
     async def refresh_system_prompt(self) -> None:
         """Rebuild the system prompt and update any active client."""
@@ -257,6 +284,7 @@ class AgentRunner:
         self._partial_reply_stream_active = False
         self._partial_reply_seen = False
         self._last_task_progress = {}
+        self._turn_count += 1
         preview = (
             user_message
             if self._is_clarification_answers(user_message)
@@ -300,8 +328,6 @@ class AgentRunner:
                 await self._client.query(user_prompt)
 
             await self._stream_responses()
-            if not self._should_keep_client_for_followup():
-                await self._safe_disconnect()
             if self.last_outcome:
                 interaction_status = self.last_outcome.status
             else:
@@ -341,7 +367,6 @@ class AgentRunner:
                     prompt=None,
                     todos=todos_snapshot,  # type: ignore[arg-type]
                 )
-            await self._safe_disconnect()
         finally:
             await self._stop_wait_indicator()
             self._task_temp_files.clear()
@@ -420,7 +445,9 @@ class AgentRunner:
             if self._dependency_installing:
                 message = self._dependency_interrupt_message(reason)
                 reason = message
-            await self._safe_disconnect(interrupted=True)
+            if self._client:
+                with suppress(Exception):
+                    await self._client.interrupt()
             todos_snapshot = self.todo_manager.export_items()
             remaining = self.todo_manager.remaining_markdown()
             self.last_outcome = RunOutcome(
@@ -1100,7 +1127,9 @@ class AgentRunner:
             prompt=None,
             todos=todos_snapshot,  # type: ignore[arg-type]
         )
-        await self._safe_disconnect(interrupted=True)
+        if self._client:
+            with suppress(Exception):
+                await self._client.interrupt()
 
     async def _abort_with_message(self, message: str) -> None:
         self._aborted_reason = message

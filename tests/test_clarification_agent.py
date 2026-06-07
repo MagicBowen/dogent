@@ -125,7 +125,7 @@ class ClarificationAgentTests(unittest.IsolatedAsyncioTestCase):
         else:
             os.environ.pop("HOME", None)
 
-    async def test_send_message_disconnects_after_completion(self) -> None:
+    async def test_send_message_keeps_client_alive_after_completion(self) -> None:
         class DummyClient:
             def __init__(self) -> None:
                 self.options = SimpleNamespace(system_prompt="")
@@ -150,6 +150,7 @@ class ClarificationAgentTests(unittest.IsolatedAsyncioTestCase):
                 console=console,
             )
             runner._client = DummyClient()
+            client_ref = runner._client
 
             async def fake_stream() -> None:
                 runner.last_outcome = RunOutcome(
@@ -163,16 +164,13 @@ class ClarificationAgentTests(unittest.IsolatedAsyncioTestCase):
                 runner, "_stream_responses", new=mock.AsyncMock(side_effect=fake_stream)
             ):
                 with mock.patch.object(
-                    runner, "_safe_disconnect", new=mock.AsyncMock()
-                ) as safe_disconnect:
+                    runner, "_start_wait_indicator", new=mock.AsyncMock()
+                ):
                     with mock.patch.object(
-                        runner, "_start_wait_indicator", new=mock.AsyncMock()
+                        runner, "_stop_wait_indicator", new=mock.AsyncMock()
                     ):
-                        with mock.patch.object(
-                            runner, "_stop_wait_indicator", new=mock.AsyncMock()
-                        ):
-                            await runner.send_message("Finish", [], config_override=None)
-                    safe_disconnect.assert_awaited_once()
+                        await runner.send_message("Finish", [], config_override=None)
+                self.assertIs(runner._client, client_ref)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
