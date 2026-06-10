@@ -394,7 +394,10 @@ class AgentRunner:
         await self._start_wait_indicator()
         async for message in self._client.receive_response():
             if self._interrupted:
-                break
+                await self._stop_wait_indicator()
+                if isinstance(message, ResultMessage):
+                    break
+                continue
             await self._stop_wait_indicator()
             if self._abort_requested and not drain_after_interrupt:
                 await self._interrupt_client_on_abort()

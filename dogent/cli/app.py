@@ -5043,9 +5043,12 @@ class DogentCLI:
         self.console.print(f"[yellow]{reason}[/yellow]")
         await self.agent.interrupt(reason)
         if not agent_task.done():
-            agent_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await agent_task
+            try:
+                await asyncio.wait_for(asyncio.shield(agent_task), timeout=5.0)
+            except asyncio.TimeoutError:
+                agent_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await agent_task
         if not esc_task.done():
             try:
                 await asyncio.wait_for(esc_task, timeout=0.5)
