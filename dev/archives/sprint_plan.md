@@ -1208,3 +1208,42 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Accepted (2026-05-04)
 - Verification: Automated bootstrap/package-preparation tests confirm the installed Claude plugin manifest exists and selected skill directories match `skills_manifest.json`; `python -m unittest discover -s tests -v` passes.
+
+## Release 0.9.31
+
+### Story 1: Persistent Session Context Across Tasks
+- User Value: Users can have multi-turn conversations where the agent remembers all previous interactions within the same session, without re-entering context.
+- Acceptance: After completing a task and submitting a new prompt, the agent has full conversation context from all prior turns in the session. The ClaudeSDKClient stays connected across completed, errored, and interrupted tasks. History injection via `{history}` / `{history:last}` continues to work for cross-session context. Non-interactive mode (`dogent -p`) still creates a fresh client per run.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-06-07)
+- Verification: Automated tests for multi-turn context persistence, disconnect behavior, and non-interactive isolation.
+
+### Story 2: Session Lifecycle Management (`/context reset`, Profile Changes, Exit)
+- User Value: Users can explicitly clear conversation context mid-session with `/context reset`, and context is automatically cleared when changing profiles or exiting Dogent. The `/context` command is extensible for future subcommands (e.g., `compact`).
+- Acceptance: `/context reset` disconnects the agent client and clears internal state, starting a fresh session without exiting Dogent. `/context` without arguments shows current session context info. Profile changes (`/profile llm/web/vision/image`) trigger an automatic session reset. `/exit` cleanly disconnects the agent. A confirmation panel shows after `/context reset` confirming the session was cleared. CLI completion suggests `reset` after `/context `.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-06-07)
+- Verification: Automated tests for `/context reset` command, `/context` info display, auto-reset on profile change, and exit cleanup.
+
+## Release 0.9.32
+
+### Story 1: Claude Agent SDK 0.2.115 Compatibility Baseline
+- User Value: Users receive the fixes and runtime capabilities in Claude Agent SDK 0.2.115 without regressions in Dogent's existing agent, skill, tool, wizard, or lesson workflows.
+- Acceptance: Dogent requires `claude-agent-sdk>=0.2.115`; all direct SDK construction paths use supported 0.2.115 interfaces; deprecated bare `"Skill"` allow configuration is replaced by the SDK `skills` option where Dogent explicitly enables skills; callback-enabled sessions use `permission_mode="default"` without broad `allowed_tools` entries that shadow confirmations; “Allow and remember” accepts SDK-deserialized permission suggestions; SDK API error status and actionable error text appear in failure diagnostics when available; the full automated suite passes with SDK 0.2.115 installed.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-07-10)
+- Verification: SDK baseline, option construction, permission suggestions, and error diagnostics are covered; `python -m unittest discover -s tests -v` passes 366 tests with SDK 0.2.115 installed.
+
+### Story 2: Reliable Agent-Aware Human Prompts
+- User Value: Users can see and answer permission confirmations and Claude questions from both the main agent and sub-agents, even when multiple agents request input concurrently.
+- Acceptance: SDK-driven permission and `AskUserQuestion` requests share one FIFO terminal-interaction gate; at most one `prompt_toolkit` UI owns stdin; each panel identifies “Main agent” or a shortened “Sub-agent <id>”; rich SDK permission metadata is shown when available; queued prompts do not overlap or interleave; interruption/cancellation closes the active UI and prevents stale queued prompts; Allow, Allow and remember, Deny, question selection, free-form, and timeout behaviors remain functional; main-agent Deny/cancel aborts the current Dogent turn, while sub-agent permission Deny/cancel stops only that sub-agent and allows the main and sibling agents to continue. A later main-agent retry is a new permission request rather than a replay or bypass of the sub-agent decision; non-interactive modes do not open TUI prompts.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-07-10)
+- Verification: The dedicated prompt-area and denial-scope manual retests passed on 2026-07-10. Automated tests prove sub-agent denial leaves the global turn/client active and main-agent denial still aborts the turn. Captured output also confirms a later main-agent retry is separately attributed and re-prompted.
+
+### Story 3: Complete Background Task Lifecycle Feedback
+- User Value: Users receive accurate terminal feedback for background/sub-agent tasks and do not retain stale “running” task state when the SDK reports completion through its newer lifecycle message.
+- Acceptance: Dogent handles terminal `TaskUpdatedMessage` events as well as `TaskNotificationMessage`; completed, failed, stopped, and killed tasks clear tracked progress; terminal feedback is rendered and logged when only an update arrives; duplicate terminal panels are suppressed when both message forms arrive; per-turn finalized-task state is cleared on reset and new turns; non-terminal/unknown patches do not create noisy TUI output. A provisional result that reports active/waiting background agents triggers at most one same-session reconciliation turn, and only the consolidated result is presented as completed. Exiting after background work does not emit a hook callback or closed permission-stream error.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-07-10)
+- Verification: Automated tests cover terminal and non-terminal task updates, progress cleanup, duplicate terminal suppression, reset cleanup, one-shot result reconciliation, the absence of the obsolete permission keepalive hook, and scoped sub-agent denial. The full suite passes 376 tests, and the background lifecycle, consolidated result, scoped stop, and clean-exit manual retests passed on 2026-07-10.

@@ -343,8 +343,14 @@ class AgentResetTests(unittest.IsolatedAsyncioTestCase):
             )
 
             runner._stop_wait_indicator = mock.AsyncMock()  # type: ignore[assignment]
+            runner._finalized_task_ids.add("task-1")
+            runner._background_task_ids.add("task-1")
+            runner._background_reconciliation_attempted = True
             await runner.reset()
             runner._stop_wait_indicator.assert_awaited_once()
+            self.assertEqual(runner._finalized_task_ids, set())
+            self.assertEqual(runner._background_task_ids, set())
+            self.assertFalse(runner._background_reconciliation_attempted)
 
         if original_home is not None:
             os.environ["HOME"] = original_home

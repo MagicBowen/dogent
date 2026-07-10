@@ -535,3 +535,9 @@ When I use dogent in a new environment, when dogent uses the `mcp__dogent__expor
 
 There is an issue with the current design of Dogent. Once a task is completed, its corresponding task context is cleared. When users submit new requests within the same session, they have to re-enter much related information from previous conversations since the system cannot retain historical task data. Please analyze the existing agent loop workflow of Dogent and provide code modification solutions to keep all historical context persistent throughout the session until the user exits Dogent.
 
+
+## Release 0.9.32
+
+- The current claude-agent-sdk version in `pyproject.toml` is 0.1.72, I want to update it to the newest version v0.2.115 (https://github.com/anthropics/claude-agent-sdk-python);
+- review all the changelog of claude-agent-sdk from 0.1.72 to v0.2.115 and the tutorials and examples in `https://github.com/anthropics/claude-agent-sdk-python/tree/main/examples`, based on SDK updates, identify which usages of SDK features within Dogent require modification, and formulate corresponding design and implementation plans for these updates.
+- There is a bug in the current Dogent: when the Claude Agent SDK launched multiple agents, if a user confirmation prompt appears within a  sub-agent, Dogent will not actively display the confirmation options for the user to select or respond to — it only renders confirmation prompts from the main agent. Please investigate and analyze this issue, and design a sound solution for it (including a TUI display scheme).

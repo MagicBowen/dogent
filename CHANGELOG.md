@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.32 - 2026-07-10
+
+### Added
+- Agent-aware permission and clarification prompts identify the main agent or originating sub-agent and serialize concurrent requests through one FIFO interaction queue.
+- Background task lifecycle feedback now handles terminal SDK task updates and consolidates completed sub-agent results before presenting the final response.
+
+### Changed
+- The minimum supported `claude-agent-sdk` version is now `0.2.115`, with skill configuration and permission suggestions aligned to the current SDK interfaces.
+- Sub-agent permission denial stops only that sub-agent, while main-agent denial continues to abort the whole Dogent turn; later retries remain separately attributed and require a new permission decision.
+
+### Fixed
+- Main-agent output no longer overwrites an active sub-agent prompt, and simultaneous agent questions no longer interleave their options.
+- Dogent no longer presents an incomplete “Completed” result while background agents are still working or waiting to be collected.
+- Clean exit after background work no longer reports stale hook callback or closed permission-stream errors.
+- Package resource loading is compatible with Python 3.14 while retaining the Python 3.10 minimum.
+
 ## 0.9.31 - 2026-06-07
 
 ### Added

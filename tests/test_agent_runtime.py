@@ -4,9 +4,16 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
-from claude_agent_sdk.types import StreamEvent, TaskNotificationMessage, TaskProgressMessage, TaskStartedMessage
+from claude_agent_sdk.types import (
+    StreamEvent,
+    TaskNotificationMessage,
+    TaskProgressMessage,
+    TaskStartedMessage,
+    TaskUpdatedMessage,
+)
 from rich.console import Console
 
 from dogent.agent import AgentRunner
@@ -62,6 +69,35 @@ class AgentRuntimeTests(unittest.TestCase):
             self.assertIn("Output tokens: 7", output)
             self.assertIn("Cache read tokens: 3", output)
             self.assertIn("Cache creation tokens: 2", output)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_handle_error_result_renders_api_status(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            runner = self._make_runner(Path(tmp), console)
+
+            runner._handle_result(
+                ResultMessage(
+                    subtype="success",
+                    duration_ms=12,
+                    duration_api_ms=8,
+                    is_error=True,
+                    num_turns=1,
+                    session_id="sess",
+                    total_cost_usd=0.01,
+                    result="Rate limited",
+                    api_error_status=429,
+                )
+            )
+
+            output = console.file.getvalue()
+            self.assertIn("Rate limited", output)
+            self.assertIn("HTTP 429", output)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -148,6 +184,79 @@ class AgentRuntimeTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_task_updated_finalizes_once_and_clears_progress(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            runner = self._make_runner(Path(tmp), console)
+            runner._last_task_progress["task-1"] = "Reviewing files"
+            console.file.seek(0)
+            console.file.truncate(0)
+
+            runner._handle_task_updated(
+                TaskUpdatedMessage(
+                    subtype="task_updated",
+                    data={},
+                    task_id="task-1",
+                    patch={"status": "completed", "summary": "Review finished"},
+                    status="completed",
+                    uuid="1",
+                    session_id="sess",
+                )
+            )
+            runner._handle_task_notification(
+                TaskNotificationMessage(
+                    subtype="task_notification",
+                    data={},
+                    task_id="task-1",
+                    status="completed",
+                    output_file=None,
+                    summary="Duplicate completion",
+                    uuid="2",
+                    session_id="sess",
+                )
+            )
+
+            output = console.file.getvalue()
+            self.assertIn("Review finished", output)
+            self.assertNotIn("Duplicate completion", output)
+            self.assertEqual(output.count("Task Complete"), 1)
+            self.assertNotIn("task-1", runner._last_task_progress)
+            self.assertIn("task-1", runner._finalized_task_ids)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_task_updated_ignores_non_terminal_patch(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            runner = self._make_runner(Path(tmp), console)
+            runner._last_task_progress["task-1"] = "Reviewing files"
+            console.file.seek(0)
+            console.file.truncate(0)
+
+            runner._handle_task_updated(
+                TaskUpdatedMessage(
+                    subtype="task_updated",
+                    data={},
+                    task_id="task-1",
+                    patch={"status": "running"},
+                    status="running",
+                )
+            )
+
+            self.assertEqual(console.file.getvalue(), "")
+            self.assertIn("task-1", runner._last_task_progress)
+            self.assertNotIn("task-1", runner._finalized_task_ids)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
     def test_rate_limit_warning_renders_panel(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
@@ -173,6 +282,119 @@ class AgentRuntimeTests(unittest.TestCase):
             os.environ["HOME"] = original_home
         else:
             os.environ.pop("HOME", None)
+
+
+class BackgroundReconciliationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_waiting_result_triggers_one_consolidation_turn(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            runner = AgentRuntimeTests()._make_runner(Path(tmp), console)
+            runner._background_task_ids = {"task-1", "task-2"}
+            runner._finalized_task_ids = {"task-1", "task-2"}
+            client = mock.Mock()
+            client.query = mock.AsyncMock()
+            client.receive_response = mock.Mock(
+                side_effect=[
+                    _async_iter(
+                        [
+                            ResultMessage(
+                                subtype="success",
+                                duration_ms=10,
+                                duration_api_ms=8,
+                                is_error=False,
+                                num_turns=1,
+                                session_id="sess",
+                                total_cost_usd=0.01,
+                                result="The subagents are still working in the background.",
+                            )
+                        ]
+                    ),
+                    _async_iter(
+                        [
+                            ResultMessage(
+                                subtype="success",
+                                duration_ms=20,
+                                duration_api_ms=15,
+                                is_error=False,
+                                num_turns=2,
+                                session_id="sess",
+                                total_cost_usd=0.02,
+                                result="Consolidated findings from both subagents.",
+                            )
+                        ]
+                    ),
+                ]
+            )
+            runner._client = client
+            runner._start_wait_indicator = mock.AsyncMock()  # type: ignore[assignment]
+            runner._stop_wait_indicator = mock.AsyncMock()  # type: ignore[assignment]
+
+            await runner._stream_responses()
+
+            client.query.assert_awaited_once()
+            reconciliation_prompt = client.query.await_args.args[0]
+            self.assertIn("complete final response", reconciliation_prompt)
+            self.assertIn("All background tasks", reconciliation_prompt)
+            self.assertTrue(runner._background_reconciliation_attempted)
+            self.assertEqual(runner.last_outcome.status, "completed")
+            self.assertEqual(
+                runner.last_outcome.summary,
+                "Consolidated findings from both subagents.",
+            )
+            output = console.file.getvalue()
+            self.assertIn("Consolidating", output)
+            self.assertNotIn("still working", runner.last_outcome.summary)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_complete_result_does_not_trigger_reconciliation(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            runner = AgentRuntimeTests()._make_runner(Path(tmp), console)
+            runner._background_task_ids = {"task-1"}
+            runner._finalized_task_ids = {"task-1"}
+            client = mock.Mock()
+            client.query = mock.AsyncMock()
+            client.receive_response = mock.Mock(
+                return_value=_async_iter(
+                    [
+                        ResultMessage(
+                            subtype="success",
+                            duration_ms=10,
+                            duration_api_ms=8,
+                            is_error=False,
+                            num_turns=1,
+                            session_id="sess",
+                            total_cost_usd=0.01,
+                            result="Complete consolidated findings.",
+                        )
+                    ]
+                )
+            )
+            runner._client = client
+            runner._start_wait_indicator = mock.AsyncMock()  # type: ignore[assignment]
+            runner._stop_wait_indicator = mock.AsyncMock()  # type: ignore[assignment]
+
+            await runner._stream_responses()
+
+            client.query.assert_not_awaited()
+            self.assertFalse(runner._background_reconciliation_attempted)
+            self.assertEqual(runner.last_outcome.summary, "Complete consolidated findings.")
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+
+async def _async_iter(items):
+    for item in items:
+        yield item
 
 
 if __name__ == "__main__":

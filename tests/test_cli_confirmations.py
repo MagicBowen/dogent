@@ -6,6 +6,7 @@ from unittest import mock
 
 from rich.console import Console
 
+from dogent.agent import HumanPromptRequest
 from dogent.cli import DogentCLI, SelectionCancelled
 
 
@@ -108,9 +109,35 @@ class ConfirmationPromptTests(unittest.IsolatedAsyncioTestCase):
 
         self.cli._read_input = fake_read_input  # type: ignore[assignment]
         decision = await self.cli._prompt_tool_permission(
-            "Permission required: Read", "Read path outside workspace."
+            HumanPromptRequest(
+                kind="permission",
+                title="Permission required · Sub-agent agent-12",
+                message="Read path outside workspace.",
+                agent_id="agent-1234",
+            )
         )
         self.assertFalse(decision.allow)
+        output = self.cli.console.export_text()
+        self.assertIn("Sub-agent agent-12", output)
+        self.assertIn("Deny (stop this sub-agent)", output)
+        self.assertNotIn("Deny (abort current Dogent task)", output)
+        self.assertIn("0 queued requests", output)
+
+    async def test_prompt_tool_permission_main_agent_deny_aborts_turn(self) -> None:
+        async def fake_read_input(*_args, **_kwargs):
+            return "3"
+
+        self.cli._read_input = fake_read_input  # type: ignore[assignment]
+        decision = await self.cli._prompt_tool_permission(
+            HumanPromptRequest(
+                kind="permission",
+                title="Permission required · Main agent",
+                message="Read path outside workspace.",
+            )
+        )
+        self.assertFalse(decision.allow)
+        output = self.cli.console.export_text()
+        self.assertIn("Deny (abort current Dogent task)", output)
 
 
 if __name__ == "__main__":

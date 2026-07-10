@@ -12,7 +12,6 @@ from typing import Any, Dict, Iterable, Optional
 from rich.console import Console
 
 from claude_agent_sdk import ClaudeAgentOptions
-from claude_agent_sdk.types import HookMatcher
 
 from .. import __version__
 from ..features.document_tools import DOGENT_DOC_ALLOWED_TOOLS, create_dogent_doc_tools
@@ -46,10 +45,6 @@ GLOBAL_LLM_PROFILES_KEY = "llm_profiles"
 GLOBAL_WEB_PROFILES_KEY = "web_profiles"
 GLOBAL_VISION_PROFILES_KEY = "vision_profiles"
 GLOBAL_IMAGE_PROFILES_KEY = "image_profiles"
-
-
-async def _approval_keepalive_hook(*_args: object, **_kwargs: object) -> dict[str, bool]:
-    return {"continue_": True}
 
 
 @dataclass
@@ -638,7 +633,6 @@ class ConfigManager:
         allowed_tools: list[str] | None = None
         if can_use_tool is None:
             allowed_tools = [
-                "Skill",
                 "Read",
                 "Write",
                 "Edit",
@@ -700,10 +694,6 @@ class ConfigManager:
         if resolved_permission_mode is None:
             resolved_permission_mode = "default" if can_use_tool else "acceptEdits"
 
-        resolved_hooks = hooks
-        if can_use_tool is not None:
-            resolved_hooks = self._ensure_permission_callback_hooks(hooks)
-
         options_kwargs = {
             "system_prompt": system_prompt,
             "cwd": str(self.paths.root),
@@ -716,9 +706,11 @@ class ConfigManager:
             "env": env,
             "mcp_servers": mcp_servers,
             "can_use_tool": can_use_tool,
-            "hooks": resolved_hooks,
+            "hooks": hooks,
             "plugins": plugins,
         }
+        if can_use_tool is None:
+            options_kwargs["skills"] = "all"
         if tools is not None:
             options_kwargs["tools"] = tools
         if allowed_tools is not None:
@@ -728,18 +720,6 @@ class ConfigManager:
 
         options = ClaudeAgentOptions(**options_kwargs)
         return options
-
-    def _ensure_permission_callback_hooks(self, hooks: Any) -> dict[str, list[HookMatcher]]:
-        merged: dict[str, list[HookMatcher]] = {}
-        if isinstance(hooks, dict):
-            for name, matchers in hooks.items():
-                if isinstance(matchers, list):
-                    merged[name] = list(matchers)
-        if not merged.get("PreToolUse"):
-            merged["PreToolUse"] = [
-                HookMatcher(matcher=None, hooks=[_approval_keepalive_hook])
-            ]
-        return merged
 
     def _build_env(self, settings: DogentSettings) -> Dict[str, str]:
         env: Dict[str, str] = {}

@@ -1335,3 +1335,157 @@ User Test Results: Accepted (2026-05-04)
 9. Confirm `~/.dogent/plugins/claude/skills/skill-creator` does not exist.
 
 User Test Results: Accepted (2026-05-04)
+
+## Release 0.9.31
+
+### Story 1 – Persistent Session Context Across Tasks
+1. Start `dogent` in a workspace with a configured LLM profile.
+2. Send: "My name is Alice and I'm working on a quarterly report for Q2 2026. Remember this."
+3. Wait for the agent to complete the response.
+4. Send a new prompt: "What is my name and what am I working on?"
+5. Expect the agent to correctly answer "Alice" and "quarterly report for Q2 2026" without the user re-entering this information.
+6. Send a third prompt: "Summarize everything we've discussed so far in this session."
+7. Expect the agent to reference all three turns (the name/project, the question about name/project, and the summary request).
+8. Press Esc during a long-running task to interrupt it, then send a new prompt.
+9. Expect the agent to still have context from previous turns after the interruption.
+
+User Test Results: Accepted (2026-06-07)
+
+### Story 2 – Session Lifecycle Management (`/context reset`, Profile Changes, Exit)
+1. Start `dogent` and send a prompt to establish session context.
+2. Run `/context` and confirm a panel shows current session context info (e.g., turn count, status).
+3. Run `/context reset` and confirm a panel appears indicating the session was cleared.
+4. Send: "What is my name?" (or reference any previous context).
+5. Expect the agent to NOT remember anything from before the reset.
+6. Send a new prompt to establish context again, then run `/profile llm ` and select a different LLM profile (or the same one).
+7. Send: "What did we discuss before the profile change?"
+8. Expect the agent to NOT remember context from before the profile change (session was auto-reset).
+9. Start a fresh session, send a prompt, then run `/exit`.
+10. Restart `dogent` in the same workspace and send: "Do you remember our last session?"
+11. Expect the agent to only have cross-session history from `.dogent/history.json` (if any), not the full conversation from the previous session.
+12. Type `/context ` (with trailing space) and confirm the dropdown suggests `reset`.
+
+User Test Results: Accepted (2026-06-07)
+
+## Release 0.9.32
+
+### Story 1 – Claude Agent SDK 0.2.115 Compatibility Baseline
+1. Create and activate a clean virtual environment from the Dogent repository.
+2. Run `pip install -e .`.
+3. Run `python -c "import importlib.metadata as m; print(m.version('claude-agent-sdk'))"`.
+4. Expect the installed SDK version to be `0.2.115` or newer and no dependency-resolution error.
+5. In a configured sample workspace, run `dogent` and submit a simple request that reads a workspace file and writes a new workspace file.
+6. Expect the normal tool/reply panels and a successful result, with no SDK type, option, or message-parsing errors.
+7. Ask Dogent to use one of the discovered Dogent/Claude skills in the sample workspace.
+8. Expect the skill to be available and execute without a deprecation warning about a bare `Skill` entry in `allowed_tools`.
+9. Trigger an operation that reads a file outside the workspace, choose `Allow and remember`, then repeat the same operation in the session.
+10. Expect the first prompt to accept the remembered SDK/Dogent permission update and the repeated authorized operation to proceed consistently.
+11. Run `python -m unittest discover -s tests -v` from the repository.
+12. Expect all tests to pass.
+
+User Test Results: Accepted (2026-07-10)
+
+### Story 2 – Reliable Agent-Aware Human Prompts
+1. Start `dogent` in a configured sample workspace.
+2. Ask the main agent to launch two sub-agents in parallel. Tell one sub-agent to use `Read` on `/etc/hosts` and the other to use `Read` on `/etc/shells`, and tell the main agent not to read those files itself.
+3. Expect a permission panel to appear promptly for the first request, with a title identifying `Sub-agent <id>` and visible Allow, Allow and remember, and Deny choices.
+4. Choose Allow.
+5. Expect the second sub-agent permission panel to appear only after the first closes. Confirm that its options are complete and were not interleaved with the first panel.
+6. Choose Allow and let the task continue.
+7. Ask a sub-agent to call `AskUserQuestion` with two choices.
+8. Expect the existing clarification/question UI with a `Sub-agent <id>` origin label; choose an answer and confirm the sub-agent continues with that answer.
+9. Repeat the parallel permission request, but press Esc or select `Deny` on a sub-agent's active panel.
+10. Expect only that sub-agent to stop. The main agent, sibling agents, and queued prompts should continue normally.
+11. In a separate turn, deny a main-agent permission prompt and expect the whole turn to abort.
+12. Expect keyboard navigation, IME/arrow keys, and the next Dogent input prompt to work without echoed escape sequences or a stuck wait indicator.
+
+Previous Result (2026-07-10): Failed
+
+Issue: When a sub-agent pops up prompt options for user selection, the output of the main agent in the CLI overwrites the sub-agent's options. Multiple simultaneous sub-agent questions also need a clear TUI layout.
+
+Fix Status: Implemented (2026-07-10)
+
+- The active permission/question panel now occupies a framed prompt area at the bottom of the terminal.
+- Main-agent and task output emitted while the prompt is active is routed above that area, then the prompt is redrawn.
+- Concurrent sub-agent requests remain FIFO and the active panel displays the number of queued requests.
+- SDK single-select and multi-select questions use the dedicated area; multi-select supports Up/Down, Space, Enter, Esc, and Ctrl+C.
+
+Retest:
+1. Repeat steps 1-6 while the main agent continues producing visible output during the first sub-agent permission prompt.
+2. Expect all new main-agent output to appear above the framed prompt area; the choices at the bottom must remain complete and selectable.
+3. Trigger three sub-agents to request permission or ask questions at nearly the same time.
+4. Expect one active framed panel with `2 queued requests` in its footer.
+5. Resolve the first prompt and expect the next queued agent's complete panel to replace it, without overlapping options.
+6. Test a multi-select SDK question using Up/Down and Space, then Enter; expect all selected labels to reach the sub-agent.
+7. Repeat the scoped sub-agent Deny, main-agent Deny, and post-abort keyboard checks from steps 9-12 above.
+
+Previous Result: Accepted (2026-07-10)
+
+User Test Results: Accepted (2026-07-10)
+
+Acceptance Reopened: A later parallel-agent test established that denying a sub-agent permission must stop only that sub-agent, rather than aborting the whole Dogent turn. Retest this behavior using the Story 3 instructions below.
+
+### Story 3 – Complete Background Task Lifecycle Feedback
+1. Start `dogent` in a configured sample workspace and ask it to launch a background sub-agent task that performs a short read-only analysis.
+2. Wait for the task to finish.
+3. Expect one terminal background-task panel indicating completion and no later duplicate completion panel for the same task.
+4. Start a second background task that runs long enough to stop, then ask the agent to stop that task.
+5. Expect one stopped/killed terminal panel and no stale progress panel claiming the task is still running.
+6. Submit another prompt in the same Dogent session.
+7. Expect the new turn to run normally without carrying finalized task IDs or progress state from the prior turn.
+8. Run `/context reset`, start one more short background task, and let it finish.
+9. Expect lifecycle feedback to remain correct after reset.
+
+User Test Results: Accepted (2026-07-10)
+
+Previous Result (2026-07-10): Failed
+
+Issue: Three sub-agents finished before the main agent, but the final `✅ Completed` panel said they were still working/waiting and omitted their consolidated results. After `/exit`, the terminal also showed `Error in hook callback hook_0` and `Tool permission stream closed before response received`. The captured output is in `samples/cli-output.txt`.
+
+Fix Status: Implemented (2026-07-10)
+
+- An incomplete successful result is now suppressed when a tracked background task remains active or the result text explicitly says background agents are still working/waiting.
+- Dogent performs one bounded follow-up turn on the same SDK session to wait for the tasks, collect their results, and produce one consolidated final answer.
+- The obsolete SDK permission keepalive hook was removed, eliminating the pending hook callback that failed when the permission stream closed during exit.
+
+Retest:
+1. From the sample workspace, repeat the request that launches three sub-agents and the main agent to execute tasks in parallel.
+2. Let all three sub-agents finish before the main agent's answer. If the first model result is incomplete, expect a `🧵 Consolidating` panel.
+3. Expect exactly one final `✅ Completed` panel containing the three sub-agent results and the main-agent summary. It must not say the agents are still working or waiting.
+4. Run `/exit` after the completed turn.
+5. Expect a clean Goodbye with no `hook_0`, `Tool permission stream closed`, traceback, or other error.
+6. Repeat once with a deliberately slower sub-agent and confirm Dogent waits for and includes its result before completing.
+
+Retest Result (2026-07-10): Failed
+
+Issue: Selecting a sub-agent's `Deny (abort current Dogent task)` option aborted the whole parallel turn. The desired behavior is to stop only that sub-agent while the main agent and sibling agents continue.
+
+Fix Status: Implemented (2026-07-10)
+
+- Sub-agent permission panels now label the option `Deny (stop this sub-agent)`; main-agent panels retain `Deny (abort current Dogent task)`.
+- A sub-agent denial returns an interrupting SDK denial for that sub-agent without setting Dogent's global abort state or interrupting the shared SDK client.
+- Main-agent denial retains the existing whole-turn abort behavior.
+
+Retest:
+1. Launch three parallel sub-agents whose tasks each require a permission prompt, and keep the main agent working on a separate task.
+2. On the first sub-agent panel, expect `Deny (stop this sub-agent)` and select it.
+3. Expect that sub-agent to stop, while the other two sub-agents and the main agent continue. The overall turn must not show `🛑 Aborted`.
+4. Resolve the remaining permission prompts with Allow and expect one consolidated completion containing their results plus the main-agent result.
+5. In a separate turn, trigger a permission prompt from the main agent itself. Expect `Deny (abort current Dogent task)`; select it and confirm the whole turn is aborted.
+6. Run `/exit` and confirm shutdown remains clean without hook or permission-stream errors.
+
+Retest Analysis (2026-07-10): Expected LLM Decision; No Dogent Defect
+
+The captured output in `samples/cli-output.txt` confirms the scoped denial worked:
+
+- The CHANGELOG sub-agent `ae91df17…` displayed `Deny (stop this sub-agent)` and immediately emitted `🧵 Task Stopped` after denial.
+- The main turn and sibling agents continued, so Dogent did not replay the stopped sub-agent or apply a global abort.
+- The main model then explicitly reasoned that the user's requested CHANGELOG result was unfinished and independently chose to read it itself. That new action produced a separately attributed `Permission required · Main agent` prompt.
+- Denying the new main-agent prompt aborted the turn as designed. A sub-agent denial intentionally does not create a global/session-wide prohibition against the same file or action.
+
+No code change is required for this report. Final confirmation:
+1. Repeat the parallel test and deny one sub-agent permission.
+2. Expect that sub-agent's `🧵 Task Stopped` panel while the main and sibling agents remain active.
+3. If the LLM retries or reassigns the unfinished work, expect a new prompt attributed to the agent making that new request; this is allowed and is not a permission bypass.
+4. Deny a new main-agent request only when the desired outcome is to abort the entire Dogent turn.
+5. Mark Stories 2 and 3 passed if the scoped stop, attribution, consolidated result behavior, and clean exit all meet these expectations.

@@ -30,6 +30,16 @@ def _make_runner(root: Path, console: Console) -> AgentRunner:
     )
 
 
+def _mock_client():
+    client = mock.Mock()
+    client.connect = mock.AsyncMock()
+    client.disconnect = mock.AsyncMock()
+    client.interrupt = mock.AsyncMock()
+    client.query = mock.AsyncMock()
+    client.receive_response = mock.Mock(return_value=_async_iter([]))
+    return client
+
+
 class SessionPersistenceTests(unittest.TestCase):
     def test_client_stays_alive_after_send_message(self) -> None:
         original_home = os.environ.get("HOME")
@@ -38,8 +48,7 @@ class SessionPersistenceTests(unittest.TestCase):
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
             runner = _make_runner(Path(tmp), console)
 
-            mock_client = mock.AsyncMock()
-            mock_client.receive_response.return_value = _async_iter([])
+            mock_client = _mock_client()
             runner._client = mock_client
 
             async def run():
@@ -62,8 +71,7 @@ class SessionPersistenceTests(unittest.TestCase):
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
             runner = _make_runner(Path(tmp), console)
 
-            mock_client = mock.AsyncMock()
-            mock_client.receive_response.return_value = _async_iter([])
+            mock_client = _mock_client()
             runner._client = mock_client
 
             async def run():
@@ -91,7 +99,7 @@ class SessionPersistenceTests(unittest.TestCase):
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
             runner = _make_runner(Path(tmp), console)
 
-            mock_client = mock.AsyncMock()
+            mock_client = _mock_client()
             mock_client.query.side_effect = RuntimeError("SDK error")
             runner._client = mock_client
 
@@ -115,7 +123,7 @@ class SessionPersistenceTests(unittest.TestCase):
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
             runner = _make_runner(Path(tmp), console)
 
-            mock_client = mock.AsyncMock()
+            mock_client = _mock_client()
             runner._client = mock_client
 
             async def run():
@@ -138,7 +146,7 @@ class SessionPersistenceTests(unittest.TestCase):
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
             runner = _make_runner(Path(tmp), console)
 
-            mock_client = mock.AsyncMock()
+            mock_client = _mock_client()
             runner._client = mock_client
             runner._turn_count = 5
             runner._interrupted = True
@@ -165,8 +173,8 @@ class SessionPersistenceTests(unittest.TestCase):
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
             runner = _make_runner(Path(tmp), console)
 
-            first_client = mock.AsyncMock()
-            first_client.receive_response.return_value = _async_iter([])
+            first_client = _mock_client()
+            next_client = _mock_client()
             runner._client = first_client
 
             async def run():
@@ -175,9 +183,12 @@ class SessionPersistenceTests(unittest.TestCase):
                     "after reset", [], config_override={"role": "assistant"}
                 )
 
-            asyncio.run(run())
+            with mock.patch(
+                "dogent.agent.runner.ClaudeSDKClient", return_value=next_client
+            ):
+                asyncio.run(run())
             self.assertIsNotNone(runner._client)
-            self.assertIsNot(runner._client, first_client)
+            self.assertIs(runner._client, next_client)
             self.assertEqual(runner._turn_count, 1)
             first_client.disconnect.assert_awaited_once()
         if original_home is not None:
@@ -192,8 +203,7 @@ class SessionPersistenceTests(unittest.TestCase):
             console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
             runner = _make_runner(Path(tmp), console)
 
-            mock_client = mock.AsyncMock()
-            mock_client.receive_response.return_value = _async_iter([])
+            mock_client = _mock_client()
             runner._client = mock_client
 
             async def run():

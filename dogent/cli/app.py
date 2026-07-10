@@ -25,7 +25,13 @@ from rich.prompt import Prompt
 from rich.table import Table
 from rich.theme import Theme
 
-from ..agent import AgentRunner, RunOutcome, PermissionDecision, DependencyDecision
+from ..agent import (
+    AgentRunner,
+    DependencyDecision,
+    HumanPromptRequest,
+    PermissionDecision,
+    RunOutcome,
+)
 from ..features.clarification import (
     ClarificationPayload,
     ClarificationQuestion,
@@ -105,6 +111,7 @@ from .input import (
     LimitedInMemoryHistory,
     MouseEventType,
     Point,
+    patch_stdout,
     PromptSession,
     PyperclipClipboard,
     ScrollbarMargin,
@@ -685,14 +692,25 @@ class DogentCLI:
         return True
 
     async def _prompt_choice(
-        self, *, title: str, prompt_text: str, options: list[str]
+        self,
+        *,
+        title: str,
+        prompt_text: str,
+        options: list[str],
+        status_text: str = "",
     ) -> int | None:
         if self._interactive_prompts:
             return await self._prompt_inline_choice(
-                title=title, prompt_text=prompt_text, options=options
+                title=title,
+                prompt_text=prompt_text,
+                options=options,
+                status_text=status_text,
             )
         return await self._prompt_text_choice(
-            title=title, prompt_text=prompt_text, options=options
+            title=title,
+            prompt_text=prompt_text,
+            options=options,
+            status_text=status_text,
         )
 
     async def _cmd_profile(self, command: str) -> bool:
@@ -1652,18 +1670,25 @@ class DogentCLI:
         )
 
     async def _prompt_tool_permission(
-        self, title: str, message: str
+        self, request: HumanPromptRequest
     ) -> PermissionDecision:
-        options = ["Allow", "Allow and remember", "Deny"]
-        prompt_text = f"{message}\n\nSelect a permission option:"
+        deny_label = (
+            "Deny (stop this sub-agent)"
+            if request.agent_id
+            else "Deny (abort current Dogent task)"
+        )
+        options = ["Allow", "Allow and remember", deny_label]
+        prompt_text = f"{request.message}\n\nSelect a permission option:"
+        status_text = self._human_prompt_status(request)
         was_active = self._selection_prompt_active.is_set()
         if not was_active:
             self._selection_prompt_active.set()
         try:
             selection = await self._prompt_choice(
-                title=title,
+                title=request.title,
                 prompt_text=prompt_text,
                 options=options,
+                status_text=status_text,
             )
         except SelectionCancelled:
             return PermissionDecision(False)
@@ -3257,8 +3282,9 @@ class DogentCLI:
         return answers, None
 
     async def _prompt_sdk_questions(
-        self, input_data: dict[str, Any]
+        self, request: HumanPromptRequest
     ) -> dict[str, Any] | None:
+        input_data = request.input_data or {}
         raw_questions = input_data.get("questions")
         if not isinstance(raw_questions, list) or not 1 <= len(raw_questions) <= 4:
             self.console.print(
@@ -3274,12 +3300,18 @@ class DogentCLI:
         self.console.print(
             Panel(
                 "Claude needs a short clarification before continuing.",
-                title="Clarification",
+                title=request.title,
                 border_style="cyan",
             )
         )
         for index, question in enumerate(raw_questions, start=1):
-            answer = await self._prompt_sdk_question(question, index=index, total=total)
+            answer = await self._prompt_sdk_question(
+                question,
+                index=index,
+                total=total,
+                agent_label=request.agent_label,
+                queued_count=request.queued_count,
+            )
             if answer is None:
                 return None
             question_text = str(question.get("question") or "").strip()
@@ -3289,8 +3321,9 @@ class DogentCLI:
         return {"questions": raw_questions, "answers": answers}
 
     async def _auto_sdk_question_prompt(
-        self, input_data: dict[str, Any]
+        self, request: HumanPromptRequest
     ) -> dict[str, Any] | None:
+        input_data = request.input_data or {}
         raw_questions = input_data.get("questions")
         if not isinstance(raw_questions, list) or not raw_questions:
             return None
@@ -3304,12 +3337,18 @@ class DogentCLI:
         return {"questions": raw_questions, "answers": answers}
 
     async def _deny_sdk_question_prompt(
-        self, _input_data: dict[str, Any]
+        self, _request: HumanPromptRequest
     ) -> dict[str, Any] | None:
         return None
 
     async def _prompt_sdk_question(
-        self, question_data: dict[str, Any], *, index: int, total: int
+        self,
+        question_data: dict[str, Any],
+        *,
+        index: int,
+        total: int,
+        agent_label: str = "Main agent",
+        queued_count: int = 0,
     ) -> str | None:
         question_text = str(question_data.get("question") or "").strip()
         if not question_text:
@@ -3328,7 +3367,37 @@ class DogentCLI:
                 return None
             options.append((label, description))
         multi_select = bool(question_data.get("multiSelect"))
-        title = f"Clarification {index}/{total}"
+        title = f"Clarification {index}/{total} · {agent_label}"
+        intro = f"[{header}]\n\n{question_text}" if header else question_text
+        status_text = self._human_prompt_status_text(
+            agent_label,
+            queued_count,
+            detail=f"Question {index}/{total}",
+        )
+        if self._can_use_inline_choice():
+            option_text = [
+                f"{label} — {description}" if description else label
+                for label, description in options
+            ]
+            if multi_select:
+                selected = await self._prompt_inline_multi_choice(
+                    title=title,
+                    prompt_text=intro,
+                    options=option_text,
+                    status_text=status_text,
+                )
+                if selected is None:
+                    return None
+                return ", ".join(options[item][0] for item in selected)
+            selected = await self._prompt_choice(
+                title=title,
+                prompt_text=intro,
+                options=option_text,
+                status_text=status_text,
+            )
+            if selected is None:
+                return None
+            return options[selected][0]
         lines = []
         if header:
             lines.append(f"[{header}]")
@@ -3383,6 +3452,101 @@ class DogentCLI:
         if not selections:
             return options[0][0]
         return ", ".join(selections)
+
+    def _human_prompt_status(self, request: HumanPromptRequest) -> str:
+        return self._human_prompt_status_text(
+            request.agent_label, request.queued_count
+        )
+
+    def _human_prompt_status_text(
+        self, agent_label: str, queued_count: int, *, detail: str = ""
+    ) -> str:
+        parts = [f"Active: {agent_label}"]
+        if detail:
+            parts.append(detail)
+        noun = "request" if queued_count == 1 else "requests"
+        parts.append(f"{queued_count} queued {noun}")
+        return " | ".join(parts)
+
+    async def _prompt_inline_multi_choice(
+        self,
+        *,
+        title: str,
+        prompt_text: str,
+        options: list[str],
+        status_text: str = "",
+    ) -> list[int] | None:
+        selection = 0
+        selected: set[int] = set()
+
+        def _fragments():
+            lines = [("class:prompt", f"{prompt_text}\n\n")]
+            for idx, option in enumerate(options):
+                cursor = ">" if idx == selection else " "
+                check = "x" if idx in selected else " "
+                style = "class:selected" if idx == selection else "class:choice"
+                lines.append((style, f"{cursor} [{check}] {option}\n"))
+            if status_text:
+                lines.append(("class:status", f"\n{status_text}"))
+            lines.append(
+                (
+                    "class:prompt",
+                    "\nUse ↑/↓ to move, Space to toggle, Enter to confirm, Esc/Ctrl+C to cancel.",
+                )
+            )
+            return lines
+
+        control = FormattedTextControl(_fragments, focusable=True, show_cursor=False)
+        window = Window(control, dont_extend_height=True)
+        container = Frame(window, title=title) if Frame is not None else window
+        layout = Layout(container, focused_element=window)
+        bindings = KeyBindings()
+
+        @bindings.add("up")
+        def _up(event) -> None:  # type: ignore[no-untyped-def]
+            nonlocal selection
+            selection = (selection - 1) % len(options)
+            event.app.invalidate()
+
+        @bindings.add("down")
+        def _down(event) -> None:  # type: ignore[no-untyped-def]
+            nonlocal selection
+            selection = (selection + 1) % len(options)
+            event.app.invalidate()
+
+        @bindings.add("space")
+        def _toggle(event) -> None:  # type: ignore[no-untyped-def]
+            if selection in selected:
+                selected.remove(selection)
+            else:
+                selected.add(selection)
+            event.app.invalidate()
+
+        @bindings.add("enter")
+        def _accept(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=sorted(selected) if selected else [0])
+
+        @bindings.add("escape")
+        @bindings.add("c-c")
+        def _cancel(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=None)
+
+        style = Style.from_dict(
+            {
+                "prompt": "",
+                "choice": "",
+                "selected": "reverse",
+                "status": "italic #888888",
+            }
+        )
+        app = Application(
+            layout=layout,
+            key_bindings=bindings,
+            mouse_support=False,
+            full_screen=False,
+            style=style,
+        )
+        return await self._run_dedicated_prompt(app)
 
     async def _collect_outline_edit(
         self, payload: OutlineEditPayload
@@ -3727,19 +3891,25 @@ class DogentCLI:
         return value or None
 
     async def _prompt_inline_choice(
-        self, *, title: str, prompt_text: str, options: list[str]
+        self,
+        *,
+        title: str,
+        prompt_text: str,
+        options: list[str],
+        status_text: str = "",
     ) -> int | None:
         selection = 0
 
         def _fragments():
             lines = [
-                ("class:prompt", f"{title}\n"),
                 ("class:prompt", f"{prompt_text}\n\n"),
             ]
             for idx, option in enumerate(options):
                 marker = ">" if idx == selection else " "
                 style = "class:selected" if idx == selection else "class:choice"
                 lines.append((style, f"{marker} {option}\n"))
+            if status_text:
+                lines.append(("class:status", f"\n{status_text}"))
             lines.append(
                 (
                     "class:prompt",
@@ -3750,7 +3920,8 @@ class DogentCLI:
 
         control = FormattedTextControl(_fragments, focusable=True, show_cursor=False)
         window = Window(control, dont_extend_height=True)
-        layout = Layout(window, focused_element=window)
+        container = Frame(window, title=title) if Frame is not None else window
+        layout = Layout(container, focused_element=window)
         bindings = KeyBindings()
 
         @bindings.add("up")
@@ -3782,6 +3953,7 @@ class DogentCLI:
                 "prompt": "",
                 "choice": "",
                 "selected": "reverse",
+                "status": "italic #888888",
             }
         )
         app = Application(
@@ -3795,19 +3967,26 @@ class DogentCLI:
         if not was_active:
             self._selection_prompt_active.set()
         try:
-            return await app.run_async()
+            return await self._run_dedicated_prompt(app)
         finally:
             if not was_active:
                 self._selection_prompt_active.clear()
 
     async def _prompt_text_choice(
-        self, *, title: str, prompt_text: str, options: list[str]
+        self,
+        *,
+        title: str,
+        prompt_text: str,
+        options: list[str],
+        status_text: str = "",
     ) -> int | None:
         lines = [title, prompt_text, ""]
         for idx, option in enumerate(options, start=1):
             marker = "*" if idx == 1 else " "
             lines.append(f"{marker} {idx}) {option}")
         lines.append("")
+        if status_text:
+            lines.append(status_text)
         lines.append("Enter a number to select, or type esc to cancel.")
         lines.append("Press Ctrl+C to cancel.")
         self.console.print(Panel("\n".join(lines), title=title))
@@ -3827,6 +4006,12 @@ class DogentCLI:
             if 1 <= choice <= len(options):
                 return choice - 1
         return 0
+
+    async def _run_dedicated_prompt(self, app: Application):
+        if patch_stdout is None:
+            return await app.run_async()
+        with patch_stdout(raw=True):
+            return await app.run_async()
 
     async def _prompt_clarification_question(
         self,
@@ -4818,14 +5003,16 @@ class DogentCLI:
         ]
 
     async def _auto_permission_prompt(
-        self, _title: str, _message: str
+        self, _request: HumanPromptRequest
     ) -> PermissionDecision:
         return PermissionDecision(True)
 
     async def _deny_permission_prompt(
-        self, _title: str, message: str
+        self, request: HumanPromptRequest
     ) -> PermissionDecision:
-        return PermissionDecision(False, message=f"Permission required: {message}")
+        return PermissionDecision(
+            False, message=f"Permission required: {request.message}"
+        )
 
     def _exit_code_for_outcome(self, outcome: RunOutcome | None) -> int:
         if outcome is None:

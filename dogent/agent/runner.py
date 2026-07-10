@@ -28,9 +28,11 @@ from claude_agent_sdk import (
 from claude_agent_sdk.types import (
     PermissionUpdate,
     StreamEvent,
+    TERMINAL_TASK_STATUSES,
     TaskNotificationMessage,
     TaskProgressMessage,
     TaskStartedMessage,
+    TaskUpdatedMessage,
 )
 
 from ..config import ConfigManager
@@ -72,6 +74,13 @@ DOGENT_TOOL_DISPLAY_NAMES = {
 }
 
 FOLLOWUP_STATUSES = {"needs_clarification", "needs_outline_edit", "awaiting_input"}
+BACKGROUND_WAIT_MARKERS = (
+    "still working",
+    "still running",
+    "waiting for",
+    "wait for the",
+    "in the background",
+)
 
 
 @dataclass(frozen=True)
@@ -94,6 +103,24 @@ class DependencyDecision:
     action: str  # install|manual|cancel
 
 
+@dataclass(frozen=True)
+class HumanPromptRequest:
+    kind: str  # permission|question
+    title: str
+    message: str = ""
+    input_data: dict[str, Any] | None = None
+    agent_id: str | None = None
+    tool_use_id: str | None = None
+    tool_name: str | None = None
+    queued_count: int = 0
+
+    @property
+    def agent_label(self) -> str:
+        if not self.agent_id:
+            return "Main agent"
+        return f"Sub-agent {self.agent_id[:8]}"
+
+
 class AgentRunner:
     """Maintains a Claude Agent SDK session and streams responses to the CLI."""
 
@@ -106,13 +133,13 @@ class AgentRunner:
         console: Optional[Console] = None,
         *,
         permission_prompt: Optional[
-            Callable[[str, str], Awaitable[bool | PermissionDecision]]
+            Callable[[HumanPromptRequest], Awaitable[bool | PermissionDecision]]
         ] = None,
         dependency_prompt: Optional[
             Callable[[str, str], Awaitable[DependencyDecision]]
         ] = None,
         sdk_question_prompt: Optional[
-            Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]]
+            Callable[[HumanPromptRequest], Awaitable[dict[str, Any] | None]]
         ] = None,
         session_logger: SessionLogger | None = None,
     ) -> None:
@@ -124,6 +151,9 @@ class AgentRunner:
         self._client: Optional[ClaudeSDKClient] = None
         self._tool_name_by_id: Dict[str, str] = {}
         self._lock = asyncio.Lock()
+        self._human_prompt_lock = asyncio.Lock()
+        self._human_prompt_pending = 0
+        self._resume_wait_after_human_prompts = False
         self._skip_todo_render_once = False
         self._last_summary: str | None = None
         self._clarification_text: str = ""
@@ -156,6 +186,9 @@ class AgentRunner:
         self._partial_reply_stream_active = False
         self._partial_reply_seen = False
         self._last_task_progress: dict[str, str] = {}
+        self._background_task_ids: set[str] = set()
+        self._finalized_task_ids: set[str] = set()
+        self._background_reconciliation_attempted = False
         self._turn_count: int = 0
 
     async def reset(self) -> None:
@@ -189,6 +222,9 @@ class AgentRunner:
             self._partial_reply_stream_active = False
             self._partial_reply_seen = False
             self._last_task_progress = {}
+            self._background_task_ids = set()
+            self._finalized_task_ids = set()
+            self._background_reconciliation_attempted = False
             self._task_temp_files.clear()
             self._last_summary = None
             self._skip_todo_render_once = False
@@ -208,7 +244,7 @@ class AgentRunner:
     def set_permission_prompt(
         self,
         permission_prompt: Optional[
-            Callable[[str, str], Awaitable[bool | PermissionDecision]]
+            Callable[[HumanPromptRequest], Awaitable[bool | PermissionDecision]]
         ],
     ) -> None:
         """Update the permission prompt callback for subsequent runs."""
@@ -226,7 +262,7 @@ class AgentRunner:
     def set_sdk_question_prompt(
         self,
         sdk_question_prompt: Optional[
-            Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]]
+            Callable[[HumanPromptRequest], Awaitable[dict[str, Any] | None]]
         ],
     ) -> None:
         """Update the SDK-native AskUserQuestion callback for subsequent runs."""
@@ -284,6 +320,9 @@ class AgentRunner:
         self._partial_reply_stream_active = False
         self._partial_reply_seen = False
         self._last_task_progress = {}
+        self._background_task_ids = set()
+        self._finalized_task_ids = set()
+        self._background_reconciliation_attempted = False
         self._turn_count += 1
         preview = (
             user_message
@@ -391,6 +430,7 @@ class AgentRunner:
             return
         saw_result = False
         drain_after_interrupt = False
+        reconcile_background_tasks = False
         await self._start_wait_indicator()
         async for message in self._client.receive_response():
             if self._interrupted:
@@ -423,6 +463,9 @@ class AgentRunner:
             if isinstance(message, TaskNotificationMessage):
                 self._handle_task_notification(message)
                 continue
+            if isinstance(message, TaskUpdatedMessage):
+                self._handle_task_updated(message)
+                continue
             if isinstance(message, AssistantMessage):
                 if not self._abort_requested:
                     self._handle_assistant_message(message)
@@ -432,6 +475,12 @@ class AgentRunner:
                     drain_after_interrupt = True
                     continue
             elif isinstance(message, ResultMessage):
+                if not self._interrupted and self._should_reconcile_background_result(
+                    message
+                ):
+                    reconcile_background_tasks = True
+                    saw_result = True
+                    break
                 if not self._interrupted:
                     self._handle_result(message)
                 saw_result = True
@@ -440,6 +489,53 @@ class AgentRunner:
                 await self._start_wait_indicator()
         if not saw_result and self._aborted_reason and not self._interrupted:
             self._finalize_aborted()
+        if reconcile_background_tasks:
+            await self._reconcile_background_tasks()
+
+    def _should_reconcile_background_result(self, message: ResultMessage) -> bool:
+        if self._background_reconciliation_attempted:
+            return False
+        if message.is_error or self._abort_requested or self._interrupted:
+            return False
+        if not self._background_task_ids:
+            return False
+        active_ids = self._background_task_ids - self._finalized_task_ids
+        result_text = (message.result or "").lower()
+        claims_to_be_waiting = any(
+            marker in result_text for marker in BACKGROUND_WAIT_MARKERS
+        )
+        return bool(active_ids or claims_to_be_waiting)
+
+    async def _reconcile_background_tasks(self) -> None:
+        if not self._client:
+            return
+        self._background_reconciliation_attempted = True
+        active_ids = sorted(self._background_task_ids - self._finalized_task_ids)
+        if active_ids:
+            state = f"Still active task IDs: {', '.join(active_ids)}."
+        else:
+            state = "All background tasks have now reported terminal status."
+        prompt = (
+            "Dogent requires a complete final response for the current user request. "
+            f"{state} Wait for any active background agents using the available task "
+            "tools, collect every sub-agent result, and then provide one consolidated "
+            "answer that includes the main-agent work and all sub-agent findings. Do "
+            "not finish by saying that agents are still working or that you are waiting."
+        )
+        self.console.print(
+            Panel(
+                "Collecting completed background-agent results before finalizing.",
+                title="🧵 Consolidating",
+                border_style="cyan",
+            )
+        )
+        self.console.print()
+        await self._start_wait_indicator()
+        async with self._lock:
+            if not self._client or self._abort_requested or self._interrupted:
+                return
+            await self._client.query(prompt)
+        await self._stream_responses()
 
     async def interrupt(self, reason: str) -> None:
         async with self._lock:
@@ -652,6 +748,9 @@ class AgentRunner:
         metrics = (
             f"Duration {message.duration_ms} ms | API {message.duration_api_ms} ms | Cost {cost}"
         )
+        api_error_status = getattr(message, "api_error_status", None)
+        if api_error_status is not None:
+            metrics = f"{metrics} | HTTP {api_error_status}"
         usage_lines = self._format_usage_lines(getattr(message, "usage", None))
         todos_snapshot = self.todo_manager.export_items()
         remaining = self.todo_manager.remaining_markdown()
@@ -667,6 +766,12 @@ class AgentRunner:
                 usage=getattr(message, "usage", None),
                 structured_output=getattr(message, "structured_output", None),
             )
+            if api_error_status is not None:
+                self._session_logger.log_runtime_event(
+                    "agent",
+                    "result.api_error",
+                    {"status": api_error_status},
+                )
         if self._aborted_reason:
             title = "🛑 Aborted"
             status = "aborted"
@@ -901,7 +1006,7 @@ class AgentRunner:
         if self._abort_requested and self._aborted_reason:
             return PermissionResultDeny(message=self._aborted_reason, interrupt=True)
         if tool_name == "AskUserQuestion":
-            updated_input = await self._request_sdk_questions(input_data)
+            updated_input = await self._request_sdk_questions(input_data, context)
             if updated_input is not None:
                 return PermissionResultAllow(updated_input=updated_input)
             await self._handle_permission_denied(
@@ -939,7 +1044,9 @@ class AgentRunner:
         if not check.needs_confirm:
             self._track_temp_files(tool_name, input_data)
             return PermissionResultAllow()
-        decision = await self._request_permission(tool_name, check.reason)
+        decision = await self._request_permission(
+            tool_name, input_data, context, check.reason
+        )
         if decision.allow:
             updated_permissions = None
             if decision.remember:
@@ -949,6 +1056,13 @@ class AgentRunner:
                     self.config.add_authorizations(tool_name, check.targets)
             self._track_temp_files(tool_name, input_data)
             return PermissionResultAllow(updated_permissions=updated_permissions)
+        if context.agent_id:
+            await self._start_wait_indicator()
+            return PermissionResultDeny(
+                message=decision.message
+                or f"User denied permission for sub-agent {context.agent_id}.",
+                interrupt=True,
+            )
         await self._handle_permission_denied(check.reason, message=decision.message)
         return PermissionResultDeny(
             message=self._aborted_reason or "User denied permission.",
@@ -1162,45 +1276,153 @@ class AgentRunner:
         with suppress(Exception):
             await self._client.interrupt()
 
+    def _permission_prompt_request(
+        self,
+        tool_name: str,
+        input_data: dict[str, Any],
+        context: ToolPermissionContext,
+        reason: str,
+    ) -> HumanPromptRequest:
+        action = context.display_name or self._display_tool_name(tool_name)
+        lines = [action]
+        sdk_title = (context.title or "").strip()
+        if sdk_title and sdk_title != action:
+            lines.append(sdk_title)
+        description = (context.description or "").strip()
+        if description:
+            lines.append(description)
+        blocked_path = (context.blocked_path or "").strip()
+        if blocked_path:
+            lines.extend(["", blocked_path])
+        decision_reason = (context.decision_reason or "").strip()
+        if decision_reason and decision_reason != reason:
+            lines.extend(["", f"SDK reason: {decision_reason}"])
+        lines.extend(["", f"Reason: {reason}"])
+        request = HumanPromptRequest(
+            kind="permission",
+            title="",
+            message="\n".join(lines),
+            input_data=dict(input_data),
+            agent_id=context.agent_id,
+            tool_use_id=context.tool_use_id,
+            tool_name=tool_name,
+        )
+        return replace(
+            request, title=f"Permission required · {request.agent_label}"
+        )
+
     async def _request_permission(
-        self, tool_name: str, reason: str
+        self,
+        tool_name: str,
+        input_data: dict[str, Any],
+        context: ToolPermissionContext,
+        reason: str,
     ) -> PermissionDecision:
         if not self._permission_prompt:
             return PermissionDecision(False)
-        was_running = self._wait_indicator is not None
-        self._permission_prompt_active = True
-        if was_running:
-            await self._stop_wait_indicator()
+        request = self._permission_prompt_request(
+            tool_name, input_data, context, reason
+        )
         decision = PermissionDecision(False)
+        self._human_prompt_pending += 1
         try:
-            title = f"Permission required: {tool_name}"
-            body = reason
-            result = await self._permission_prompt(title, body)
-            if isinstance(result, PermissionDecision):
-                decision = result
-            else:
-                decision = PermissionDecision(bool(result))
-            return decision
+            async with self._human_prompt_lock:
+                if self._abort_requested or self._interrupted:
+                    return decision
+                await asyncio.sleep(0)
+                request = replace(
+                    request, queued_count=max(0, self._human_prompt_pending - 1)
+                )
+                await self._begin_human_prompt(request)
+                result = await self._permission_prompt(request)
+                if isinstance(result, PermissionDecision):
+                    decision = result
+                else:
+                    decision = PermissionDecision(bool(result))
+                self._log_human_prompt_decision(request, decision.allow)
+                return decision
         finally:
-            self._permission_prompt_active = False
-            if was_running and decision.allow:
-                await self._start_wait_indicator()
+            await self._finish_human_prompt(decision.allow)
 
     async def _request_sdk_questions(
-        self, input_data: dict[str, Any]
+        self, input_data: dict[str, Any], context: ToolPermissionContext
     ) -> dict[str, Any] | None:
         if not self._sdk_question_prompt:
             return None
-        was_running = self._wait_indicator is not None
-        self._permission_prompt_active = True
-        if was_running:
-            await self._stop_wait_indicator()
+        request = HumanPromptRequest(
+            kind="question",
+            title="",
+            input_data=dict(input_data),
+            agent_id=context.agent_id,
+            tool_use_id=context.tool_use_id,
+            tool_name="AskUserQuestion",
+        )
+        request = replace(request, title=f"Clarification · {request.agent_label}")
+        result: dict[str, Any] | None = None
+        self._human_prompt_pending += 1
         try:
-            return await self._sdk_question_prompt(input_data)
+            async with self._human_prompt_lock:
+                if self._abort_requested or self._interrupted:
+                    return None
+                await asyncio.sleep(0)
+                request = replace(
+                    request, queued_count=max(0, self._human_prompt_pending - 1)
+                )
+                await self._begin_human_prompt(request)
+                result = await self._sdk_question_prompt(request)
+                self._log_human_prompt_decision(request, result is not None)
+                return result
         finally:
-            self._permission_prompt_active = False
-            if was_running and not self._abort_requested and not self._abort_finalized:
-                await self._start_wait_indicator()
+            await self._finish_human_prompt(result is not None)
+
+    async def _begin_human_prompt(self, request: HumanPromptRequest) -> None:
+        if self._wait_indicator is not None:
+            self._resume_wait_after_human_prompts = True
+            await self._stop_wait_indicator()
+        self._permission_prompt_active = True
+        if self._session_logger:
+            self._session_logger.log_runtime_event(
+                "agent",
+                "human_prompt.requested",
+                {
+                    "kind": request.kind,
+                    "agent_id": request.agent_id,
+                    "tool_use_id": request.tool_use_id,
+                    "tool_name": request.tool_name,
+                },
+            )
+
+    def _log_human_prompt_decision(
+        self, request: HumanPromptRequest, allowed: bool
+    ) -> None:
+        if self._session_logger:
+            self._session_logger.log_runtime_event(
+                "agent",
+                "human_prompt.resolved",
+                {
+                    "kind": request.kind,
+                    "agent_id": request.agent_id,
+                    "tool_use_id": request.tool_use_id,
+                    "tool_name": request.tool_name,
+                    "allowed": allowed,
+                },
+            )
+
+    async def _finish_human_prompt(self, continue_running: bool) -> None:
+        self._human_prompt_pending = max(0, self._human_prompt_pending - 1)
+        self._permission_prompt_active = self._human_prompt_pending > 0
+        if self._human_prompt_pending:
+            return
+        should_resume = self._resume_wait_after_human_prompts
+        self._resume_wait_after_human_prompts = False
+        if (
+            should_resume
+            and continue_running
+            and not self._abort_requested
+            and not self._abort_finalized
+            and not self._interrupted
+        ):
+            await self._start_wait_indicator()
 
     def _handle_stream_event(self, message: StreamEvent) -> None:
         event = getattr(message, "event", None)
@@ -1277,6 +1499,7 @@ class AgentRunner:
         }
         if self._session_logger:
             self._session_logger.log_runtime_event("agent", "task.started", detail)
+        self._background_task_ids.add(message.task_id)
         self._last_task_progress[message.task_id] = message.description
         body = message.description or f"Task {message.task_id} started."
         self.console.print(
@@ -1319,6 +1542,10 @@ class AgentRunner:
         }
         if self._session_logger:
             self._session_logger.log_runtime_event("agent", "task.notification", detail)
+        self._last_task_progress.pop(message.task_id, None)
+        if message.task_id in self._finalized_task_ids:
+            return
+        self._finalized_task_ids.add(message.task_id)
         title = "🧵 Task Complete"
         border_style = "green"
         if message.status == "failed":
@@ -1337,7 +1564,40 @@ class AgentRunner:
             Panel("\n".join(lines), title=title, border_style=border_style)
         )
         self.console.print()
-        self._last_task_progress.pop(message.task_id, None)
+
+    def _handle_task_updated(self, message: TaskUpdatedMessage) -> None:
+        patch = self._coerce_dict(message.patch) or {}
+        status = str(message.status or patch.get("status") or "").strip().lower()
+        detail = {
+            "task_id": message.task_id,
+            "status": status or None,
+            "patch": patch,
+            "session_id": message.session_id,
+            "uuid": message.uuid,
+            "data": getattr(message, "data", None),
+        }
+        if self._session_logger:
+            self._session_logger.log_runtime_event("agent", "task.updated", detail)
+        if status not in TERMINAL_TASK_STATUSES:
+            return
+        previous = self._last_task_progress.pop(message.task_id, "")
+        if message.task_id in self._finalized_task_ids:
+            return
+        self._finalized_task_ids.add(message.task_id)
+        self._finish_partial_reply_stream()
+        if status == "failed":
+            title = "🧵 Task Failed"
+            border_style = "red"
+        elif status in {"killed", "stopped"}:
+            title = "🧵 Task Stopped"
+            border_style = "yellow"
+        else:
+            title = "🧵 Task Complete"
+            border_style = "green"
+        summary = str(patch.get("summary") or previous or "").strip()
+        body = summary or f"Task {message.task_id} {status}."
+        self.console.print(Panel(body, title=title, border_style=border_style))
+        self.console.print()
 
     def _is_rate_limit_event(self, message: object) -> bool:
         return bool(

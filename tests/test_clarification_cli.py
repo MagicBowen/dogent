@@ -7,6 +7,7 @@ from unittest import mock
 
 from rich.console import Console
 
+from dogent.agent import HumanPromptRequest
 from dogent.cli import (
     DogentCLI,
     ClarificationTimeout,
@@ -258,7 +259,11 @@ class ClarificationCliTests(unittest.IsolatedAsyncioTestCase):
                 new=mock.AsyncMock(side_effect=["2", "1, 2"]),
             ):
                 result = await cli._prompt_sdk_questions(
-                    {
+                    HumanPromptRequest(
+                        kind="question",
+                        title="Clarification · Sub-agent agent-12",
+                        agent_id="agent-1234",
+                        input_data={
                         "questions": [
                             {
                                 "question": "Choose a style",
@@ -279,10 +284,118 @@ class ClarificationCliTests(unittest.IsolatedAsyncioTestCase):
                                 "multiSelect": True,
                             },
                         ]
-                    }
+                        },
+                    )
                 )
             self.assertEqual(result["answers"]["Choose a style"], "Casual")
             self.assertEqual(result["answers"]["Choose sections"], "Intro, Summary")
+            self.assertIn("Sub-agent agent-12", console.file.getvalue())
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_sdk_question_uses_dedicated_inline_choices(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            cli = DogentCLI(
+                root=Path(tmp),
+                console=Console(file=io.StringIO(), force_terminal=True, color_system=None),
+                interactive_prompts=True,
+            )
+            with mock.patch.object(
+                cli, "_can_use_inline_choice", return_value=True
+            ), mock.patch.object(
+                cli, "_prompt_choice", new=mock.AsyncMock(return_value=1)
+            ) as prompt_choice:
+                answer = await cli._prompt_sdk_question(
+                    {
+                        "question": "Choose one",
+                        "header": "Choice",
+                        "options": [
+                            {"label": "A", "description": "Alpha"},
+                            {"label": "B", "description": "Beta"},
+                        ],
+                        "multiSelect": False,
+                    },
+                    index=1,
+                    total=1,
+                    agent_label="Sub-agent agent-12",
+                    queued_count=2,
+                )
+
+            self.assertEqual(answer, "B")
+            self.assertIn(
+                "2 queued requests", prompt_choice.await_args.kwargs["status_text"]
+            )
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_sdk_multi_question_uses_dedicated_multi_select(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            cli = DogentCLI(
+                root=Path(tmp),
+                console=Console(file=io.StringIO(), force_terminal=True, color_system=None),
+                interactive_prompts=True,
+            )
+            with mock.patch.object(
+                cli, "_can_use_inline_choice", return_value=True
+            ), mock.patch.object(
+                cli,
+                "_prompt_inline_multi_choice",
+                new=mock.AsyncMock(return_value=[0, 1]),
+            ) as prompt_multi:
+                answer = await cli._prompt_sdk_question(
+                    {
+                        "question": "Choose sections",
+                        "options": [
+                            {"label": "Intro", "description": "Opening"},
+                            {"label": "Summary", "description": "Closing"},
+                        ],
+                        "multiSelect": True,
+                    },
+                    index=1,
+                    total=1,
+                    agent_label="Sub-agent agent-12",
+                    queued_count=1,
+                )
+
+            self.assertEqual(answer, "Intro, Summary")
+            self.assertIn(
+                "1 queued request", prompt_multi.await_args.kwargs["status_text"]
+            )
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    async def test_inline_multi_choice_runs_inside_dedicated_frame(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            cli = DogentCLI(
+                root=Path(tmp),
+                console=Console(file=io.StringIO(), force_terminal=True, color_system=None),
+                interactive_prompts=True,
+            )
+            with mock.patch.object(
+                cli, "_run_dedicated_prompt", new=mock.AsyncMock(return_value=[0, 1])
+            ) as run_prompt:
+                result = await cli._prompt_inline_multi_choice(
+                    title="Clarification · Sub-agent agent-12",
+                    prompt_text="Choose sections",
+                    options=["Intro", "Summary"],
+                    status_text="Active: Sub-agent agent-12 | 1 queued request",
+                )
+
+            self.assertEqual(result, [0, 1])
+            app = run_prompt.await_args.args[0]
+            self.assertEqual(type(app.layout.container).__name__, "HSplit")
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

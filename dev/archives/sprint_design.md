@@ -1803,3 +1803,218 @@ Use a small JSON file so it can be edited without code changes:
 - Add tests that missing source skills and missing submodule/source directory produce clear failures.
 - Update config/bootstrap tests to expect the installed Claude plugin to contain only manifest-selected bundled skills after the packaging preparation step.
 - Keep the full `python -m unittest discover -s tests -v` suite green.
+
+## Release 0.9.31
+
+### Goal
+
+Keep the Claude Agent SDK conversation context persistent across all user prompts within a single Dogent interactive session, so users do not need to re-enter information from previous interactions.
+
+### Current Baseline
+
+- After each task completes, `AgentRunner._safe_disconnect()` destroys the `ClaudeSDKClient`, clearing all conversation state.
+- The next prompt creates a fresh client with no conversation history.
+- Context between tasks is only available through history injection (`{history}` / `{history:last}` template variables in prompts), which provides summaries from `.dogent/history.json`, not the actual conversation messages.
+- The client IS kept alive for follow-up states (`needs_clarification`, `needs_outline_edit`, `awaiting_input`), demonstrating the SDK naturally accumulates messages when the same client instance persists across `query()` calls.
+
+### Design Direction
+
+- Keep the `ClaudeSDKClient` connected throughout the interactive session, regardless of task outcome (completed, error, interrupted, aborted).
+- Only disconnect on explicit session termination: user exit, profile change, or user-initiated reset.
+- The SDK automatically accumulates conversation history when the same client instance receives multiple `query()` calls.
+
+### Changes to AgentRunner
+
+1. **Remove automatic disconnect after task completion.**
+   - In `send_message()`, remove the conditional disconnect after streaming completes.
+   - The client stays alive regardless of `last_outcome.status`.
+
+2. **Add a `reset()` method.**
+   - Disconnects the current client via `_safe_disconnect()`.
+   - Clears all internal state (same cleanup as current fresh-start behavior).
+   - Called by the CLI on profile changes, explicit reset, and exit.
+
+3. **Keep interrupt handling intact.**
+   - The existing interrupt drain logic already handles keeping the client alive for follow-up states; extend this to all states.
+
+4. **Update system prompt between turns.**
+   - The existing `self._client.options.system_prompt = system_prompt` update already works for reusing the client.
+   - No change needed here; the SDK applies the new system prompt to the next turn while preserving conversation history.
+
+### Changes to DogentCLI
+
+1. **Call `agent.reset()` on `/exit`.** Ensures clean disconnection.
+2. **Call `agent.reset()` on profile changes.** When the user changes an LLM, web, vision, or image profile, the underlying model or API endpoint may change, requiring a new client.
+3. **Add a `/context` command.** Manages session context with subcommand parameters:
+   - `/context reset` — disconnects the agent client and clears internal state, starting a fresh session without exiting Dogent.
+   - `/context` without arguments — shows current session context info (e.g., turn count, status).
+   - The command is extensible for future subcommands (e.g., `/context compact` for context window summarization).
+
+### History Injection
+
+- Keep existing `{history}` and `{history:last}` template variables unchanged.
+- They remain valuable for cross-session context (when Dogent is restarted in the same workspace with existing `.dogent/history.json`).
+- Within a session, the SDK's accumulated conversation history provides the primary context.
+- Minor token redundancy from history summaries is acceptable for this release.
+
+### Non-Interactive Mode
+
+- `dogent -p "prompt"` continues to create a fresh client and disconnect after the single task.
+- Persistent sessions apply only to interactive mode.
+
+### Edge Cases
+
+- **Very long sessions** may approach context window limits. For this release, accept the SDK's natural behavior (the SDK will error if the context window is exceeded). A future release can add automatic summarization or truncation.
+- **Client corruption**: if an unrecoverable SDK error occurs mid-session, the CLI should call `agent.reset()` and inform the user that context was cleared.
+- **Interrupt during persistent session**: the existing interrupt drain logic should continue to work; the drained partial response does not affect the next turn.
+- **Profile change mid-session**: auto-reset ensures the new model/API takes effect immediately without stale session state.
+
+### Tests
+
+- Add a test for session persistence: send two messages through the runner without disconnecting, verify the second response has context from the first.
+- Add a test for `reset()` properly disconnecting and clearing state.
+- Add a test for the `/context reset` command.
+- Add a test that non-interactive mode still disconnects after the run.
+- Ensure the full `python -m unittest discover -s tests -v` suite passes.
+
+## Release 0.9.32
+
+### Goal
+
+Upgrade Dogent's Claude Agent SDK baseline from `0.1.72` to `0.2.115`, adapt the SDK integration to relevant upstream changes, and reliably present human confirmation and question prompts originating from main agents or sub-agents, including when several agents request input concurrently.
+
+### Upstream Review
+
+The upstream changelog from `0.1.72` (exclusive) through `0.2.115` and the examples at the `v0.2.115` tag were reviewed. Most releases in this range only update the bundled Claude CLI. The Dogent-relevant changes are:
+
+- `0.1.73`: eager session-store flushing. Dogent does not use `session_store`; no change is required.
+- `0.1.74`: hook-event streaming, deferred tool use, strict MCP configuration, richer permission context, `xhigh` effort, and subprocess cleanup. Dogent should consume the richer permission context for its TUI. The other features are not required for this release.
+- `0.1.76`: permission suggestions are now deserialized into `PermissionUpdate` objects, and `ResultMessage` exposes `api_error_status`. This fixes the live path used by Dogent's “Allow and remember” response; add coverage using SDK-shaped suggestions. Record the safe HTTP status in failure diagnostics when present.
+- `0.1.77`: bare `"Skill"` entries in `allowed_tools` are deprecated in favor of the `skills` option, and SDK errors now preserve actionable result text. Migrate Dogent's explicit skill enablement and verify error rendering.
+- `0.2.82`: public `EffortLevel`, stderr isolation, and tighter permission-suggestion typing. Dogent does not configure effort or a stderr callback; the tighter typing agrees with the permission migration above.
+- `0.2.88`: Trio compatibility for session stores. Dogent uses asyncio and no session store; no change is required.
+- `0.2.96`: the SDK pins `mcp<2`. Dogent receives this transitively; no direct dependency change is required.
+- `0.2.101`: terminal background-task state can arrive only as `TaskUpdatedMessage`, without `TaskNotificationMessage`. Dogent must handle both forms so task state and TUI feedback do not remain stale.
+- `0.2.111`: cancellation-safe subprocess cleanup, robust large-NDJSON parsing, defensive content parsing, and a warning when `can_use_tool` is shadowed by broad allow rules. The first three are transparent fixes. Dogent must retain `permission_mode="default"` and avoid broad `allowed_tools` entries whenever its callback is active.
+- `0.2.112` through `0.2.115`, and the other versions not called out above, update the bundled Claude CLI only. They require runtime regression testing rather than API changes.
+
+The `v0.2.115` examples confirm the integration patterns Dogent already uses: long-lived `ClaudeSDKClient` sessions use `connect()`/`query()`/`receive_response()`, permission callbacks use `permission_mode="default"` without broad allow rules, hooks are asynchronous, custom agents are enabled through SDK options, and `tools=[]` is valid for restricted helper clients. The only example changes between the two target tags are session-store documentation and the S3 adapter, which Dogent does not use.
+
+### Current Baseline and Root Cause
+
+- `pyproject.toml` currently declares `claude-agent-sdk>=0.1.72`.
+- `ConfigManager.build_options()` uses a bare `"Skill"` allow entry in the no-callback path.
+- `AgentRunner` handles `TaskStartedMessage`, `TaskProgressMessage`, and `TaskNotificationMessage`, but not `TaskUpdatedMessage`.
+- The SDK spawns each incoming control request in a separate asynchronous task. Parallel agents can therefore invoke Dogent's `can_use_tool` callback concurrently.
+- Dogent forwards each callback directly into a `prompt_toolkit` selection UI. There is no shared lock or queue across permission and `AskUserQuestion` prompts, so concurrent callbacks can compete for the terminal.
+- `ToolPermissionContext.agent_id`, `tool_use_id`, and the new display fields are discarded. As a result, the TUI cannot identify a sub-agent request even when the SDK supplies attribution.
+
+### SDK Upgrade and Compatibility Changes
+
+1. Raise the dependency floor to `claude-agent-sdk>=0.2.115`, preserving the project's existing minimum-version constraint style.
+2. Replace the deprecated bare `"Skill"` allow entry with the SDK's `skills` option in paths that explicitly auto-enable skills. Keep callback-enabled sessions free of broad allow entries so tool requests can reach Dogent's permission handler.
+3. Audit every direct SDK construction path (`AgentRunner`, init wizard, lesson drafter, MCP helpers, web/vision/image tools) against the `0.2.115` types and examples. Do not adopt unrelated new features merely because they exist.
+4. Continue using `permission_mode="default"` with `can_use_tool`. Add an options-level regression test proving callback-enabled sessions do not contain broad `allowed_tools` rules that would shadow confirmations.
+5. Use the SDK-deserialized `PermissionUpdate` suggestions for “Allow and remember”; malformed or absent suggestions remain non-fatal.
+6. Include `ResultMessage.api_error_status` in logged/displayed failure diagnostics when available, without logging response content beyond Dogent's existing error handling.
+
+### Agent-Aware Human Interaction Gate
+
+Introduce a single FIFO gate in `AgentRunner` for all SDK-driven terminal interaction: tool permission confirmations and SDK-native `AskUserQuestion` prompts.
+
+1. Create an internal request model carrying the interaction kind, `agent_id`, `tool_use_id`, tool name/input, SDK display metadata, and Dogent's policy reason.
+2. Serialize requests with one async lock/queue before entering any CLI `prompt_toolkit` application. Only one prompt may own stdin at a time; queued requests are shown in arrival order.
+3. Re-check abort/interruption state after acquiring the gate. If the task was cancelled while a request waited, return a denying/interrupted result without opening stale UI.
+4. Keep the wait indicator stopped while any human prompt is active. Resume it only after the active prompt closes, the request was allowed, and no abort is pending.
+5. Pass attribution into both CLI callback types. `agent_id=None` is rendered as “Main agent”; otherwise render a shortened, stable “Sub-agent <id>” label. Log the full opaque ID and tool-use ID in debug/session events.
+6. Prefer the SDK's `title`, `display_name`, `description`, `decision_reason`, and `blocked_path` when present, while retaining Dogent's local permission evaluation as the authorization source of truth.
+7. Route sub-agent `AskUserQuestion` requests through the same gate and attribution model so confirmations and questions cannot overlap.
+8. Scope permission denial by origin. A main-agent Deny or cancellation aborts the current Dogent turn. A sub-agent Deny or cancellation returns an interrupting permission denial only for that sub-agent and does not set Dogent's global abort state or interrupt the shared SDK client, allowing the main agent and sibling agents to continue. “Allow and remember” continues to apply the SDK's session suggestions and Dogent's stored path authorization.
+9. A scoped sub-agent denial is not a session-wide deny rule for the target file or operation. The main model may independently decide to retry or reassign unfinished work from the user's original request; any such main-agent action is evaluated as a new tool request and must receive its own main-agent permission decision.
+
+### TUI Scheme
+
+Permission prompts retain the existing numbered selection interaction, but make origin and consequence explicit:
+
+```text
+╭─ Permission required · Sub-agent a1b2c3 ─────────────────────╮
+│ Read file                                                     │
+│ /etc/hosts                                                    │
+│                                                               │
+│ Reason: Path is outside the current workspace.                │
+│                                                               │
+│ * 1) Allow                                                    │
+│   2) Allow and remember                                       │
+│   3) Deny (stop this sub-agent)                               │
+╰───────────────────────────────────────────────────────────────╯
+```
+
+- Main-agent prompts use the same layout with “Main agent” and retain the explicit `Deny (abort current Dogent task)` consequence.
+- SDK question panels add the same origin label to the existing clarification title and retain single-select, multi-select, default, free-form, cancel, and timeout behavior.
+- When several agents request input together, Dogent shows complete panels one at a time. It must never start parallel prompt applications or print interleaved option lists.
+
+#### UAT Refinement: Dedicated Prompt Area
+
+The first Story 2 UAT found that normal main-agent output could overwrite an active sub-agent prompt. The terminal layout is refined as follows:
+
+```text
+┌─ Main-agent output / scrollback ──────────────────────────────┐
+│ New streamed output and task events are written above.        │
+└───────────────────────────────────────────────────────────────┘
+┌─ Permission required · Sub-agent a1b2c3 ─────────────────────┐
+│ Active prompt and choices remain fixed at the terminal bottom.│
+│                                                              │
+│ > Allow                                                      │
+│   Allow and remember                                         │
+│   Deny (abort current Dogent task)                           │
+│                                                              │
+│ Active: Sub-agent a1b2c3 | 2 queued requests                 │
+└───────────────────────────────────────────────────────────────┘
+```
+
+- Run interactive permission and SDK-question applications inside `prompt_toolkit.patch_stdout(raw=True)`. Output produced while the prompt is active is routed above the application, after which the bottom prompt area is redrawn.
+- Use a framed bottom area for single-select and multi-select questions. Multi-select uses Up/Down to move, Space to toggle, and Enter to confirm.
+- Continue processing concurrent requests through the FIFO gate. The footer identifies the active agent and the number of requests waiting behind it; after resolution, the next queued request replaces the bottom panel.
+- Non-interactive/text fallback retains numbered text prompts and includes the same active/queued status line.
+
+### Background Task Lifecycle
+
+1. Import and handle `TaskUpdatedMessage` plus `TERMINAL_TASK_STATUSES` in the response stream.
+2. On a terminal update, clear `_last_task_progress` even if no notification arrives, log the update, and render a completion/failure/stopped panel using the patch data available.
+3. Avoid duplicate terminal panels when both a terminal update and a later `TaskNotificationMessage` arrive for the same task. Maintain a small per-turn set of finalized task IDs and clear it on reset/new turn.
+4. Unknown or non-terminal patches remain available to debug logging but do not create noisy panels.
+
+#### UAT Refinement: Final Background-Task Reconciliation
+
+The Story 3 UAT showed that the SDK can emit a successful `ResultMessage` while spawned sub-agents are still active, or with result text that explicitly says Dogent is still waiting for their output. Treat that first result as provisional instead of presenting it as the completed turn.
+
+1. Track task IDs started during the current turn, independently of the short-lived progress display state.
+2. If a successful result arrives while a tracked task is active, or its text states that background agents are still working/waiting, suppress that incomplete result and issue one internal follow-up query on the same persistent client.
+3. The follow-up directs the main agent to wait through the SDK task tools, collect every sub-agent result, and return one consolidated final answer. Limit reconciliation to one attempt per user turn so an uncooperative model cannot loop indefinitely.
+4. Remove the legacy no-op `PreToolUse` keepalive hook from callback-enabled SDK options. The `0.2.115` permission callback works without a dummy hook, and leaving that hook pending caused an exit-time `hook_0` / closed permission-stream error.
+
+### Edge Cases
+
+- Two or more parallel sub-agents request permission or ask questions at nearly the same time: requests remain serialized and attributable.
+- A main-agent request arrives while a sub-agent prompt is open: it waits in the same FIFO order.
+- Esc/Ctrl+C interrupts an active prompt or the overall task: the active UI exits cleanly, queued requests do not reopen, and SDK control requests receive denial/interruption responses.
+- A sub-agent finishes while its prompt is queued: an SDK cancellation removes or safely denies that request without affecting terminal ownership.
+- A sub-agent permission is denied while sibling agents are running: only that sub-agent is interrupted; queued sibling prompts and the main turn remain active.
+- The main model retries work after a sub-agent denial: treat it as a new main-agent action, display a separately attributed permission prompt, and honor that new decision without silently carrying over the sub-agent's denial.
+- Permission metadata is absent (older/custom CLI payload): fall back to Dogent's tool name and policy reason.
+- Permission suggestions are empty or malformed: “Allow and remember” still records valid Dogent authorizations and skips invalid SDK updates.
+- A background task emits both terminal message forms: task tracking is cleared once and the terminal panel is not duplicated.
+- Non-interactive modes retain their current auto-allow/deny callback behavior and never open a TUI prompt.
+
+### Tests
+
+- Add SDK `0.2.115` option-construction tests for the dependency-facing behavior, `skills` migration, default permission mode, and absence of callback-shadowing broad allow rules.
+- Add permission tests using `ToolPermissionContext` with `agent_id`, `tool_use_id`, rich display fields, and deserialized `PermissionUpdate` suggestions.
+- Add asynchronous tests that issue parallel main/sub-agent permission and question requests, proving FIFO ordering and a maximum of one active CLI prompt.
+- Add cancellation tests for active and queued human requests, including wait-indicator cleanup.
+- Add CLI rendering tests for main-agent and sub-agent permission/question titles and the explicit Deny consequence.
+- Add permission-result tests proving sub-agent denial leaves the global turn/client active while main-agent denial still aborts the whole turn.
+- Add stream tests for terminal `TaskUpdatedMessage`, duplicate suppression with `TaskNotificationMessage`, and state cleanup on reset/new turn.
+- Add stream tests proving an incomplete background-task result triggers exactly one consolidation turn and an already consolidated result does not trigger another query.
+- Add result diagnostics coverage for `api_error_status` and actionable SDK error text.
+- Run the full `python -m unittest discover -s tests -v` suite with `claude-agent-sdk 0.2.115` installed.

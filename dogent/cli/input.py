@@ -45,6 +45,7 @@ try:
     from prompt_toolkit.layout.menus import CompletionsMenu
     from prompt_toolkit.lexers import Lexer
     from prompt_toolkit.mouse_events import MouseEventType
+    from prompt_toolkit.patch_stdout import patch_stdout
     try:
         from prompt_toolkit.lexers.pygments import pygments_token_to_classname
     except Exception:  # pragma: no cover - optional pygments helpers
@@ -96,6 +97,7 @@ except ImportError:  # pragma: no cover - optional dependency
     CompletionsMenu = None  # type: ignore
     Lexer = object  # type: ignore
     MouseEventType = None  # type: ignore
+    patch_stdout = None  # type: ignore
     SelectionState = None  # type: ignore
     SelectionType = None  # type: ignore
     Style = None  # type: ignore

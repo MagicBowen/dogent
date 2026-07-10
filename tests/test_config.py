@@ -552,6 +552,7 @@ class ConfigTests(unittest.TestCase):
             options = manager.build_options("sys", can_use_tool=can_use_tool)
             self.assertEqual(options.permission_mode, "default")
             self.assertIs(options.can_use_tool, can_use_tool)
+            self.assertIsNone(options.skills)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -574,7 +575,23 @@ class ConfigTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
-    def test_build_options_adds_pre_tool_use_hook_with_callback(self) -> None:
+    def test_build_options_enables_skills_without_deprecated_allow_entry(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            manager = ConfigManager(paths)
+
+            options = manager.build_options("sys")
+
+            self.assertEqual(options.skills, "all")
+            self.assertNotIn("Skill", options.allowed_tools)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_build_options_does_not_add_keepalive_hook_with_callback(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
@@ -585,10 +602,7 @@ class ConfigTests(unittest.TestCase):
                 return None
 
             options = manager.build_options("sys", can_use_tool=can_use_tool)
-            self.assertIn("PreToolUse", options.hooks)
-            self.assertEqual(len(options.hooks["PreToolUse"]), 1)
-            self.assertEqual(options.hooks["PreToolUse"][0].matcher, None)
-            self.assertEqual(len(options.hooks["PreToolUse"][0].hooks), 1)
+            self.assertIsNone(options.hooks)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

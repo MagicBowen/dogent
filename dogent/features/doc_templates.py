@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from importlib.abc import Traversable
 from pathlib import Path
 from typing import Iterable, Optional
+
+try:
+    from importlib.resources.abc import Traversable
+except ImportError:
+    from importlib.abc import Traversable
 
 from ..config.paths import DogentPaths
 from ..config.resources import iter_dir, resource_path

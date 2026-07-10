@@ -1,7 +1,13 @@
 """Agent runtime package."""
 
 from .permissions import extract_delete_targets, should_confirm_tool_use
-from .runner import AgentRunner, RunOutcome, PermissionDecision, DependencyDecision
+from .runner import (
+    AgentRunner,
+    DependencyDecision,
+    HumanPromptRequest,
+    PermissionDecision,
+    RunOutcome,
+)
 from .wait import LLMWaitIndicator
 
 __all__ = [
@@ -9,6 +15,7 @@ __all__ = [
     "RunOutcome",
     "PermissionDecision",
     "DependencyDecision",
+    "HumanPromptRequest",
     "extract_delete_targets",
     "should_confirm_tool_use",
     "LLMWaitIndicator",

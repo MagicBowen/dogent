@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from importlib import resources
-from importlib.abc import Traversable
 from typing import Iterable, Optional
+
+try:
+    from importlib.resources.abc import Traversable
+except ImportError:
+    from importlib.abc import Traversable
 
 from ..core.session_log import log_exception
 
