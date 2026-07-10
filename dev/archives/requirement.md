@@ -530,3 +530,8 @@ When I use dogent in a new environment, when dogent uses the `mcp__dogent__expor
 - before copying skills from claude/skills to dogent, update the claude/skills git submodule to the newest upstream version first. If the update fails, continue using the currently checked-out submodule version.
 
 ---
+
+## Release 0.9.31
+
+There is an issue with the current design of Dogent. Once a task is completed, its corresponding task context is cleared. When users submit new requests within the same session, they have to re-enter much related information from previous conversations since the system cannot retain historical task data. Please analyze the existing agent loop workflow of Dogent and provide code modification solutions to keep all historical context persistent throughout the session until the user exits Dogent.
+
