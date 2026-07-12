@@ -215,6 +215,14 @@ th {
    -------------------------------------------------------------------------- */
 img { max-width: 100%; height: auto; }
 
+.math-block {
+  margin: 0 0 var(--gap);
+  overflow-x: auto;
+  text-align: center;
+}
+
+.math-block math { font-size: 1.1em; }
+
 /* --------------------------------------------------------------------------
    10) Footer only (Playwright footerTemplate)
    目标：仅页码，右下角

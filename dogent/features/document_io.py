@@ -962,6 +962,12 @@ _FENCED_CODE_BLOCK_PATTERN = re.compile(
     r"(?ms)^(?P<indent>[ ]{0,3})(?P<fence>`{3,}|~{3,})[ \t]*(?P<info>[^\n]*)\n"
     r"(?P<body>.*?)(?:\n)?^(?P=indent)(?P=fence)[ \t]*$"
 )
+_MULTILINE_MATH_BLOCK_PATTERN = re.compile(
+    r"(?ms)^[ ]{0,3}\$\$[ \t]*\n(?P<body>.*?)\n[ ]{0,3}\$\$[ \t]*$"
+)
+_SINGLE_LINE_MATH_BLOCK_PATTERN = re.compile(
+    r"(?m)^[ ]{0,3}\$\$[ \t]*(?P<body>[^\n]*?)[ \t]*\$\$[ \t]*$"
+)
 
 
 def _markdown_contains_mermaid(md_text: str) -> bool:
@@ -1033,9 +1039,15 @@ def _build_mermaid_renderer_html(bundle_js: str) -> str:
         "  }\n"
         "  svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');\n"
         "  svg.style.maxWidth = 'none';\n"
+        "  const viewBox = svg.viewBox && svg.viewBox.baseVal;\n"
+        "  if (viewBox && viewBox.width > 0 && viewBox.height > 0) {\n"
+        "    svg.setAttribute('width', `${Math.ceil(viewBox.width)}px`);\n"
+        "    svg.setAttribute('height', `${Math.ceil(viewBox.height)}px`);\n"
+        "  }\n"
         "  if (document.fonts && document.fonts.ready) {\n"
         "    await document.fonts.ready;\n"
         "  }\n"
+        "  return svg.outerHTML;\n"
         "};\n"
         "</script>\n"
         "</body>\n</html>\n"
@@ -1060,23 +1072,18 @@ async def _render_mermaid_blocks(requests: list[MermaidRenderRequest]) -> None:
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch()
-            page = await browser.new_page(
-                viewport={"width": 2200, "height": 2200},
-                device_scale_factor=2,
-            )
+            page = await browser.new_page(viewport={"width": 2200, "height": 2200})
             await page.set_content(html, wait_until="load")
             for request in requests:
                 try:
-                    await page.evaluate(
+                    svg_markup = await page.evaluate(
                         "(args) => window.dogentRenderMermaid(args.definition, args.renderId)",
                         {
                             "definition": request.definition,
                             "renderId": f"dogent-mermaid-{request.index}",
                         },
                     )
-                    await page.locator("#capture svg").screenshot(
-                        path=str(request.output_path)
-                    )
+                    request.output_path.write_text(svg_markup, encoding="utf-8")
                 except Exception as exc:  # noqa: BLE001
                     log_exception("document_io", exc)
                     raise RuntimeError(
@@ -1105,7 +1112,7 @@ async def _replace_mermaid_fences(
         if _fenced_block_language(info) != "mermaid":
             continue
         index = len(requests) + 1
-        output_path = asset_dir / f"mermaid-{index}.png"
+        output_path = asset_dir / f"mermaid-{index}.svg"
         rel_path = Path(os.path.relpath(output_path, markdown_dir)).as_posix()
         target = _format_markdown_target(rel_path)
         line_number = md_text.count("\n", 0, match.start()) + 1
@@ -1416,6 +1423,38 @@ def _ensure_page_break_css(css_text: str) -> str:
     return f"{css_text.rstrip()}\n\n{rule}"
 
 
+def _render_math_blocks(md_text: str) -> str:
+    try:
+        from latex2mathml.converter import convert
+    except Exception as exc:  # noqa: BLE001
+        log_exception("document_io", exc)
+        raise RuntimeError(
+            "PDF formula rendering requires latex2mathml. Install dependency."
+        ) from exc
+
+    def render_segment(segment: str) -> str:
+        def replace(match: re.Match[str]) -> str:
+            latex = (match.group("body") or "").strip()
+            try:
+                mathml = convert(latex, display="block")
+            except Exception as exc:  # noqa: BLE001
+                log_exception("document_io", exc)
+                raise RuntimeError(f"Could not render LaTeX formula: {latex}") from exc
+            return f'<div class="math-block">{mathml}</div>'
+
+        segment = _MULTILINE_MATH_BLOCK_PATTERN.sub(replace, segment)
+        return _SINGLE_LINE_MATH_BLOCK_PATTERN.sub(replace, segment)
+
+    parts: list[str] = []
+    cursor = 0
+    for match in _FENCED_CODE_BLOCK_PATTERN.finditer(md_text):
+        parts.append(render_segment(md_text[cursor : match.start()]))
+        parts.append(match.group(0))
+        cursor = match.end()
+    parts.append(render_segment(md_text[cursor:]))
+    return "".join(parts)
+
+
 def _resolve_pdf_style(
     workspace_root: Path | None,
     *,
@@ -1492,7 +1531,7 @@ def _markdown_to_html(
     except Exception as exc:
         log_exception("document_io", exc)
         pass
-    body = mdi.render(md_text)
+    body = mdi.render(_render_math_blocks(md_text))
     if base_path:
         body = _inline_local_images(body, base_path, workspace_root)
     css = css_text if css_text is not None else _default_pdf_css()

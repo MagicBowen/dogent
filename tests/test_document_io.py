@@ -226,6 +226,19 @@ class DocumentIOTests(unittest.TestCase):
         html = document_io._markdown_to_html(md, title="Test")
         self.assertIn("class=\"k\"", html)
 
+    def test_markdown_to_html_renders_dollar_math_as_mathml(self) -> None:
+        md = "Before\n\n$$\n\\frac{a}{b} = c^2\n$$\n\nAfter"
+        html = document_io._markdown_to_html(md, title="Math")
+        self.assertIn('<div class="math-block"><math', html)
+        self.assertIn("<mfrac>", html)
+        self.assertNotIn("$$", html)
+
+    def test_render_math_blocks_supports_single_line_and_ignores_fences(self) -> None:
+        md = "$$ x + y $$\n\n```text\n$$ not_math $$\n```"
+        rendered = document_io._render_math_blocks(md)
+        self.assertIn('<div class="math-block"><math', rendered)
+        self.assertIn("$$ not_math $$", rendered)
+
     def test_markdown_to_html_includes_base_href(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             base_path = Path(tmp)
@@ -288,6 +301,12 @@ class DocumentIOTests(unittest.TestCase):
             )
         )
 
+    def test_mermaid_renderer_preserves_intrinsic_svg_dimensions(self) -> None:
+        html = document_io._build_mermaid_renderer_html("window.mermaid = {};")
+        self.assertIn("Math.ceil(viewBox.width)", html)
+        self.assertIn("Math.ceil(viewBox.height)", html)
+        self.assertIn("return svg.outerHTML", html)
+
     def test_package_mode_resolves_bundled_tools(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "resources" / "tools"
@@ -328,6 +347,45 @@ class DocumentIOTests(unittest.TestCase):
 
 
 class DocumentIOAsyncTests(unittest.IsolatedAsyncioTestCase):
+    async def test_render_mermaid_blocks_writes_vector_svg(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "diagram.svg"
+            request = document_io.MermaidRenderRequest(
+                index=1,
+                line_number=3,
+                definition="graph TD\nA-->B",
+                output_path=output_path,
+                replacement="",
+                start=0,
+                end=0,
+            )
+            page = mock.AsyncMock()
+            page.evaluate.return_value = (
+                '<svg xmlns="http://www.w3.org/2000/svg"><text>A</text></svg>'
+            )
+            browser = mock.AsyncMock()
+            browser.new_page.return_value = page
+            playwright = SimpleNamespace(chromium=mock.AsyncMock())
+            playwright.chromium.launch.return_value = browser
+            manager = mock.AsyncMock()
+            manager.__aenter__.return_value = playwright
+            async_playwright = mock.Mock(return_value=manager)
+            fake_api = SimpleNamespace(async_playwright=async_playwright)
+
+            with (
+                mock.patch.dict(sys.modules, {"playwright.async_api": fake_api}),
+                mock.patch(
+                    "dogent.features.document_io._read_mermaid_bundle",
+                    return_value="window.mermaid = {};",
+                ),
+                mock.patch("dogent.features.document_io._configure_playwright_browsers"),
+            ):
+                await document_io._render_mermaid_blocks([request])
+
+            self.assertTrue(output_path.read_text(encoding="utf-8").startswith("<svg"))
+            page.evaluate.assert_awaited_once()
+            browser.close.assert_awaited_once()
+
     async def test_playwright_install_runs_in_thread(self) -> None:
         with mock.patch(
             "dogent.features.document_io.asyncio.to_thread", new=mock.AsyncMock()
@@ -380,7 +438,8 @@ class DocumentIOAsyncTests(unittest.IsolatedAsyncioTestCase):
             ) -> None:
                 self.assertEqual(len(requests), 1)
                 self.assertIn("graph TD", requests[0].definition)
-                requests[0].output_path.write_bytes(b"png")
+                self.assertEqual(requests[0].output_path.suffix, ".svg")
+                requests[0].output_path.write_text("<svg></svg>", encoding="utf-8")
 
             with mock.patch(
                 "dogent.features.document_io._render_mermaid_blocks",
@@ -412,12 +471,9 @@ class DocumentIOAsyncTests(unittest.IsolatedAsyncioTestCase):
             async def fake_render(
                 requests: list[document_io.MermaidRenderRequest],
             ) -> None:
-                requests[0].output_path.write_bytes(
-                    b"\x89PNG\r\n\x1a\n"
-                    b"\x00\x00\x00\rIHDR"
-                    b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00"
-                    b"\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\x0f\x00\x01"
-                    b"\x01\x01\x00\x18\xdd\x8d\xdb\x00\x00\x00\x00IEND\xaeB`\x82"
+                requests[0].output_path.write_text(
+                    '<svg xmlns="http://www.w3.org/2000/svg"><text>A</text></svg>',
+                    encoding="utf-8",
                 )
 
             with (
@@ -442,6 +498,7 @@ class DocumentIOAsyncTests(unittest.IsolatedAsyncioTestCase):
 
             html_arg = html_to_pdf.await_args.args[0]
             self.assertIn("Mermaid diagram 1", html_arg)
+            self.assertIn("data:image/svg+xml;base64", html_arg)
             self.assertNotIn("graph TD", html_arg)
 
     async def test_markdown_to_docx_prerenders_mermaid_blocks(self) -> None:
@@ -463,7 +520,7 @@ class DocumentIOAsyncTests(unittest.IsolatedAsyncioTestCase):
             async def fake_render(
                 requests: list[document_io.MermaidRenderRequest],
             ) -> None:
-                requests[0].output_path.write_bytes(b"png")
+                requests[0].output_path.write_text("<svg></svg>", encoding="utf-8")
 
             def capture_convert_file(*args, **kwargs):  # type: ignore[no-untyped-def]
                 captured["markdown"] = Path(args[0]).read_text(encoding="utf-8")
