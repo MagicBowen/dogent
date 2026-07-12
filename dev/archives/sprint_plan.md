@@ -1247,3 +1247,19 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Accepted (2026-07-10)
 - Verification: Automated tests cover terminal and non-terminal task updates, progress cleanup, duplicate terminal suppression, reset cleanup, one-shot result reconciliation, the absence of the obsolete permission keepalive hook, and scoped sub-agent denial. The full suite passes 376 tests, and the background lifecycle, consolidated result, scoped stop, and clean-exit manual retests passed on 2026-07-10.
+
+## Release 0.9.33 - Persistent Status Bar
+
+### Story 1: Persistent Model and Workspace Status
+- User Value: I can identify the active LLM model and workspace from a stable idle status row without it contending with agent output or the timed wait indicator.
+- Acceptance: Interactive Dogent renders one polished idle bottom row containing the model, unknown context placeholder, and normalized workspace path; the row is suspended for active agent turns while the timed `Waiting for LLM response` indicator is available, responds cleanly to terminal width changes, is absent from the separate full-screen editor, and is suppressed for non-interactive or redirected output.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-07-12)
+- Verification: Automated formatter/renderer lifecycle tests plus manual checks in wide and narrow terminals while entering a prompt and running an agent task.
+
+### Story 2: Live Context Usage and Reset Lifecycle
+- User Value: I can see how much of the active model's context is used and trust that resetting context immediately starts the indicator over.
+- Acceptance: Dogent resolves context capacity using the documented override, `[1m]`, optional Models API lookup, and 256K fallback; the bar updates from the latest main-agent input/cache usage and follows LLM profile/model changes; `/context reset` immediately returns it to `Context --`; stale pre-reset updates cannot restore old usage.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-07-12)
+- Verification: Automated capacity/usage/reset tests plus manual context growth, `[1m]`, and reset-and-restart checks.

@@ -142,6 +142,9 @@ class AgentRunner:
             Callable[[HumanPromptRequest], Awaitable[dict[str, Any] | None]]
         ] = None,
         session_logger: SessionLogger | None = None,
+        status_update_callback: Callable[[str | None, object, int], None] | None = None,
+        status_reset_callback: Callable[[int], None] | None = None,
+        activity_callback: Callable[[str | None], None] | None = None,
     ) -> None:
         self.config = config
         self.prompt_builder = prompt_builder
@@ -169,6 +172,10 @@ class AgentRunner:
         self._dependency_prompt = dependency_prompt
         self._sdk_question_prompt = sdk_question_prompt
         self._session_logger = session_logger
+        self._status_update_callback = status_update_callback
+        self._status_reset_callback = status_reset_callback
+        self._activity_callback = activity_callback
+        self._context_generation = 0
         self._task_temp_files: set[Path] = set()
         self._temp_roots: list[Path] = self._resolve_temp_roots()
         self._aborted_reason: str | None = None
@@ -196,6 +203,9 @@ class AgentRunner:
         with suppress(Exception):
             await self._stop_wait_indicator()
         async with self._lock:
+            self._context_generation += 1
+            if self._status_reset_callback is not None:
+                self._status_reset_callback(self._context_generation)
             if self._client:
                 await self._client.disconnect()
             self._client = None
@@ -612,6 +622,15 @@ class AgentRunner:
 
     def _handle_assistant_message(self, message: AssistantMessage) -> None:
         self._finish_partial_reply_stream()
+        if (
+            getattr(message, "parent_tool_use_id", None) is None
+            and self._status_update_callback is not None
+        ):
+            self._status_update_callback(
+                getattr(message, "model", None),
+                getattr(message, "usage", None),
+                self._context_generation,
+            )
         text_blocks: list[str] = []
         ui_request_seen = False
         for block in message.content:
@@ -986,7 +1005,9 @@ class AgentRunner:
             return
         if self._abort_requested or self._abort_finalized:
             return
-        self._wait_indicator = LLMWaitIndicator(self.console)
+        self._wait_indicator = LLMWaitIndicator(
+            self.console, activity_callback=self._activity_callback
+        )
         await self._wait_indicator.start()
 
     async def _stop_wait_indicator(self) -> None:

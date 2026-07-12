@@ -1489,3 +1489,104 @@ No code change is required for this report. Final confirmation:
 3. If the LLM retries or reassigns the unfinished work, expect a new prompt attributed to the agent making that new request; this is allowed and is not a permission bypass.
 4. Deny a new main-agent request only when the desired outcome is to abort the entire Dogent turn.
 5. Mark Stories 2 and 3 passed if the scoped stop, attribution, consolidated result behavior, and clean exit all meet these expectations.
+
+## Release 0.9.33 - Persistent Status Bar
+
+### Story 1 - Persistent Model and Workspace Status
+1) Install the working tree with `pip install -e .` and open a terminal at least 100 columns wide.
+2) Create or reuse a sample workspace, for example `mkdir -p /tmp/dogent-uat-0.9.33 && cd /tmp/dogent-uat-0.9.33`, then run `dogent` and complete initialization/profile selection if prompted.
+3) At the normal prompt, expect exactly one bottom status row showing the configured LLM model, `Context --` before the first response, and the workspace path shortened with `~` only when applicable.
+4) Submit `Inspect this workspace, wait a few seconds while working, and then summarize what you found.` Expect the status row to disappear for the active agent turn. While Dogent waits on the model, expect `Waiting for LLM response (<elapsed>s)` at the bottom; agent output must not contend with a status row.
+5) After the agent turn ends, expect exactly one idle status row to return. Run `/help` and invoke a confirmation or clarification flow if available; the status row must remain suppressed while the agent turn is active and return without duplication or cursor corruption afterward.
+6) Open the full-screen Markdown editor with `Ctrl+E`. The editor does not need to show the status bar. Return to the main TUI and expect exactly one status row to be restored at the bottom without a stale editor or status row.
+7) Resize the terminal from wide to approximately 60 columns and back. Expect the path/model and meter to shorten without wrapping; the narrow row must still identify the model, context field, and workspace folder.
+8) Exit Dogent with `/exit`. Expect the cursor and normal terminal output to be restored with no reserved blank row or continuing refresh.
+9) Run `dogent -p "Summarize this empty workspace"` and `dogent -p "Summarize this empty workspace" > /tmp/dogent-0.9.33-output.txt`. Expect no persistent status-bar row or terminal control sequences in non-interactive output or the redirected file.
+
+User Test Results: Accepted (2026-07-12)
+
+Reported Issues:
+- For context usage percent, I like the `[█████████░░░░░░░░░░░] 45%` form display;
+- The calculation for consumed context tokens is incorrect. I only loaded a small file, yet it consumed 4% of the 1M context window of `deepseek-v4-pro[1m]`, which is clearly abnormal.
+- When the agent output text scrolls upward in the CLI, the status bar at the bottom switches to a black background, making the text illegible. Additionally, the status bar keeps flickering constantly. Additional, The theme style of the status bar shall be displayed in accordance with the CLI theme to ensure aesthetics and clear text rendering, and shall not change dynamically during Agent execution.
+- When I input `ctrl+E` there are no editor appear! When I execute the `/edit` command, dogent show me "Markdown editor is unavailable in this environment"
+
+Fix Status: Ready for retest (2026-07-11)
+
+- Replaced the meter with the requested bracketed 20-cell `█/░` form.
+- Normalized inclusive versus split cache counters so compatible gateways do not double-count cached input tokens.
+- Removed the forced status background and periodic Rich refresh; the bar now inherits the CLI background, uses a fixed CLI-native palette, and refreshes only on actual events.
+- Captured TTY capability once at startup so renderer handoffs cannot make `Ctrl+E` or `/edit` appear unavailable.
+
+Focused Retest:
+
+1) Restart Dogent in the same terminal used for the failed UAT. At a wide prompt, expect the context segment to use `[████░░░░░░░░░░░░░░░░] 20%`-style rendering.
+2) With `deepseek-v4-pro[1m]`, load the same small file again. Expect the percentage not to double-count overlapping `input_tokens` and cache counters.
+3) Submit a request that produces enough output to scroll. Expect the status bar to keep the CLI background and fixed theme without constant flicker.
+4) Press `Ctrl+E`, return to the main prompt, and run `/edit`. Expect the Markdown editor to open in both cases and the main-TUI status bar to return afterward.
+
+Retest 1 Result: Failed
+- when I under the samples folder and enter dogent, the status bar showed : `✦ deepseek-v4-pro[1m]  │  Context [░░░░░░░░░░░░░░░░░░░░] 4%  │  📁 ~/Codes/magicbowen-github/dogent/samples  ` with light and dark blue backgroud. but when the agent runs and text scrolls upward in the CLI, the backgroud disapeared! The  status bar should has a beautiful backgroud and do not change the backgroud when the text of agent scrolls upward in the CLI;
+- The status bar keeps flickering when the text of agent scrolls upward in the CLI, maybe caused by contention of CLI bottom line with the text "Waiting for LLM response"?
+- When I let dogent "summary the [local file]: 03-case-studies.pdf" under the samples folder, I show me that `Context [░░░░░░░░░░░░░░░░░░░░] 4%`, please check the 4% context comsumption is correct or not?
+
+Fix Status: Ready for retest - Round 2 (2026-07-11)
+
+- Applied the same explicit high-contrast blue background and light foreground palette to both prompt_toolkit and Rich renderers.
+- Removed the separate `Waiting for LLM response` live row so the live region remains exactly one line while agent output scrolls.
+- Added exact normalized usage and capacity to `/context` for checking provider-reported token consumption.
+- Checked `samples/03-case-studies.pdf`: it has 15 pages, 15,133 extracted text characters, and roughly 3,800 document tokens. The displayed percentage covers the complete latest agent input—system prompt, tool schemas, plugin/skill metadata, conversation, and the document—not only the PDF. A rounded 4% of a 1M window is therefore plausible; `/context` now exposes the exact numerator for confirmation.
+
+Focused Retest - Round 2:
+
+1) Start Dogent under `samples` and compare the idle prompt bar with the bar while a long agent response scrolls. Expect the same blue background and foreground colors throughout.
+2) During a long request, expect one stable status row with no separate `Waiting for LLM response` row and no constant flicker.
+3) After summarizing `03-case-studies.pdf`, run `/context`. Record the exact `Context usage: <used> / 1,000,000 tokens (<percent>)` line and confirm it matches the rounded percentage in the status bar.
+
+Retest 2 Result: Failed
+- "Waiting for LLM response" has been removed? Users cannot see that the system is waiting for model responses, which may lead them to mistakenly believe Dogent has blocked. Please design an explicit indicator solution that lets users view the ongoing wait for agent replies without conflicting with the existing status bar.
+- The status bar currently has a background color by default; it is recommended to remove the background color by default.
+
+Fix Status: Ready for retest - Round 3 (2026-07-12)
+
+- Integrated a static `⏳ Waiting for LLM response` indicator into the existing status row instead of creating a competing second row. It compacts to `⏳ Waiting` or `⏳` as terminal width decreases.
+- The wait state refreshes only when it starts or ends; it has no timer or spinner animation.
+- Removed explicit backgrounds from Rich fragments and prompt_toolkit fragments, and overrode prompt_toolkit's built-in bottom-toolbar background so both modes inherit the terminal background.
+
+Focused Retest - Round 3:
+
+1) Start a request that takes several seconds. Expect the same one-line status bar to show `⏳ Waiting for LLM response` (or its compact form), with no second waiting row and no animated flicker.
+2) Compare the idle prompt, waiting state, and scrolling agent output. Expect all three to inherit the terminal background with no blue or black status-bar background.
+3) Resize to medium and narrow widths while waiting. Expect the indicator to compact while model, context percentage, and workspace folder remain identifiable.
+
+Retest Failed：
+- Currently, the text "`⏳ Waiting for LLM response`" is displayed in the second column of the status line. This text appears intermittently, causing the status line to flicker constantly. I would like to switch to a different approach: only show the status line when the Dogent agent is not running any tasks. When the agent starts executing tasks (i.e., when text scrolls upward in the CLI), retain the original behavior—display "`⏳ Waiting for LLM response`" with a timer at the bottom on demand, and do not show the status line entirely.
+
+Fix Status: Ready for retest - Round 4 (2026-07-12)
+
+- The status controller now enters a suspended state for the complete active agent turn. While suspended it cannot render a Rich row, return prompt-toolbar content, or attach itself to an agent-triggered dialog.
+- Restored the original timed `Waiting for LLM response (<elapsed>s)` display while waiting on the model; it no longer publishes activity into the status row.
+- The idle status row is restored only after the agent turn completes, including interrupt and error paths.
+- Removed all explicit status backgrounds and highlighted the foreground text consistently in both renderers: cyan model/context labels, green progress meter and percentage, blue workspace, and subdued separators.
+
+Focused Retest - Round 4:
+
+1) At the normal prompt, confirm exactly one status row shows model, context, and workspace. It must inherit the terminal background; expect highlighted cyan model/context text, a green progress meter and percentage after usage is known, a highlighted blue workspace, and subdued separators.
+2) Submit a request that waits several seconds and produces enough output to scroll. Expect the status row to disappear for the entire active agent turn.
+3) While Dogent is waiting on the model, expect the original `Waiting for LLM response (<elapsed>s)` indicator and timer at the bottom. It may appear only while waiting and must not share a line with the model/context/workspace status.
+4) If a permission, confirmation, or clarification dialog appears during the turn, expect no model/context/workspace status row in that dialog.
+5) When the turn finishes or is interrupted, expect exactly one idle status row to return with no stale waiting line, duplicate row, or cursor corruption.
+
+Retest Round 4: PASS
+
+### Story 2 - Live Context Usage and Reset Lifecycle
+1) Run interactive `dogent` in `/tmp/dogent-uat-0.9.33` with a working LLM profile. Before sending a request, expect `Context --`.
+2) Submit `Read the workspace instructions and give me a detailed summary.` After the first main-agent response, expect the context field to show a numeric percentage and a matching colored meter; it must not remain `--`.
+3) Send two more substantive follow-up prompts. Expect the displayed percentage to refresh from the latest context measurement and remain between 0% and 100%.
+4) Run `/context reset`. Expect the active session to be reset and the status row to change immediately to `Context --` while retaining the same model and workspace. Run `/context` and expect a fresh session state.
+5) Send another prompt. Expect a new numeric measurement to appear; the pre-reset percentage must not flash or overwrite it.
+6) With a test profile whose configured model ends in `[1m]` (for example `sonnet[1m]`), restart Dogent and send a prompt. Expect context percentage to use a 1,000,000-token denominator and the displayed model name to retain `[1m]`.
+7) Switch to a different LLM profile with `/profile llm`. Expect the status model label to update and context to return to `--` until the new model responds; no measurement from the prior model may reappear.
+8) If the profile uses a custom gateway that does not provide the Models API, repeat a prompt with debug logging enabled. Expect Dogent to remain responsive and calculate against the 256,000-token fallback without displaying a user-facing lookup error.
+
+User Test Results: Accepted (2026-07-12)

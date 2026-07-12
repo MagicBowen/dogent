@@ -20,7 +20,14 @@ class ProfileDebugCommandTests(unittest.IsolatedAsyncioTestCase):
             home_dir.mkdir(parents=True, exist_ok=True)
             (home_dir / "dogent.json").write_text(
                 json.dumps(
-                    {"llm_profiles": {"alpha": {"ANTHROPIC_AUTH_TOKEN": "token"}}}
+                    {
+                        "llm_profiles": {
+                            "alpha": {
+                                "ANTHROPIC_AUTH_TOKEN": "token",
+                                "ANTHROPIC_MODEL": "model-alpha",
+                            }
+                        }
+                    }
                 ),
                 encoding="utf-8",
             )
@@ -33,11 +40,14 @@ class ProfileDebugCommandTests(unittest.IsolatedAsyncioTestCase):
             )
             cli._confirm_dogent_file_update = mock.AsyncMock(return_value=True)  # type: ignore[assignment]
             cli.agent.reset = mock.AsyncMock()  # type: ignore[assignment]
+            cli._schedule_status_capacity_lookup = mock.Mock()  # type: ignore[method-assign]
 
             await cli._handle_command("/profile llm alpha")
             data = json.loads(cli.paths.config_file.read_text(encoding="utf-8"))
             self.assertEqual(data.get("llm_profile"), "alpha")
             cli.agent.reset.assert_awaited()
+            self.assertEqual(cli.status_state.snapshot().model, "model-alpha")
+            cli._schedule_status_capacity_lookup.assert_called_once()
 
         if original_home is not None:
             os.environ["HOME"] = original_home

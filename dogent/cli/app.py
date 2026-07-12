@@ -40,6 +40,11 @@ from ..features.clarification import (
 )
 from .claude_commands import ClaudeCommandSpec, load_claude_commands, load_plugin_commands
 from .commands import CommandRegistry
+from .status_bar import (
+    StatusBarController,
+    StatusBarState,
+    lookup_model_capacity,
+)
 from ..config import ConfigManager
 from ..features.doc_templates import DocumentTemplateManager
 from ..core.file_refs import FileAttachment, FileReferenceResolver
@@ -222,6 +227,18 @@ class DogentCLI:
         self.prompt_builder = PromptBuilder(
             self.paths, self.todo_manager, self.history_manager, console=self.console
         )
+        settings = self.config_manager.load_settings()
+        self.status_state = StatusBarState(settings.model, self.root)
+        self._interactive_tty = bool(
+            interactive_prompts
+            and PromptSession is not None
+            and sys.stdin.isatty()
+            and sys.stdout.isatty()
+        )
+        self.status_bar = StatusBarController(
+            self.status_state, self.console, enabled=self._interactive_tty
+        )
+        self._status_capacity_task: asyncio.Task | None = None
         self._selection_prompt_active = threading.Event()
         self._multiline_editor_allowed = threading.Event()
         self._active_interrupt_event: threading.Event | None = None
@@ -237,6 +254,8 @@ class DogentCLI:
             permission_prompt=self._prompt_tool_permission,
             sdk_question_prompt=self._prompt_sdk_questions,
             session_logger=self.session_logger,
+            status_update_callback=self.status_state.update_from_assistant,
+            status_reset_callback=self.status_state.reset_context,
         )
         dependency_prompt = (
             self._prompt_dependency_install if self._interactive_prompts else None
@@ -347,6 +366,12 @@ class DogentCLI:
                 complete_while_typing=True,
                 key_bindings=bindings,
                 history=history,
+                bottom_toolbar=self.status_bar.prompt_toolbar
+                if self.status_bar.enabled
+                else None,
+                style=Style.from_dict({"bottom-toolbar": ""})
+                if Style is not None
+                else None,
             )
 
     def _register_commands(self) -> None:
@@ -1189,6 +1214,12 @@ class DogentCLI:
             )
             return True
         await self.agent.reset()
+        if target == "llm":
+            settings = self.config_manager.load_settings()
+            self.status_state.set_configured_model(
+                settings.model, getattr(self.agent, "_context_generation", 0)
+            )
+            self._schedule_status_capacity_lookup(settings)
         title = "LLM Profile" if target == "llm" else "Web Profile"
         if target == "vision":
             title = "Vision Profile"
@@ -1793,7 +1824,7 @@ class DogentCLI:
             or Style is None
         ):
             return False
-        return sys.stdin.isatty() and sys.stdout.isatty()
+        return self._interactive_tty
 
     def _can_use_multiline_editor(self) -> bool:
         if not self._can_use_inline_choice():
@@ -3131,7 +3162,7 @@ class DogentCLI:
                 after_render=_sync_selection_clipboard,
                 erase_when_done=read_only,
             )
-            return await app.run_async()
+            return await self._run_editor_application(app)
         finally:
             if not was_active:
                 self._selection_prompt_active.clear()
@@ -3219,7 +3250,7 @@ class DogentCLI:
             full_screen=False,
             style=style,
         )
-        result = await app.run_async()
+        result = await self._run_dedicated_prompt(app)
         if result is None:
             return None
         return result == "yes"
@@ -3830,7 +3861,7 @@ class DogentCLI:
         if not was_active:
             self._selection_prompt_active.set()
         try:
-            return await app.run_async()
+            return await self._run_dedicated_prompt(app)
         finally:
             if not was_active:
                 self._selection_prompt_active.clear()
@@ -4008,10 +4039,37 @@ class DogentCLI:
         return 0
 
     async def _run_dedicated_prompt(self, app: Application):
-        if patch_stdout is None:
+        self._attach_status_to_application(app)
+        self.status_bar.stop_live()
+        try:
+            if patch_stdout is None:
+                return await app.run_async()
+            with patch_stdout(raw=True):
+                return await app.run_async()
+        finally:
+            self.status_bar.start_live()
+
+    async def _run_editor_application(self, app: Application):
+        self.status_bar.stop_live()
+        try:
             return await app.run_async()
-        with patch_stdout(raw=True):
-            return await app.run_async()
+        finally:
+            self.status_bar.start_live()
+
+    def _attach_status_to_application(self, app: Application) -> None:
+        if not self.status_bar.enabled or HSplit is None or Layout is None:
+            return
+        if getattr(app, "_dogent_status_attached", False):
+            return
+        status_window = self.status_bar.status_window()
+        if status_window is None:
+            return
+        focused = getattr(app.layout, "current_window", None)
+        app.layout = Layout(
+            HSplit([app.layout.container, status_window]),
+            focused_element=focused,
+        )
+        setattr(app, "_dogent_status_attached", True)
 
     async def _prompt_clarification_question(
         self,
@@ -4197,7 +4255,7 @@ class DogentCLI:
             full_screen=False,
             style=style,
         )
-        return await app.run_async()
+        return await self._run_dedicated_prompt(app)
 
     async def _prompt_clarification_choice_text(
         self,
@@ -4333,7 +4391,7 @@ class DogentCLI:
             full_screen=False,
             style=style,
         )
-        return await app.run_async()
+        return await self._run_dedicated_prompt(app)
 
     async def _prompt_freeform_answer_inline(
         self, prompt: str, *, skip_on_editor_cancel: bool = False
@@ -4723,9 +4781,20 @@ class DogentCLI:
         if not arg:
             turn_count = getattr(self.agent, "_turn_count", 0)
             has_client = self.agent._client is not None
+            status = self.status_state.snapshot()
+            context_used = (
+                "--" if status.context_tokens is None else f"{status.context_tokens:,}"
+            )
+            context_percent = (
+                "--" if status.context_percent is None else f"{status.context_percent}%"
+            )
             lines = [
                 f"Turns this session: {turn_count}",
                 f"Session active: {'yes' if has_client else 'no'}",
+                (
+                    f"Context usage: {context_used} / "
+                    f"{status.context_capacity:,} tokens ({context_percent})"
+                ),
             ]
             self.console.print(
                 Panel(
@@ -4804,8 +4873,38 @@ class DogentCLI:
         )
         return True
 
+    def _schedule_status_capacity_lookup(self, settings) -> None:
+        if self._status_capacity_task is not None:
+            self._status_capacity_task.cancel()
+
+        async def _lookup(model: str) -> int | None:
+            return await lookup_model_capacity(
+                model,
+                base_url=settings.base_url,
+                auth_token=settings.auth_token,
+            )
+
+        self._status_capacity_task = asyncio.create_task(
+            self.status_state.resolve_capacity(_lookup)
+        )
+
+    async def _stop_status_capacity_lookup(self) -> None:
+        task = self._status_capacity_task
+        self._status_capacity_task = None
+        if task is None:
+            return
+        if not task.done():
+            task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
     async def run(self) -> None:
         settings = self.config_manager.load_settings()
+        self.status_state.set_configured_model(
+            settings.model, getattr(self.agent, "_context_generation", 0)
+        )
+        self._schedule_status_capacity_lookup(settings)
+        self.status_bar.start_live()
         self._print_banner(settings)
         try:
             while True:
@@ -5115,6 +5214,7 @@ class DogentCLI:
         record_user_input: bool = True,
     ) -> None:
         """Run a single agent turn while listening for Esc."""
+        self.status_bar.suspend()
         stop_event = threading.Event()
         send_kwargs = {"config_override": config_override}
         if not record_user_input:
@@ -5167,6 +5267,7 @@ class DogentCLI:
                 self._active_interrupt_event = None
                 self._active_interrupt_task = None
                 self._active_agent_task = None
+            self.status_bar.resume()
 
     async def _wait_for_escape(self, stop_event: threading.Event) -> bool:
         loop = asyncio.get_event_loop()
@@ -5415,6 +5516,7 @@ class DogentCLI:
                     self._multiline_editor_allowed.set()
                 else:
                     self._multiline_editor_allowed.clear()
+                self.status_bar.stop_live()
                 try:
                     if callable(prompt_callable):
                         result = await prompt_callable(prompt, **prompt_kwargs)
@@ -5424,6 +5526,7 @@ class DogentCLI:
                         )
                 finally:
                     self._multiline_editor_allowed.clear()
+                    self.status_bar.start_live()
                 if isinstance(result, MultilineEditRequest):
                     if not allow_multiline_editor or not self._can_use_multiline_editor():
                         if capture_editor_submission:
@@ -5451,12 +5554,18 @@ class DogentCLI:
                 if capture_editor_submission:
                     self._pending_editor_submission = None
                 return result
-            result = await loop.run_in_executor(
-                None,
-                lambda: Prompt.ask(
-                    "[bold cyan]dogent>[/bold cyan]" if prompt == "dogent> " else prompt
-                ),
-            )
+            self.status_bar.stop_live()
+            try:
+                result = await loop.run_in_executor(
+                    None,
+                    lambda: Prompt.ask(
+                        "[bold cyan]dogent>[/bold cyan]"
+                        if prompt == "dogent> "
+                        else prompt
+                    ),
+                )
+            finally:
+                self.status_bar.start_live()
             if capture_editor_submission:
                 self._pending_editor_submission = None
             return result
@@ -5471,7 +5580,13 @@ class DogentCLI:
         while True:
             if self.session:
                 prompt_callable = getattr(self.session, "prompt_async", None)
-                prompt_kwargs: dict[str, Any] = {"bottom_toolbar": hint}
+                toolbar = hint
+                if self.status_bar.enabled:
+                    toolbar = lambda: [
+                        ("", f"{hint}\n"),
+                        *self.status_bar.prompt_toolbar(),
+                    ]
+                prompt_kwargs: dict[str, Any] = {"bottom_toolbar": toolbar}
                 if default_text:
                     prompt_kwargs["default"] = default_text
                 if self._can_use_multiline_editor():
@@ -5491,6 +5606,7 @@ class DogentCLI:
                     )
                 orig_bindings = getattr(self.session, "key_bindings", None)
                 orig_toolbar = getattr(self.session, "bottom_toolbar", None)
+                self.status_bar.stop_live()
                 try:
                     prompt_kwargs["key_bindings"] = merged_bindings
                     if callable(prompt_callable):
@@ -5504,6 +5620,7 @@ class DogentCLI:
                     self.session.key_bindings = orig_bindings
                     self.session.bottom_toolbar = orig_toolbar
                     self._multiline_editor_allowed.clear()
+                    self.status_bar.start_live()
                 if result is INPUT_CANCELLED:
                     return None
                 if isinstance(result, MultilineEditRequest):
@@ -5614,6 +5731,8 @@ class DogentCLI:
         if self._shutting_down:
             return
         self._shutting_down = True
+        self.status_bar.stop_live()
+        await self._stop_status_capacity_lookup()
         if self._active_interrupt_event is not None:
             self._active_interrupt_event.set()
         try:

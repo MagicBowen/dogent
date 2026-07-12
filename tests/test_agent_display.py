@@ -383,6 +383,71 @@ class AgentResetTests(unittest.IsolatedAsyncioTestCase):
         else:
             os.environ.pop("HOME", None)
 
+    async def test_reset_notifies_status_generation(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            root = Path(tmp)
+            paths = DogentPaths(root)
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            todo = TodoManager(console=console)
+            history = HistoryManager(paths)
+            reset_callback = mock.Mock()
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=PromptBuilder(paths, todo, history),
+                todo_manager=todo,
+                history=history,
+                console=console,
+                status_reset_callback=reset_callback,
+            )
+            runner._stop_wait_indicator = mock.AsyncMock()  # type: ignore[assignment]
+            await runner.reset()
+            reset_callback.assert_called_once_with(1)
+            self.assertEqual(runner._context_generation, 1)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+
+class AgentStatusCallbackTests(unittest.TestCase):
+    def test_main_assistant_updates_status_but_subagent_does_not(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            todo = TodoManager(console=console)
+            history = HistoryManager(paths)
+            update_callback = mock.Mock()
+            runner = AgentRunner(
+                config=ConfigManager(paths, console=console),
+                prompt_builder=PromptBuilder(paths, todo, history),
+                todo_manager=todo,
+                history=history,
+                console=console,
+                status_update_callback=update_callback,
+            )
+            usage = {"input_tokens": 12}
+            runner._handle_assistant_message(
+                AssistantMessage(content=[], model="main", usage=usage)
+            )
+            update_callback.assert_called_once_with("main", usage, 0)
+            runner._handle_assistant_message(
+                AssistantMessage(
+                    content=[],
+                    model="sub",
+                    usage={"input_tokens": 99},
+                    parent_tool_use_id="tool-1",
+                )
+            )
+            update_callback.assert_called_once()
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
 
 class AgentPermissionAbortTests(unittest.IsolatedAsyncioTestCase):
     async def test_handle_permission_denied_aborts_and_clears_todos(self) -> None:

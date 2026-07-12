@@ -2018,3 +2018,208 @@ The Story 3 UAT showed that the SDK can emit a successful `ResultMessage` while 
 - Add stream tests proving an incomplete background-task result triggers exactly one consolidation turn and an already consolidated result does not trigger another query.
 - Add result diagnostics coverage for `api_error_status` and actionable SDK error text.
 - Run the full `python -m unittest discover -s tests -v` suite with `claude-agent-sdk 0.2.115` installed.
+
+## Release 0.9.33 - Persistent Status Bar
+
+### Goal
+
+Add a polished, single-line status bar at the bottom of the idle interactive
+Dogent terminal. It displays the active LLM model, current context-window usage
+percentage, and workspace path. While the agent is working, suspend the status
+bar and use the existing timed wait indicator instead.
+
+### Confirmed behavior
+
+- "Module name" in the requirement means the active LLM model name.
+- The bar is visible while Dogent is idle and collecting user input. It is
+  hidden for the complete lifetime of each active agent turn.
+- While an agent turn is active, the existing `Waiting for LLM response`
+  indicator with elapsed time owns the bottom line on demand.
+- `/context reset` clears the SDK session and immediately clears the context
+  measurement.
+- The feature is for an interactive TTY. Non-interactive `dogent -p` output and
+  redirected output do not render terminal control sequences or a status bar.
+- The status bar belongs to Dogent's main TUI. The full-screen Markdown editor
+  does not display it; the bar is restored when the user returns to the main UI.
+
+### Current baseline
+
+- `DogentCLI` uses `PromptSession` only while collecting input and Rich for
+  output while commands and the agent run. A `PromptSession.bottom_toolbar`
+  alone therefore cannot satisfy the persistent-display requirement.
+- `AgentRunner` already receives the resolved model and usage dictionaries on
+  `AssistantMessage`. `ResultMessage.usage` is cumulative across all API steps
+  in a query, so it must not replace the most recent per-message context value.
+- The existing context-clearing command is `/context reset`; it calls
+  `AgentRunner.reset()`, which closes the SDK client and resets turn state.
+
+### Status state and data flow
+
+Introduce a small shared status model, owned by the CLI and updated by the
+agent through a callback rather than by reaching into terminal-rendering code.
+The model contains:
+
+- configured model name and latest resolved main-agent model name;
+- workspace root;
+- resolved context-window capacity;
+- latest main-agent input-token count and calculated percentage;
+
+At startup, show the configured model, workspace path, and `Context --`.
+For each main-agent `AssistantMessage` with usage, replace (do not accumulate)
+the context token count with:
+
+Use an explicit `total_input_tokens` value when a provider supplies it.
+Otherwise, normalize the common provider variants before calculating usage:
+
+- when `input_tokens` is smaller than the cache counters, treat it as fresh
+  input and add cache-created plus cache-read tokens;
+- when `input_tokens` is at least the combined cache counters, treat it as an
+  inclusive provider total and do not add the cache fields again.
+
+This prevents third-party gateways from double-counting cache tokens while
+retaining Claude's split-counter behavior. Ignore output tokens, sub-agent
+messages (`parent_tool_use_id` is set), missing usage, and duplicate messages
+for accumulation purposes. Updating with the same message again is harmless
+because the latest value replaces the previous value.
+
+The percentage is clamped to `0..100` for rendering while retaining the raw
+token values for diagnostics. Before a usable assistant measurement exists,
+show `--` instead of a misleading `0%`.
+
+When `/profile llm` changes the configured profile, atomically update the
+displayed model, clear the old usage, and resolve capacity for the new model.
+The resolved model reported by a later main-agent message may refine the label
+(for example after fallback), but an explicit configured `[1m]` suffix remains
+visible and continues to control capacity.
+
+### Context-window capacity resolution
+
+Resolve capacity once per selected model and cache it for the session. The
+precedence is:
+
+1. A valid positive `CLAUDE_CODE_MAX_CONTEXT_TOKENS` value when
+   `DISABLE_COMPACT` is enabled, matching Claude Code's documented override.
+2. An explicit case-insensitive `[1m]` suffix on the configured model name,
+   which resolves to `1_000_000` tokens. Preserve the suffix in the displayed
+   name even if Claude strips it before sending the provider model ID.
+3. A non-blocking lookup of `max_input_tokens` from the Claude Models API when
+   the configured endpoint supports it. Apply a short timeout, cache a valid
+   response, and never expose credentials in logs.
+4. A `256_000` token fallback for gateways, aliases, offline sessions, lookup
+   failures, or malformed responses.
+
+The lookup must not delay CLI startup or prevent the bar from rendering. When a
+background lookup returns a valid capacity, recalculate and refresh the current
+percentage. Do not use `CLAUDE_CODE_AUTO_COMPACT_WINDOW` as the denominator: it
+controls compaction and can intentionally be smaller than the model's actual
+window.
+
+Relevant upstream behavior:
+
+- Claude Code status lines receive `context_window.context_window_size` and
+  calculate used percentage from input plus cache-created plus cache-read
+  tokens: <https://code.claude.com/docs/en/statusline>
+- Claude Code accepts `[1m]` on aliases and full model names:
+  <https://code.claude.com/docs/en/model-config>
+- Claude Code documents the context-related environment variables:
+  <https://code.claude.com/docs/en/env-vars>
+- The Models API exposes `max_input_tokens`:
+  <https://platform.claude.com/docs/en/api/models/retrieve>
+
+### Rendering architecture
+
+Add a single status controller that owns terminal refreshes and prevents Rich
+and prompt_toolkit from competing for the bottom row.
+
+- While the normal prompt is active, render the shared formatter through a
+  dynamic `PromptSession.bottom_toolbar` callable.
+- While idle outside prompt_toolkit, use one non-periodic Rich live region.
+- Suspend the status controller before starting an agent turn and restore it
+  only after that turn completes. While suspended, it cannot start a Rich live
+  region, return prompt toolbar fragments, or attach a status window to a
+  confirmation or clarification layout.
+- Let `LLMWaitIndicator` retain its original Rich status display while the
+  status controller is suspended. It displays `Waiting for LLM response` with
+  an elapsed timer and updates only while Dogent is waiting on the model.
+- Add the status row to idle main-TUI prompt_toolkit layouts. Pause the status
+  controller before opening the separate full-screen Markdown editor and
+  restore it cleanly when returning to the main TUI; the editor itself does not
+  render the status bar.
+- Explicitly start/stop and restore each renderer at mode boundaries and on
+  exceptions, interrupts, EOF, and graceful exit. Do not leave an alternate
+  screen, reserved row, hidden cursor, or stale escape sequence behind.
+- Serialize refreshes on the event-loop thread. Agent callbacks only mutate
+  state and request invalidation; they do not write directly to the terminal.
+
+### Visual design and responsive behavior
+
+The wide layout is one restrained, high-contrast row:
+
+`✦ claude-sonnet-4-6[1m]  │  Context [████░░░░░░░░░░░░░░░░] 20%  │  📁 ~/Codes/dogent`
+
+- Do not set a status-bar background. Explicitly override prompt_toolkit's
+  default bottom-toolbar background and use the same highlighted foreground
+  palette in prompt_toolkit and Rich: bold cyan for model/context text, bold
+  green for the meter and percentage, bold blue for the workspace, and a
+  subdued separator.
+- Keep labels and meaning available without relying on color alone.
+- Display the workspace as a normalized absolute path with the home directory
+  shortened to `~`.
+- Recalculate on terminal resize. First middle-truncate the path, then shorten
+  the model, then reduce/remove the ten-cell meter. The narrowest form remains
+  meaningful: `<model> │ Ctx <pct> │ <folder>`.
+- Sanitize model and path text so embedded control characters or Rich markup
+  cannot alter terminal output. Render one physical row with ellipsis rather
+  than wrapping.
+- Use plain Unicode symbols already compatible with Dogent's CLI style, with a
+  readable text fallback if the terminal cannot render them reliably.
+- Capture interactive-TTY capability at CLI startup and reuse it across Rich
+  and prompt_toolkit handoffs so temporary stdout wrappers cannot disable the
+  Markdown editor.
+
+### `/context reset` lifecycle
+
+- Keep `reset` as the sole context-reset subcommand in completion and help.
+- `/context reset` disconnects/resets the active SDK session and then atomically sets
+  status usage back to unknown. The bar immediately reads `Context --`; model,
+  capacity, and workspace remain visible.
+- `/context` reports the exact normalized used-token count, resolved capacity,
+  and rounded percentage for diagnosing provider usage semantics.
+- The next main-agent response starts a fresh measurement. No pre-reset token
+  value may flash or return from a stale/late callback.
+- Use a context generation identifier so an update originating from a session
+  that was reset cannot update the new status state.
+
+### Failure and edge cases
+
+- Missing model: display `model unavailable` without hiding the bar.
+- Invalid context override or Models API result: log at debug level and use the
+  next resolver/fallback; never fail the session.
+- Usage keys may be absent, strings, negative, or malformed. Accept only
+  non-negative integers and retain the previous valid value otherwise.
+- LLM profile/model changes reset usage and capacity resolution so values from
+  the previous model cannot be displayed under the new model name.
+- A configured custom gateway may not implement the Models API. This is an
+  expected fallback, not a user-facing error.
+- Interrupts, permissions, clarification dialogs, multiline editing, terminal
+  resize, and shell commands retain a single non-duplicated bottom row in the
+  main TUI. Entering the full-screen editor removes the row with the main TUI,
+  and returning restores exactly one row.
+- Status rendering must not be written into session history/log content and
+  must not consume model tokens.
+
+### Automated tests
+
+- Unit-test capacity precedence, `[1m]` parsing, environment validation, Models
+  API success/failure/timeout, caching, and 256K fallback.
+- Unit-test usage extraction, split and inclusive cache-counter normalization,
+  output-token exclusion, main-agent filtering, malformed values, clamping,
+  and generation-based stale update rejection.
+- Unit-test wide/medium/narrow formatting, thresholds, path/model truncation,
+  sanitization, and non-TTY suppression.
+- Test renderer handoffs between prompt, Rich live output, main-TUI dialogs,
+  editor pause/restore, and shutdown without nested live displays or leaked
+  terminal state.
+- Extend context-command tests for immediate status reset through the existing
+  `/context reset` command while preserving its completion and help behavior.
+- Run `python -m unittest discover -s tests -v`.

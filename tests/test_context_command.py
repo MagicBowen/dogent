@@ -60,6 +60,29 @@ class ContextCommandTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
+    def test_context_reset_clears_status_measurement(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            console = Console(file=io.StringIO(), force_terminal=True, color_system=None)
+            cli = self._make_cli(Path(tmp), console)
+            cli.status_state.update_from_assistant(
+                "model", {"input_tokens": 1000}, 0
+            )
+
+            async def reset() -> None:
+                cli.status_state.reset_context(1)
+
+            cli.agent.reset = mock.AsyncMock(side_effect=reset)  # type: ignore[assignment]
+            should_continue = asyncio.run(cli._cmd_context("/context reset"))
+            self.assertTrue(should_continue)
+            self.assertIsNone(cli.status_state.snapshot().context_percent)
+            self.assertEqual(cli.status_state.generation, 1)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
     def test_context_info_shows_turn_count(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
@@ -80,6 +103,8 @@ class ContextCommandTests(unittest.TestCase):
             output = console.file.getvalue()
             self.assertIn("Session Context", output)
             self.assertIn("Turns this session: 3", output)
+            self.assertIn("Context usage: -- /", output)
+            self.assertIn("tokens (--)", output)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:

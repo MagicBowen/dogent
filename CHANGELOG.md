@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.33 - 2026-07-12
+
+### Added
+- The interactive TUI now shows a polished idle status line with the active LLM model, live context-window usage, and normalized workspace path.
+- `/context` now reports exact normalized token usage and resolved context capacity for diagnostics.
+
+### Changed
+- Context capacity resolves from the documented Claude override, a model `[1m]` suffix, the Models API when available, or a 256K fallback.
+- The idle status line is suspended during agent turns so the timed `Waiting for LLM response` indicator and streaming output retain exclusive control of the bottom line.
+
+### Fixed
+- Context usage no longer double-counts cache tokens from gateways that report inclusive input totals.
+- Status rendering now inherits the terminal background, keeps highlighted foreground colors and a green usage meter, and restores cleanly after the Markdown editor, resize, interruption, and profile or context reset.
+
 ## 0.9.32 - 2026-07-10
 
 ### Added
