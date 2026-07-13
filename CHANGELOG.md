@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.34 - 2026-07-13
+
+### Fixed
+- Mermaid diagrams exported to PDF now use valid scalable vector graphics, keeping complex labels sharp and preventing broken-image placeholders.
+- Display formulas wrapped in `$$` now render across standard, single-line, and multiline delimiter layouts.
+- Inline formulas wrapped in `$` now render as typeset math while currency, escaped dollars, inline code, and fenced code remain literal.
+
 ## 0.9.33 - 2026-07-12
 
 ### Added

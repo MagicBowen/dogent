@@ -962,11 +962,8 @@ _FENCED_CODE_BLOCK_PATTERN = re.compile(
     r"(?ms)^(?P<indent>[ ]{0,3})(?P<fence>`{3,}|~{3,})[ \t]*(?P<info>[^\n]*)\n"
     r"(?P<body>.*?)(?:\n)?^(?P=indent)(?P=fence)[ \t]*$"
 )
-_MULTILINE_MATH_BLOCK_PATTERN = re.compile(
-    r"(?ms)^[ ]{0,3}\$\$[ \t]*\n(?P<body>.*?)\n[ ]{0,3}\$\$[ \t]*$"
-)
-_SINGLE_LINE_MATH_BLOCK_PATTERN = re.compile(
-    r"(?m)^[ ]{0,3}\$\$[ \t]*(?P<body>[^\n]*?)[ \t]*\$\$[ \t]*$"
+_DISPLAY_MATH_BLOCK_PATTERN = re.compile(
+    r"(?ms)^[ \t]*\$\$(?P<body>.*?)\$\$[ \t]*$"
 )
 
 
@@ -1047,7 +1044,7 @@ def _build_mermaid_renderer_html(bundle_js: str) -> str:
         "  if (document.fonts && document.fonts.ready) {\n"
         "    await document.fonts.ready;\n"
         "  }\n"
-        "  return svg.outerHTML;\n"
+        "  return new XMLSerializer().serializeToString(svg);\n"
         "};\n"
         "</script>\n"
         "</body>\n</html>\n"
@@ -1442,8 +1439,7 @@ def _render_math_blocks(md_text: str) -> str:
                 raise RuntimeError(f"Could not render LaTeX formula: {latex}") from exc
             return f'<div class="math-block">{mathml}</div>'
 
-        segment = _MULTILINE_MATH_BLOCK_PATTERN.sub(replace, segment)
-        return _SINGLE_LINE_MATH_BLOCK_PATTERN.sub(replace, segment)
+        return _DISPLAY_MATH_BLOCK_PATTERN.sub(replace, segment)
 
     parts: list[str] = []
     cursor = 0
@@ -1512,6 +1508,65 @@ def _markdown_to_html(
             "typographer": True,
         },
     ).enable("table").enable("strikethrough").enable("fence")
+
+    def parse_inline_math(state: Any, silent: bool) -> bool:
+        start = state.pos
+        if state.src[start] != "$" or start + 1 >= state.posMax:
+            return False
+        if state.src[start + 1] == "$" or state.src[start + 1].isspace():
+            return False
+
+        end = start + 1
+        while True:
+            end = state.src.find("$", end)
+            if end < 0 or end >= state.posMax:
+                return False
+            candidate = state.src[start + 1 : end]
+            if "\n" in candidate or "`" in candidate:
+                return False
+            backslashes = 0
+            cursor = end - 1
+            while cursor > start and state.src[cursor] == "\\":
+                backslashes += 1
+                cursor -= 1
+            if backslashes % 2:
+                end += 1
+                continue
+            if end + 1 < state.posMax and state.src[end + 1] == "$":
+                end += 2
+                continue
+            if state.src[end - 1].isspace():
+                return False
+            break
+
+        if not silent:
+            token = state.push("math_inline", "math", 0)
+            token.content = state.src[start + 1 : end]
+            token.markup = "$"
+        state.pos = end + 1
+        return True
+
+    def render_inline_math(
+        _renderer: Any,
+        tokens: list[Any],
+        index: int,
+        _options: Any,
+        _env: Any,
+    ) -> str:
+        latex = tokens[index].content
+        try:
+            from latex2mathml.converter import convert
+
+            mathml = convert(latex, display="inline")
+        except Exception as exc:  # noqa: BLE001
+            log_exception("document_io", exc)
+            raise RuntimeError(
+                f"Could not render inline LaTeX formula: {latex}"
+            ) from exc
+        return f'<span class="math-inline">{mathml}</span>'
+
+    mdi.inline.ruler.before("escape", "math_inline", parse_inline_math)
+    mdi.add_render_rule("math_inline", render_inline_math)
     try:
         from pygments import highlight  # type: ignore
         from pygments.formatters import HtmlFormatter  # type: ignore

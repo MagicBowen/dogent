@@ -233,11 +233,33 @@ class DocumentIOTests(unittest.TestCase):
         self.assertIn("<mfrac>", html)
         self.assertNotIn("$$", html)
 
+    def test_markdown_to_html_renders_inline_math_as_mathml(self) -> None:
+        md = "Energy is $E = mc^2$."
+        html = document_io._markdown_to_html(md, title="Inline Math")
+        self.assertIn('<span class="math-inline"><math', html)
+        self.assertIn("<msup>", html)
+        self.assertNotIn("$E = mc^2$", html)
+
+    def test_markdown_to_html_keeps_non_math_dollars_and_code_literal(self) -> None:
+        md = "Cost: $5.00. Code: `$x + y$`. Escaped: \\$z\\$."
+        html = document_io._markdown_to_html(md, title="Literal Dollars")
+        self.assertIn("Cost: $5.00", html)
+        self.assertIn("<code>$x + y$</code>", html)
+        self.assertIn("Escaped: $z$", html)
+        self.assertNotIn('class="math-inline"', html)
+
     def test_render_math_blocks_supports_single_line_and_ignores_fences(self) -> None:
         md = "$$ x + y $$\n\n```text\n$$ not_math $$\n```"
         rendered = document_io._render_math_blocks(md)
         self.assertIn('<div class="math-block"><math', rendered)
         self.assertIn("$$ not_math $$", rendered)
+
+    def test_render_math_blocks_supports_delimiters_around_multiline_body(self) -> None:
+        md = "Before\n\n  $$ \\frac{a}{b}\n  + c^2 $$\n\nAfter"
+        rendered = document_io._render_math_blocks(md)
+        self.assertIn('<div class="math-block"><math', rendered)
+        self.assertIn("<mfrac>", rendered)
+        self.assertNotIn("$$", rendered)
 
     def test_markdown_to_html_includes_base_href(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -301,11 +323,12 @@ class DocumentIOTests(unittest.TestCase):
             )
         )
 
-    def test_mermaid_renderer_preserves_intrinsic_svg_dimensions(self) -> None:
+    def test_mermaid_renderer_preserves_dimensions_and_serializes_xml(self) -> None:
         html = document_io._build_mermaid_renderer_html("window.mermaid = {};")
         self.assertIn("Math.ceil(viewBox.width)", html)
         self.assertIn("Math.ceil(viewBox.height)", html)
-        self.assertIn("return svg.outerHTML", html)
+        self.assertIn("new XMLSerializer().serializeToString(svg)", html)
+        self.assertNotIn("return svg.outerHTML", html)
 
     def test_package_mode_resolves_bundled_tools(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

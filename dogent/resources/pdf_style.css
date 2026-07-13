@@ -223,6 +223,13 @@ img { max-width: 100%; height: auto; }
 
 .math-block math { font-size: 1.1em; }
 
+.math-inline {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.math-inline math { font-size: 1.05em; }
+
 /* --------------------------------------------------------------------------
    10) Footer only (Playwright footerTemplate)
    目标：仅页码，右下角
