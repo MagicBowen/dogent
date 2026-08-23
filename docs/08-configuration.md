@@ -119,7 +119,7 @@ Dogent 的配置分为「全局配置」与「工作区配置」，两者协作�
 - `API_TIMEOUT_MS`
 - `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`
 
-示例（v0.9.21 默认模板节选）：
+示例（默认模板节选；配置 Token 后即可通过 `/profile llm <name>` 选择）：
 
 ```json
 {
@@ -129,6 +129,22 @@ Dogent 的配置分为「全局配置」与「工作区配置」，两者协作�
       "ANTHROPIC_AUTH_TOKEN": "replace-me",
       "ANTHROPIC_MODEL": "deepseek-reasoner",
       "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-chat",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    },
+    "glm5.3": {
+      "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me",
+      "ANTHROPIC_MODEL": "GLM-5.3",
+      "ANTHROPIC_SMALL_FAST_MODEL": "GLM-5.3",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    },
+    "deepseek-v4-flash-vision-exp": {
+      "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me",
+      "ANTHROPIC_MODEL": "deepseek-v4-flash-vision-exp",
+      "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-v4-flash-vision-exp",
       "API_TIMEOUT_MS": 600000,
       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
     },
@@ -184,11 +200,11 @@ Dogent 的配置分为「全局配置」与「工作区配置」，两者协作�
 
 ## 7. Vision Profile（视觉能力）
 
-视觉能力默认关闭，设置 `vision_profile` 后启用：
+视觉能力默认关闭，设置 `vision_profile` 后启用。例如启用 DeepSeek：
 
 ```json
 {
-  "vision_profile": "glm-4.6v"
+  "vision_profile": "deepseek-v4-flash-vision-exp"
 }
 ```
 
@@ -202,10 +218,21 @@ Dogent 的配置分为「全局配置」与「工作区配置」，两者协作�
       "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
       "api_key": "replace-me",
       "model": "glm-4.6v"
+    },
+    "deepseek-v4-flash-vision-exp": {
+      "provider": "deepseek",
+      "base_url": "https://api.deepseek.com/chat/completions",
+      "api_key": "replace-me",
+      "model": "deepseek-v4-flash-vision-exp"
     }
   }
 }
 ```
+
+DeepSeek Vision 仅接受 JPEG、PNG、GIF 和 WebP 图片。视频及 BMP 等其他
+格式会在本地被拒绝；需要分析视频时请继续使用支持视频的 GLM vision profile。
+配置有效 Key 后可运行
+`/profile vision deepseek-v4-flash-vision-exp` 选择该 profile。
 
 ---
 

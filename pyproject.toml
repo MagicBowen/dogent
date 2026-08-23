@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dogent"
-version = "0.9.34"
+version = "0.9.35"
 description = "CLI-based interactive document-writing agent powered by the Claude Agent SDK."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "Dogent Team"}]
 dependencies = [
-    "claude-agent-sdk>=0.2.115",
+    "claude-agent-sdk>=0.2.144",
     "jsonschema>=4.21.0",
     "latex2mathml>=3.81.0",
     "markdown-it-py>=3.0.0",

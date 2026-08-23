@@ -29,6 +29,22 @@
       "API_TIMEOUT_MS": 600000,
       "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
     },
+    "glm5.3": {
+      "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me",
+      "ANTHROPIC_MODEL": "GLM-5.3",
+      "ANTHROPIC_SMALL_FAST_MODEL": "GLM-5.3",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    },
+    "deepseek-v4-flash-vision-exp": {
+      "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+      "ANTHROPIC_AUTH_TOKEN": "replace-me",
+      "ANTHROPIC_MODEL": "deepseek-v4-flash-vision-exp",
+      "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-v4-flash-vision-exp",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    },
     "poe-claude": {
       "ANTHROPIC_BASE_URL": "https://api.poe.com",
       "ANTHROPIC_AUTH_TOKEN": "replace-me",
@@ -64,6 +80,12 @@
       "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
       "api_key": "replace-me",
       "model": "glm-4.6v"
+    },
+    "deepseek-v4-flash-vision-exp": {
+      "provider": "deepseek",
+      "base_url": "https://api.deepseek.com/chat/completions",
+      "api_key": "replace-me",
+      "model": "deepseek-v4-flash-vision-exp"
     }
   },
   "image_profiles": {

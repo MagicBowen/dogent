@@ -51,6 +51,10 @@ def create_dogent_vision_tools(root: Path, config: "ConfigManager") -> list[SdkM
         if not raw_path:
             return _error("Missing required field: path")
         requested_type = str(args.get("media_type") or "").strip().lower()
+        if requested_type and requested_type not in {"image", "video"}:
+            return _error(
+                "Unsupported media_type override. Use 'image' or 'video'."
+            )
 
         try:
             path = _resolve_workspace_path(root, raw_path, must_exist=True)
@@ -58,7 +62,7 @@ def create_dogent_vision_tools(root: Path, config: "ConfigManager") -> list[SdkM
             log_exception("vision_tools", exc)
             return _error(str(exc))
 
-        media_type = requested_type if requested_type in {"image", "video"} else None
+        media_type = requested_type or None
         if media_type is None:
             media_type = classify_media(path)
         if not media_type:

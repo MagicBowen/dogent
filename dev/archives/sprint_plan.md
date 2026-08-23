@@ -1263,3 +1263,82 @@ Status legend — Dev: Todo / In Progress / Done; Acceptance: Pending / Accepted
 - Dev Status: Done
 - Acceptance Status: Accepted (2026-07-12)
 - Verification: Automated capacity/usage/reset tests plus manual context growth, `[1m]`, and reset-and-restart checks.
+
+---
+
+## 2026-7-13 PDF Export Rendering Fixes
+
+### Story 1: Render Mermaid SVGs in Exported PDFs
+- User Value: Mermaid diagrams exported through `dogent_export_document` appear as
+  sharp vector graphics instead of broken-image placeholders.
+- Acceptance: Exporting `samples/markdown_with_large_mermaid.md` to PDF shows the
+  complete diagram without a broken-image icon or `Mermaid diagram 1` alt text.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-07-13)
+- Verification: Unit coverage for XML SVG serialization and a real Playwright PDF
+  export of the reported sample.
+
+### Story 2: Render Inline and Display Math in Exported PDFs
+- User Value: LaTeX formulas wrapped in `$` or `$$` are typeset in PDF output across
+  common inline, single-line display, and multiline display layouts.
+- Acceptance: Exporting a Markdown sample renders `$...$` inline formulas and
+  standard and multiline `$$` formulas as math, while currency and code examples
+  remain literal.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-07-13)
+- Verification: Unit coverage for inline, standard display, single-line display,
+  multiline display, escaped-dollar, currency, inline-code, and fenced-code cases
+  plus real Playwright PDF exports.
+
+---
+
+## 2026-8-23 Release 0.9.35 - SDK and Model Profile Expansion
+
+### Story 1: Claude Agent SDK 0.2.144 Compatibility Baseline
+- User Value: Users receive the current Claude Agent SDK runtime, bundled CLI,
+  security fixes, and MCP compatibility without regressions in Dogent's agent,
+  permission, interruption, background-task, or custom-tool workflows.
+- Acceptance: Dogent requires `claude-agent-sdk>=0.2.144`; every direct SDK
+  construction and response path uses supported interfaces; valid skill and
+  permission behavior is preserved; newly introduced messages or structured errors
+  do not break session cleanup; a clean editable install resolves successfully; the
+  full unit suite and an in-process Dogent MCP tool smoke test pass.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-08-23)
+- Verification: Automated SDK floor, options, streaming, permission, interruption,
+  background-task, and in-process MCP regressions pass with SDK 0.2.144 under
+  MCP 1.27.0 and a clean-resolved MCP 2.0.0; all 419 tests pass in both
+  environments. Manual clean-install/runtime UAT passed on 2026-08-23.
+
+### Story 2: GLM-5.3 and DeepSeek Vision LLM Profiles
+- User Value: Users can select ready-made GLM-5.3 or DeepSeek V4 Flash Vision Exp
+  LLM profiles from the global Dogent configuration instead of discovering and
+  entering every provider field themselves.
+- Acceptance: Fresh and upgraded `~/.dogent/dogent.json` files contain additive
+  `glm5.3` and `deepseek-v4-flash-vision-exp` entries with the documented
+  Anthropic-compatible endpoints and exact model IDs; existing profiles and user
+  values remain unchanged; placeholder entries remain unavailable for selection
+  until configured; after valid credentials are supplied, `/profile llm` can select
+  either profile and a normal agent turn succeeds.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-08-23)
+- Verification: Automated template/bootstrap, upgrade-merge, placeholder filtering,
+  and profile-resolution coverage passes in all 36 configuration tests. Live manual
+  turns using user-owned provider keys passed on 2026-08-23.
+
+### Story 3: DeepSeek Vision Analysis Profile
+- User Value: Users can select DeepSeek V4 Flash Vision Exp as Dogent's vision
+  profile and analyze local images through the existing `dogent_analyze_media`
+  workflow.
+- Acceptance: Fresh and upgraded global configs contain the documented DeepSeek
+  vision profile; selecting it sends supported JPEG, PNG, GIF, and WebP files to the
+  DeepSeek Chat Completions endpoint using a correct base64 data URL and returns the
+  existing structured analysis result; missing credentials, unsupported formats,
+  malformed/API error responses, and video inputs produce clear tool errors; GLM
+  image/video behavior remains unchanged.
+- Dev Status: Done
+- Acceptance Status: Accepted (2026-08-23)
+- Verification: Automated profile-default, provider-dispatch, payload, parsing,
+  error, and GLM-regression coverage passes in all 14 vision tests; the complete
+  428-test suite passes under MCP 1.27.0 and clean-resolved MCP 2.0.0. Manual image
+  analysis with a user-owned DeepSeek API key passed on 2026-08-23.

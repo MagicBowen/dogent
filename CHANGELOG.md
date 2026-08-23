@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.9.35 - 2026-08-23
+
+### Added
+- Added ready-made GLM-5.3 and DeepSeek V4 Flash Vision Exp LLM profiles to fresh and upgraded global configurations.
+- Added a DeepSeek V4 Flash Vision Exp vision profile for JPEG, PNG, GIF, and WebP analysis through the existing media-analysis workflow.
+
+### Changed
+- Raised the minimum supported `claude-agent-sdk` version to `0.2.144` and kept Dogent's bundled MCP tools compatible with both MCP 1.x and 2.x runtimes.
+
+### Fixed
+- DeepSeek vision requests now report clear local errors for video and unsupported image formats and preserve existing GLM image/video behavior.
+
 ## 0.9.34 - 2026-07-13
 
 ### Fixed

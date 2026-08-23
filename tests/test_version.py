@@ -12,7 +12,7 @@ class VersionTests(unittest.TestCase):
     def test_claude_agent_sdk_meets_release_baseline(self) -> None:
         sdk_version = importlib.metadata.version("claude-agent-sdk")
         numeric = tuple(int(part) for part in sdk_version.split(".")[:3])
-        self.assertGreaterEqual(numeric, (0, 2, 115))
+        self.assertGreaterEqual(numeric, (0, 2, 144))
 
 
 if __name__ == "__main__":

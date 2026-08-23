@@ -294,7 +294,9 @@ class ModelCapacityLookupTests(unittest.IsolatedAsyncioTestCase):
             return_value=SimpleNamespace(max_input_tokens=700_000)
         )
         client.close = mock.AsyncMock()
-        with mock.patch("anthropic.AsyncAnthropic", return_value=client) as factory:
+        factory = mock.Mock(return_value=client)
+        anthropic = SimpleNamespace(AsyncAnthropic=factory)
+        with mock.patch.dict("sys.modules", {"anthropic": anthropic}):
             result = await lookup_model_capacity(
                 "claude-model",
                 base_url="https://example.test",
@@ -307,7 +309,10 @@ class ModelCapacityLookupTests(unittest.IsolatedAsyncioTestCase):
         client.close.assert_awaited_once()
 
     async def test_lookup_failure_is_non_blocking_fallback_signal(self) -> None:
-        with mock.patch("anthropic.AsyncAnthropic", side_effect=RuntimeError):
+        anthropic = SimpleNamespace(
+            AsyncAnthropic=mock.Mock(side_effect=RuntimeError)
+        )
+        with mock.patch.dict("sys.modules", {"anthropic": anthropic}):
             result = await lookup_model_capacity(
                 "claude-model", base_url=None, auth_token="secret"
             )

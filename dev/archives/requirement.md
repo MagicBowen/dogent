@@ -545,3 +545,11 @@ There is an issue with the current design of Dogent. Once a task is completed, i
 ## Release 0.9.33
 
 Add a bottom status bar for displaying the current module name, context usage percent and the current workspace path; You can research the `statusline` feature of claude code for designing and implementation.
+
+---
+
+## Release 0.9.35
+
+- update the claude-agent-sdk package to the latest version
+- the dogent global config supports `GLM-5.3` and `deepseek-v4-flash-vision-exp` in `llm_profiles`
+- the dogent global config supports `deepseek-v4-flash-vision-exp` in `vision_profiles`

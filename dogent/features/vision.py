@@ -20,6 +20,16 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm"}
 
 DEFAULT_GLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+DEFAULT_GLM_MODEL = "glm-4.6v"
+DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com/chat/completions"
+DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash-vision-exp"
+DEEPSEEK_IMAGE_MIME_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
 
 
 def classify_media(path: Path) -> str | None:
@@ -55,6 +65,9 @@ class VisionManager:
         if profile.provider == "glm-4.6v":
             client = GLM4VClient(profile)
             return await asyncio.to_thread(client.analyze, path, media_type)
+        if profile.provider == "deepseek":
+            client = DeepSeekVisionClient(profile)
+            return await asyncio.to_thread(client.analyze, path, media_type)
         raise VisionAnalysisError(
             f"Unsupported vision provider '{profile.provider}'. "
             "Update vision_profile in .dogent/dogent.json or ~/.dogent/dogent.json."
@@ -79,8 +92,14 @@ class VisionManager:
                 f"Vision profile '{profile_name}' not found in {self.paths.global_config_file} (vision_profiles)."
             )
         provider = str(cfg.get("provider") or profile_name)
-        base_url = str(cfg.get("base_url") or DEFAULT_GLM_BASE_URL)
-        model = str(cfg.get("model") or "glm-4.6v")
+        if provider == "deepseek":
+            default_base_url = DEFAULT_DEEPSEEK_BASE_URL
+            default_model = DEFAULT_DEEPSEEK_MODEL
+        else:
+            default_base_url = DEFAULT_GLM_BASE_URL
+            default_model = DEFAULT_GLM_MODEL
+        base_url = str(cfg.get("base_url") or default_base_url)
+        model = str(cfg.get("model") or default_model)
         api_key = str(cfg.get("api_key") or cfg.get("auth_token") or cfg.get("token") or "")
         if not api_key or "replace" in api_key.lower():
             raise VisionAnalysisError(
@@ -169,6 +188,39 @@ class GLM4VClient:
         except json.JSONDecodeError as exc:
             log_exception("vision", exc)
             raise VisionAnalysisError("Vision API returned invalid JSON.") from exc
+
+
+class DeepSeekVisionClient(GLM4VClient):
+    def _build_payload(self, path: Path, media_type: str) -> dict[str, Any]:
+        if media_type != "image":
+            raise VisionAnalysisError(
+                "DeepSeek vision accepts images only; video analysis is not supported."
+            )
+        mime_type = DEEPSEEK_IMAGE_MIME_TYPES.get(path.suffix.lower())
+        if not mime_type:
+            raise VisionAnalysisError(
+                "DeepSeek vision supports JPEG, PNG, GIF, and WebP images only; "
+                f"'{path.suffix.lower() or 'unknown'}' is not supported."
+            )
+        encoded = _encode_file(path)
+        prompt = read_prompt_text("vision_analyze.md").strip()
+        return {
+            "model": self.profile.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{mime_type};base64,{encoded}"
+                            },
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        }
 
 
 def _encode_file(path: Path) -> str:

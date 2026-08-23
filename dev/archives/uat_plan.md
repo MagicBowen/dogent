@@ -1590,3 +1590,145 @@ Retest Round 4: PASS
 8) If the profile uses a custom gateway that does not provide the Models API, repeat a prompt with debug logging enabled. Expect Dogent to remain responsive and calculate against the 256,000-token fallback without displaying a user-facing lookup error.
 
 User Test Results: Accepted (2026-07-12)
+
+---
+
+## 2026-7-13 PDF Export Rendering Fixes
+
+### Story 1 – Render Mermaid SVGs in Exported PDFs
+
+1. Install the working tree with `pip install -e .`.
+2. Change to the `samples` directory and run `dogent`.
+3. Ask Dogent to export `markdown_with_large_mermaid.md` to
+   `markdown_with_large_mermaid-fixed.pdf` using `dogent_export_document`.
+4. Open the PDF. Expect the complete CI pipeline diagram to be visible, with no
+   broken-image icon or `Mermaid diagram 1` placeholder text.
+5. Zoom in on diagram labels. Expect the text and lines to remain sharp.
+
+User Test Results: Accepted (2026-07-13)
+
+### Story 2 – Render Inline and Display Math in Exported PDFs
+
+1. From the `samples` directory, run `dogent`.
+2. Create `markdown_with_math.md` in the `samples` directory with this content:
+
+   ````markdown
+   # Math Rendering Sample
+
+   Einstein wrote $E = mc^2$ in one line.
+
+   Currency remains literal: $5.00.
+
+   Inline code remains literal: `$x + y$`.
+
+   $$
+   \frac{a}{b} = c^2
+   $$
+
+   $$ \sum_{i=1}^{n} i
+   = \frac{n(n+1)}{2} $$
+
+   ```text
+   $$ not rendered as math $$
+   ```
+   ````
+
+3. Ask Dogent to export `markdown_with_math.md` to `markdown_with_math.pdf` using
+   `dogent_export_document`.
+4. Open the PDF. Expect the inline energy formula, fraction equation, and summation
+   equation to be typeset; no `$` or `$$` delimiters should surround rendered math.
+5. Expect `$5.00` to remain currency and `$x + y$` to remain literal inside inline
+   code.
+6. Inspect the fenced text example. Expect `$$ not rendered as math $$` to remain
+   literal inside the code block.
+
+UAT Feedback (2026-07-13): Inline formulas wrapped in `$` remained raw in PDF output.
+
+Fix Status: Inline math rendering added and verified in a real PDF.
+
+User Test Results: Accepted (2026-07-13)
+
+---
+
+## 2026-8-23 Release 0.9.35 - SDK and Model Profile Expansion
+
+### Story 1 - Claude Agent SDK 0.2.144 Compatibility Baseline
+
+1. Create and activate a clean virtual environment from the Dogent repository.
+2. Run `pip install -e .`.
+3. Run
+   `python -c "import importlib.metadata as m; print(m.version('claude-agent-sdk')); print(m.version('mcp'))"`.
+4. Expect the Claude Agent SDK version to be `0.2.144` or newer and both package
+   lookups to complete without a dependency-resolution error.
+5. Change to the `samples` directory, run `dogent`, and ask Dogent to use
+   `dogent_read_document` on `markdown_with_large_mermaid.md` and summarize its
+   headings.
+6. Expect the in-process Dogent document tool and agent response to complete
+   without SDK option, message parsing, MCP, or permission errors.
+7. Start a second turn in the same process and ask a short follow-up about the file.
+   Expect the persistent session to retain context.
+8. Trigger a workspace file operation that requires a permission decision, then
+   interrupt a later long-running turn with Esc. Expect the permission UI,
+   interruption, result draining, next prompt, and clean `/exit` to remain usable.
+9. From the repository root, run `python -m unittest discover -s tests -v` and
+   expect all tests to pass.
+
+Implementation Status: Accepted (2026-08-23). Automated verification passed
+all 419 tests with SDK 0.2.144 under both MCP 1.27.0 and a clean-resolved MCP 2.0.0.
+
+User Test Results: Accepted (2026-08-23)
+
+### Story 2 - GLM-5.3 and DeepSeek Vision LLM Profiles
+
+1. After installing Release 0.9.35, open `~/.dogent/dogent.json` and inspect
+   `llm_profiles`.
+2. Expect an additive `glm5.3` entry using
+   `https://open.bigmodel.cn/api/anthropic` and `GLM-5.3` for both model fields.
+3. Expect an additive `deepseek-v4-flash-vision-exp` entry using
+   `https://api.deepseek.com/anthropic` and the exact
+   `deepseek-v4-flash-vision-exp` model ID for both model fields. Expect existing
+   profiles and any customized values to be unchanged.
+4. Before changing the placeholder tokens, run `dogent` from `samples`, type
+   `/profile llm `, and expect neither new placeholder profile to be selectable.
+5. Replace `ANTHROPIC_AUTH_TOKEN` in `glm5.3` with a valid GLM API key. Restart
+   Dogent, select it with `/profile llm glm5.3`, and submit a simple prompt.
+6. Expect `.dogent/dogent.json` to store `"llm_profile": "glm5.3"` and the agent
+   turn to succeed using GLM-5.3.
+7. Replace the token in the DeepSeek entry with a valid DeepSeek API key, select it
+   with `/profile llm deepseek-v4-flash-vision-exp`, and submit a simple prompt.
+8. Expect the workspace selection to update and the agent turn to succeed using
+   DeepSeek V4 Flash Vision Exp.
+
+Implementation Status: Accepted (2026-08-23). Automated template,
+upgrade-preservation, placeholder-filtering, and profile-resolution coverage passed
+all 36 configuration tests.
+
+User Test Results: Accepted (2026-08-23)
+
+### Story 3 - DeepSeek Vision Analysis Profile
+
+1. Open `~/.dogent/dogent.json` and confirm `vision_profiles` contains
+   `deepseek-v4-flash-vision-exp` with provider `deepseek`, endpoint
+   `https://api.deepseek.com/chat/completions`, and the exact model ID.
+2. Replace its `api_key` placeholder with a valid DeepSeek API key.
+3. Copy a known JPEG, PNG, GIF, or WebP screenshot into `samples` as
+   `vision-test.png` (retain the matching extension if it is not a PNG).
+4. Run `dogent` from `samples`, select the profile with
+   `/profile vision deepseek-v4-flash-vision-exp`, and ask Dogent to analyze the
+   copied image with `dogent_analyze_media`.
+5. Expect the tool to return structured JSON containing a useful summary/tags/text
+   description matching visible image content, with no unsupported-provider or
+   malformed-payload error.
+6. Copy or reference an MP4 file inside `samples` and ask the same profile to
+   analyze it.
+7. Expect a clear local error explaining that the DeepSeek vision provider accepts
+   images only; no generic HTTP failure should replace that guidance.
+8. Switch `/profile vision` back to a configured `glm-4.6v` profile and repeat an
+   existing GLM image or video analysis. Expect the prior GLM behavior to remain
+   functional.
+
+Implementation Status: Accepted (2026-08-23). All 14 focused vision tests and
+the complete 428-test suite passed under both MCP 1.27.0 and clean-resolved MCP
+2.0.0.
+
+User Test Results: Accepted (2026-08-23)

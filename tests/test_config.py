@@ -53,14 +53,48 @@ class ConfigTests(unittest.TestCase):
         else:
             os.environ.pop("HOME", None)
 
-    def test_global_template_includes_poe_claude(self) -> None:
+    def test_global_template_includes_release_llm_profiles(self) -> None:
         original_home = os.environ.get("HOME")
         with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
             os.environ["HOME"] = tmp_home
             paths = DogentPaths(Path(tmp))
             ConfigManager(paths)
             data = json.loads((Path(tmp_home) / ".dogent" / "dogent.json").read_text())
-            poe = (data.get("llm_profiles") or {}).get("poe-claude")
+            profiles = data.get("llm_profiles") or {}
+            self.assertEqual(
+                profiles.get("glm5.3"),
+                {
+                    "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+                    "ANTHROPIC_AUTH_TOKEN": "replace-me",
+                    "ANTHROPIC_MODEL": "GLM-5.3",
+                    "ANTHROPIC_SMALL_FAST_MODEL": "GLM-5.3",
+                    "API_TIMEOUT_MS": 600000,
+                    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": True,
+                },
+            )
+            self.assertEqual(
+                profiles.get("deepseek-v4-flash-vision-exp"),
+                {
+                    "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+                    "ANTHROPIC_AUTH_TOKEN": "replace-me",
+                    "ANTHROPIC_MODEL": "deepseek-v4-flash-vision-exp",
+                    "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-v4-flash-vision-exp",
+                    "API_TIMEOUT_MS": 600000,
+                    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": True,
+                },
+            )
+            self.assertEqual(
+                (data.get("vision_profiles") or {}).get(
+                    "deepseek-v4-flash-vision-exp"
+                ),
+                {
+                    "provider": "deepseek",
+                    "base_url": "https://api.deepseek.com/chat/completions",
+                    "api_key": "replace-me",
+                    "model": "deepseek-v4-flash-vision-exp",
+                },
+            )
+            poe = profiles.get("poe-claude")
             self.assertIsInstance(poe, dict)
             self.assertEqual(poe.get("ANTHROPIC_BASE_URL"), "https://api.poe.com")
         if original_home is not None:
@@ -228,6 +262,50 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(settings.small_model, "profile-small")
             self.assertEqual(settings.api_timeout_ms, 100)
             self.assertTrue(settings.disable_nonessential_traffic)
+        if original_home is not None:
+            os.environ["HOME"] = original_home
+        else:
+            os.environ.pop("HOME", None)
+
+    def test_release_llm_profiles_resolve_after_credentials_are_configured(self) -> None:
+        original_home = os.environ.get("HOME")
+        with tempfile.TemporaryDirectory() as tmp_home, tempfile.TemporaryDirectory() as tmp:
+            os.environ["HOME"] = tmp_home
+            paths = DogentPaths(Path(tmp))
+            manager = ConfigManager(paths)
+            global_config = json.loads(
+                paths.global_config_file.read_text(encoding="utf-8")
+            )
+            profiles = global_config["llm_profiles"]
+            profiles["glm5.3"]["ANTHROPIC_AUTH_TOKEN"] = "glm-token"
+            profiles["deepseek-v4-flash-vision-exp"][
+                "ANTHROPIC_AUTH_TOKEN"
+            ] = "deepseek-token"
+            paths.global_config_file.write_text(
+                json.dumps(global_config), encoding="utf-8"
+            )
+
+            self.assertIn("glm5.3", manager.list_llm_profiles())
+            self.assertIn(
+                "deepseek-v4-flash-vision-exp", manager.list_llm_profiles()
+            )
+            for profile_name, expected in (
+                ("glm5.3", ("https://open.bigmodel.cn/api/anthropic", "GLM-5.3")),
+                (
+                    "deepseek-v4-flash-vision-exp",
+                    (
+                        "https://api.deepseek.com/anthropic",
+                        "deepseek-v4-flash-vision-exp",
+                    ),
+                ),
+            ):
+                with self.subTest(profile=profile_name):
+                    manager.set_llm_profile(profile_name)
+                    settings = manager.load_settings()
+                    self.assertEqual(settings.profile, profile_name)
+                    self.assertEqual(settings.base_url, expected[0])
+                    self.assertEqual(settings.model, expected[1])
+                    self.assertEqual(settings.small_model, expected[1])
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -847,7 +925,28 @@ class ConfigTests(unittest.TestCase):
             home_dir = Path(tmp_home) / ".dogent"
             home_dir.mkdir(parents=True, exist_ok=True)
             (home_dir / "dogent.json").write_text(
-                json.dumps({"version": "0.0.1", "workspace_defaults": {}}),
+                json.dumps(
+                    {
+                        "version": "0.0.1",
+                        "workspace_defaults": {"llm_profile": "custom-llm"},
+                        "llm_profiles": {
+                            "deepseek": {
+                                "ANTHROPIC_AUTH_TOKEN": "user-token",
+                                "ANTHROPIC_MODEL": "user-model",
+                            },
+                            "custom-llm": {
+                                "ANTHROPIC_AUTH_TOKEN": "custom-token"
+                            },
+                        },
+                        "vision_profiles": {
+                            "glm-4.6v": {"api_key": "user-glm-key"},
+                            "custom-vision": {
+                                "provider": "custom",
+                                "api_key": "custom-vision-key",
+                            },
+                        },
+                    }
+                ),
                 encoding="utf-8",
             )
 
@@ -857,6 +956,36 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("web_profiles", upgraded)
             self.assertIn("vision_profiles", upgraded)
             self.assertIn("image_profiles", upgraded)
+            self.assertIn("glm5.3", upgraded["llm_profiles"])
+            self.assertIn(
+                "deepseek-v4-flash-vision-exp", upgraded["llm_profiles"]
+            )
+            self.assertEqual(
+                upgraded["llm_profiles"]["deepseek"]["ANTHROPIC_AUTH_TOKEN"],
+                "user-token",
+            )
+            self.assertEqual(
+                upgraded["llm_profiles"]["deepseek"]["ANTHROPIC_MODEL"],
+                "user-model",
+            )
+            self.assertEqual(
+                upgraded["llm_profiles"]["custom-llm"]["ANTHROPIC_AUTH_TOKEN"],
+                "custom-token",
+            )
+            self.assertEqual(
+                upgraded["workspace_defaults"]["llm_profile"], "custom-llm"
+            )
+            self.assertEqual(
+                upgraded["vision_profiles"]["glm-4.6v"]["api_key"],
+                "user-glm-key",
+            )
+            self.assertEqual(
+                upgraded["vision_profiles"]["custom-vision"]["api_key"],
+                "custom-vision-key",
+            )
+            self.assertIn(
+                "deepseek-v4-flash-vision-exp", upgraded["vision_profiles"]
+            )
             self.assertEqual(upgraded.get("version"), __version__)
         if original_home is not None:
             os.environ["HOME"] = original_home

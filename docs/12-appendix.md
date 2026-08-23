@@ -87,6 +87,47 @@ DeepSeek 提供了与 Anthropic API 兼容的接口，是目前性价比很高�
 2. 输入 `/profile`，按空格，选择 `llm`，再选择 `deepseek`。
 3. 确认后，当前项目的 `.dogent/dogent.json` 中的 `llm_profile` 会被设置为 `deepseek`。
 
+如需将 DeepSeek V4 Flash Vision Exp 用作主 LLM，可使用 Anthropic 兼容接口：
+
+```json
+{
+  "llm_profiles": {
+    "deepseek-v4-flash-vision-exp": {
+      "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+      "ANTHROPIC_AUTH_TOKEN": "sk-xxxxxxxxxxxx",
+      "ANTHROPIC_MODEL": "deepseek-v4-flash-vision-exp",
+      "ANTHROPIC_SMALL_FAST_MODEL": "deepseek-v4-flash-vision-exp",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    }
+  }
+}
+```
+
+保存后运行 `/profile llm deepseek-v4-flash-vision-exp`。
+
+### 5. DeepSeek Vision 图片分析
+
+若要通过 `dogent_analyze_media` 分析图片，在全局配置中添加以下 profile：
+
+```json
+{
+  "vision_profiles": {
+    "deepseek-v4-flash-vision-exp": {
+      "provider": "deepseek",
+      "base_url": "https://api.deepseek.com/chat/completions",
+      "api_key": "sk-xxxxxxxxxxxx",
+      "model": "deepseek-v4-flash-vision-exp"
+    }
+  }
+}
+```
+
+在 Dogent 中运行 `/profile vision deepseek-v4-flash-vision-exp`，然后让
+Dogent 使用 `dogent_analyze_media` 分析工作区内的 JPEG、PNG、GIF 或 WebP
+图片。该 DeepSeek profile 不支持视频或 BMP；这些输入会在发送 API 请求前
+返回明确错误。GLM vision profile 原有的图片和视频行为不受影响。
+
 ---
 
 ## C. GLM 4.7（智谱AI · Anthropic API 兼容）
@@ -135,6 +176,26 @@ DeepSeek 提供了与 Anthropic API 兼容的接口，是目前性价比很高�
 ### 4. 注意事项
 - GLM-4.7 支持思考模式（thinking），可在请求中通过参数开启。
 - 免费额度有效期为 30 天，请及时关注控制台的「资源包」页面。
+
+### 5. GLM-5.3 配置
+
+GLM-5.3 使用同一 Anthropic 兼容端点。将有效 API Key 写入以下 profile，
+然后运行 `/profile llm glm5.3`：
+
+```json
+{
+  "llm_profiles": {
+    "glm5.3": {
+      "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+      "ANTHROPIC_AUTH_TOKEN": "abcdef1234567890",
+      "ANTHROPIC_MODEL": "GLM-5.3",
+      "ANTHROPIC_SMALL_FAST_MODEL": "GLM-5.3",
+      "API_TIMEOUT_MS": 600000,
+      "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true
+    }
+  }
+}
+```
 
 ---
 

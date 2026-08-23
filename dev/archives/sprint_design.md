@@ -2223,3 +2223,174 @@ The wide layout is one restrained, high-contrast row:
 - Extend context-command tests for immediate status reset through the existing
   `/context reset` command while preserving its completion and help behavior.
 - Run `python -m unittest discover -s tests -v`.
+
+---
+
+## 2026-7-13 PDF Export Rendering Fixes
+
+### Problem Analysis
+
+- Mermaid rendering returned `svg.outerHTML` after inserting Mermaid output into an
+  HTML document. HTML serialization changed XHTML line breaks inside SVG
+  `foreignObject` nodes from `<br/>` to `<br>`. The resulting file was not valid
+  standalone XML, so Chromium could not decode the inlined SVG image while printing
+  the PDF and displayed the image alt text instead.
+- Display-math detection handled only `$$` blocks whose delimiters were either both
+  on one line or each alone on separate lines. A formula spanning lines when content
+  shared a delimiter line was left unchanged and subsequently rendered as literal
+  Markdown text.
+- Inline `$...$` formulas had no Markdown parsing rule, so they always remained raw
+  text in the generated HTML and PDF.
+
+### Design
+
+- Serialize the rendered Mermaid SVG with the browser's `XMLSerializer` so embedded
+  XHTML remains valid XML while retaining intrinsic SVG dimensions and vector output.
+- Recognize paired display-math delimiters across one or more lines, allowing formula
+  content next to either delimiter. Continue excluding fenced code blocks from math
+  conversion.
+- Parse paired `$...$` formulas as inline MathML during Markdown inline tokenization.
+  Require same-line, non-whitespace delimiters and preserve escaped dollars, currency
+  without a closing delimiter, inline code spans, and fenced code as literal text.
+- Cover both regressions with focused unit tests and verify the real Playwright PDF
+  output using the reported large Mermaid sample plus a math-rendering sample.
+
+## 2026-8-23 Release 0.9.35 - SDK and Model Profile Expansion
+
+### Goal
+
+Upgrade Dogent to the latest published Claude Agent SDK baseline and make GLM-5.3
+and DeepSeek V4 Flash Vision Exp available as first-class global LLM profiles,
+with DeepSeek V4 Flash Vision Exp also usable through Dogent's media-analysis
+tool.
+
+### Confirmed Baselines
+
+- PyPI metadata reported `claude-agent-sdk` `0.2.144` as the latest published
+  release on 2026-08-23, uploaded on 2026-08-21. Release 0.9.35 therefore uses
+  `0.2.144` as a fixed planning target instead of leaving "latest" as a moving
+  acceptance condition.
+- The upstream changes after Dogent's `0.2.115` baseline include optional result
+  metadata, stricter skill-name validation, background-task fixes, new message
+  variants, structured `ResultError`, and MCP 2.x support. Dogent already uses
+  the valid `skills="all"` form, non-exhaustive message dispatch, long-lived
+  `ClaudeSDKClient`, and SDK-created in-process MCP tools. Audit those paths
+  against the installed `0.2.144` API and the local
+  `claude/tutorials/python_sdk_guideline.md`; do not adopt unrelated upstream
+  features.
+- DeepSeek's official API exposes `deepseek-v4-flash-vision-exp` through its
+  Anthropic-compatible endpoint at `https://api.deepseek.com/anthropic` and its
+  OpenAI-compatible Chat Completions endpoint. The vision model accepts JPEG,
+  PNG, GIF, and WebP images, but not Dogent's video media types.
+
+### Current Baseline
+
+- `pyproject.toml` and `tests/test_version.py` require
+  `claude-agent-sdk>=0.2.115`; the development environment currently has
+  `0.2.115` installed.
+- `dogent/resources/dogent_global_default.json` includes the existing
+  `deepseek`, `glm5.2`, and `poe-claude` LLM profiles and only `glm-4.6v` under
+  `vision_profiles`.
+- Global config upgrades deep-merge new defaults into an older config while
+  preserving user values. New profiles will therefore reach existing users
+  upgrading from an older Dogent version without replacing their current profile
+  customizations.
+- `VisionManager` only dispatches `provider="glm-4.6v"`, and its profile defaults
+  always fall back to the GLM endpoint/model. `GLM4VClient` uses a GLM-compatible
+  raw-base64 payload for images and videos; that payload must not be reused
+  unchanged for DeepSeek.
+
+### Design
+
+#### 1. Claude Agent SDK 0.2.144 Baseline
+
+1. Raise the dependency floor in `pyproject.toml` and the version assertion in
+   `tests/test_version.py` to `claude-agent-sdk>=0.2.144`, preserving Dogent's
+   minimum-version dependency style.
+2. Review every direct `ClaudeAgentOptions` and `ClaudeSDKClient` construction
+   path, response-message dispatch, permission callback, interruption/drain path,
+   and in-process MCP server against the installed `0.2.144` types and local SDK
+   examples.
+3. Keep existing behavior when the upstream addition is optional. In particular,
+   retain `skills="all"`, accept new unhandled message variants without a crash,
+   and let structured SDK errors flow through Dogent's existing exception logging
+   and user-facing failure panel unless a concrete incompatibility is found.
+4. Verify in a clean environment so dependency resolution exercises the MCP
+   version selected by the new SDK, then run the full unit suite and smoke-test a
+   normal agent turn that invokes Dogent's in-process document tools.
+
+#### 2. Global LLM Profile Templates
+
+Add, without removing or renaming existing profiles, these entries to
+`dogent/resources/dogent_global_default.json`:
+
+- `glm5.3`: use `https://open.bigmodel.cn/api/anthropic`, placeholder auth,
+  `GLM-5.3` for both model fields, the existing 600000 ms timeout, and disabled
+  nonessential traffic.
+- `deepseek-v4-flash-vision-exp`: use
+  `https://api.deepseek.com/anthropic`, placeholder auth, the exact
+  `deepseek-v4-flash-vision-exp` identifier for both model fields, the existing
+  timeout, and disabled nonessential traffic.
+
+The generic LLM profile schema and selection logic already accept these values,
+so no model-name allowlist is needed. Placeholder profiles remain hidden from
+`/profile llm` until the user supplies credentials, consistent with existing
+profiles. Add template/bootstrap and upgrade-merge tests that assert exact values
+and prove existing user profiles are not overwritten. Update the configuration
+guide and provider appendix with runnable examples.
+
+#### 3. DeepSeek Vision Provider
+
+1. Add a `deepseek-v4-flash-vision-exp` entry under `vision_profiles` with
+   `provider="deepseek"`, endpoint
+   `https://api.deepseek.com/chat/completions`, placeholder API key, and model
+   `deepseek-v4-flash-vision-exp`.
+2. Make vision profile defaults provider-aware so a custom DeepSeek profile that
+   omits `base_url` or `model` receives DeepSeek defaults rather than GLM values.
+   Preserve current GLM defaults and configuration compatibility.
+3. Add a dedicated DeepSeek vision client/dispatch path. For local images, infer
+   the supported MIME type, base64-encode the bytes, and send an OpenAI-compatible
+   `image_url` block whose URL is `data:<mime>;base64,<data>`, followed by Dogent's
+   existing structured-analysis prompt. Reuse the current authorization header,
+   HTTP error translation, response-content extraction, and JSON-result parsing
+   behavior where their wire formats match.
+4. Reject `video` and unsupported image formats locally with an actionable
+   provider-specific error before making a request. This restriction applies only
+   to DeepSeek; existing GLM image/video behavior remains unchanged.
+5. Keep the existing global/workspace JSON schemas because their generic
+   `provider`, `base_url`, `api_key`, and `model` fields already describe the new
+   profile. Update the vision documentation to show selection and the image-only
+   constraint.
+
+### Edge Cases
+
+- An older global config is upgraded: add the new default profiles, retain all
+  user-created profiles and credentials, and do not change the selected workspace
+  profile.
+- A new profile still contains `replace-me`: keep it out of completion lists and
+  return the existing placeholder-credential guidance if explicitly selected.
+- A custom DeepSeek vision profile omits endpoint/model fields: use DeepSeek
+  defaults, not GLM defaults.
+- DeepSeek receives JPEG, PNG, GIF, or WebP: emit the correct data-URL MIME prefix.
+  BMP, video, an unsupported media override, an API error, invalid JSON, or a
+  response without choices returns a clear tool error without corrupting the
+  session.
+- The SDK emits a message type newly added after `0.2.115` or raises structured
+  `ResultError`: Dogent must not fail due to exhaustive type assumptions, lose its
+  wait-indicator cleanup, or leave the persistent client unusable.
+
+### Automated Tests
+
+- Update SDK baseline coverage to `0.2.144` and run the full suite in a clean
+  environment resolved from `pip install -e .`.
+- Assert fresh global templates contain exact `glm5.3` and
+  `deepseek-v4-flash-vision-exp` LLM and vision entries; assert an older config
+  upgrade adds them without overwriting user values.
+- Cover DeepSeek provider defaults, dispatch, supported MIME/data-URL payloads,
+  structured JSON response parsing, placeholder credentials, image-only rejection,
+  unsupported formats, HTTP errors, and malformed responses.
+- Retain and run existing GLM image/video and profile-selection tests to prove no
+  regression.
+- Smoke-test a configured SDK session and Dogent MCP document tool with the new
+  dependency baseline; live provider calls remain manual UAT because they require
+  user-owned API keys.

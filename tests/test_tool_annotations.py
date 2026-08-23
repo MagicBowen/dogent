@@ -19,9 +19,9 @@ class ToolAnnotationsTests(unittest.TestCase):
     def test_document_tools_have_annotations(self) -> None:
         tools = {tool.name: tool for tool in create_dogent_doc_tools(Path("."))}
 
-        self.assertTrue(tools["read_document"].annotations.readOnlyHint)
-        self.assertFalse(tools["export_document"].annotations.readOnlyHint)
-        self.assertFalse(tools["convert_document"].annotations.openWorldHint)
+        self.assertTrue(self._annotation(tools["read_document"], "readOnlyHint"))
+        self.assertFalse(self._annotation(tools["export_document"], "readOnlyHint"))
+        self.assertFalse(self._annotation(tools["convert_document"], "openWorldHint"))
 
     def test_ui_and_web_tools_have_annotations(self) -> None:
         ui_tool = create_dogent_ui_tools()[0]
@@ -34,9 +34,9 @@ class ToolAnnotationsTests(unittest.TestCase):
             )
         }
 
-        self.assertTrue(ui_tool.annotations.readOnlyHint)
-        self.assertTrue(web_tools["web_search"].annotations.openWorldHint)
-        self.assertFalse(web_tools["web_fetch"].annotations.readOnlyHint)
+        self.assertTrue(self._annotation(ui_tool, "readOnlyHint"))
+        self.assertTrue(self._annotation(web_tools["web_search"], "openWorldHint"))
+        self.assertFalse(self._annotation(web_tools["web_fetch"], "readOnlyHint"))
 
     def test_vision_tool_has_annotations(self) -> None:
         original_home = os.environ.get("HOME")
@@ -47,8 +47,8 @@ class ToolAnnotationsTests(unittest.TestCase):
 
             tool = create_dogent_vision_tools(Path(tmp), manager)[0]
 
-            self.assertTrue(tool.annotations.readOnlyHint)
-            self.assertFalse(tool.annotations.openWorldHint)
+            self.assertTrue(self._annotation(tool, "readOnlyHint"))
+            self.assertFalse(self._annotation(tool, "openWorldHint"))
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
@@ -65,30 +65,27 @@ class ToolAnnotationsTests(unittest.TestCase):
             )
             server = server_config["instance"]
 
-            list_handler = server.request_handlers[types.ListToolsRequest]
-            list_result = self._run_async(list_handler(None))
+            list_result = self._list_tools(server)
             self.assertEqual(
-                [tool.name for tool in list_result.root.tools],
+                [tool.name for tool in self._result_root(list_result).tools],
                 ["read_document", "export_document", "convert_document"],
             )
-            self.assertTrue(list_result.root.tools[0].annotations.readOnlyHint)
-
-            call_handler = server.request_handlers[types.CallToolRequest]
-            call_result = self._run_async(
-                call_handler(
-                    types.CallToolRequest(
-                        method="tools/call",
-                        params=types.CallToolRequestParams(
-                            name="read_document",
-                            arguments={"path": "sample.md"},
-                        ),
-                    )
+            self.assertTrue(
+                self._annotation(
+                    self._result_root(list_result).tools[0], "readOnlyHint"
                 )
             )
 
-            self.assertFalse(call_result.root.isError)
-            self.assertEqual(len(call_result.root.content), 1)
-            self.assertIn("hello world", call_result.root.content[0].text)
+            call_result = self._call_tool(
+                server,
+                "read_document",
+                {"path": "sample.md"},
+            )
+
+            result = self._result_root(call_result)
+            self.assertFalse(self._is_error(result))
+            self.assertEqual(len(result.content), 1)
+            self.assertIn("hello world", result.content[0].text)
 
     def test_builtin_ui_and_web_tools_round_trip(self) -> None:
         def fake_http_get(url: str, headers: dict[str, str], timeout_s: float) -> HttpResponse:
@@ -126,12 +123,14 @@ class ToolAnnotationsTests(unittest.TestCase):
         )
         server = create_dogent_sdk_mcp_server("dogent", tools=tools)["instance"]
 
-        list_result = self._run_async(server.request_handlers[types.ListToolsRequest](None))
+        list_result = self._list_tools(server)
         self.assertEqual(
-            [tool.name for tool in list_result.root.tools],
+            [tool.name for tool in self._result_root(list_result).tools],
             ["ui_request", "web_search", "web_fetch"],
         )
-        self.assertTrue(list_result.root.tools[0].annotations.readOnlyHint)
+        self.assertTrue(
+            self._annotation(self._result_root(list_result).tools[0], "readOnlyHint")
+        )
 
         ui_result = self._call_tool(
             server,
@@ -148,12 +147,14 @@ class ToolAnnotationsTests(unittest.TestCase):
                 ],
             },
         )
-        self.assertFalse(ui_result.root.isError)
-        self.assertIn("Awaiting user input", ui_result.root.content[0].text)
+        ui_root = self._result_root(ui_result)
+        self.assertFalse(self._is_error(ui_root))
+        self.assertIn("Awaiting user input", ui_root.content[0].text)
 
         web_result = self._call_tool(server, "web_search", {"query": "example"})
-        self.assertFalse(web_result.root.isError)
-        self.assertIn("Example", web_result.root.content[0].text)
+        web_root = self._result_root(web_result)
+        self.assertFalse(self._is_error(web_root))
+        self.assertIn("Example", web_root.content[0].text)
 
     def test_builtin_vision_and_image_tools_round_trip(self) -> None:
         original_home = os.environ.get("HOME")
@@ -166,37 +167,69 @@ class ToolAnnotationsTests(unittest.TestCase):
             tools.extend(create_dogent_image_tools(root, manager))
             server = create_dogent_sdk_mcp_server("dogent", tools=tools)["instance"]
 
-            list_result = self._run_async(
-                server.request_handlers[types.ListToolsRequest](None)
-            )
+            list_result = self._list_tools(server)
             self.assertEqual(
-                [tool.name for tool in list_result.root.tools],
+                [tool.name for tool in self._result_root(list_result).tools],
                 ["analyze_media", "generate_image"],
             )
 
             vision_result = self._call_tool(
                 server, "analyze_media", {"path": "missing.png"}
             )
-            self.assertTrue(vision_result.root.isError)
-            self.assertIn("File does not exist", vision_result.root.content[0].text)
+            vision_root = self._result_root(vision_result)
+            self.assertTrue(self._is_error(vision_root))
+            self.assertIn("File does not exist", vision_root.content[0].text)
 
             image_result = self._call_tool(server, "generate_image", {"prompt": ""})
-            self.assertTrue(image_result.root.isError)
-            self.assertIn("Missing required field: prompt", image_result.root.content[0].text)
+            image_root = self._result_root(image_result)
+            self.assertTrue(self._is_error(image_root))
+            self.assertIn("Missing required field: prompt", image_root.content[0].text)
         if original_home is not None:
             os.environ["HOME"] = original_home
         else:
             os.environ.pop("HOME", None)
 
     def _call_tool(self, server, name: str, arguments: dict[str, object]):
-        return self._run_async(
-            server.request_handlers[types.CallToolRequest](
-                types.CallToolRequest(
-                    method="tools/call",
-                    params=types.CallToolRequestParams(name=name, arguments=arguments),
+        if hasattr(server, "request_handlers"):
+            return self._run_async(
+                server.request_handlers[types.CallToolRequest](
+                    types.CallToolRequest(
+                        method="tools/call",
+                        params=types.CallToolRequestParams(
+                            name=name, arguments=arguments
+                        ),
+                    )
                 )
             )
+        entry = server.get_request_handler("tools/call")
+        self.assertIsNotNone(entry)
+        return self._run_async(
+            entry.handler(
+                None,
+                types.CallToolRequestParams(name=name, arguments=arguments),
+            )
         )
+
+    def _list_tools(self, server):
+        if hasattr(server, "request_handlers"):
+            return self._run_async(
+                server.request_handlers[types.ListToolsRequest](None)
+            )
+        entry = server.get_request_handler("tools/list")
+        self.assertIsNotNone(entry)
+        return self._run_async(entry.handler(None, types.PaginatedRequestParams()))
+
+    def _annotation(self, value, name: str):
+        annotations = getattr(value, "annotations", value)
+        return annotations.model_dump(by_alias=True).get(name)
+
+    def _is_error(self, result) -> bool:
+        if hasattr(result, "isError"):
+            return bool(result.isError)
+        return bool(result.is_error)
+
+    def _result_root(self, result):
+        return getattr(result, "root", result)
 
     def _run_async(self, awaitable):
         import asyncio
